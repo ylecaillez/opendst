@@ -15,158 +15,342 @@
  */
 package com.pingidentity.opendst.maven;
 
-import static java.lang.Runtime.getRuntime;
-import static java.lang.System.exit;
-import static java.nio.file.Files.createDirectories;
-import static java.nio.file.Files.createFile;
 import static java.util.concurrent.ThreadLocalRandom.current;
 
-import com.pingidentity.opendst.maven.OpenDstMojo.LogStatement;
-import com.pingidentity.opendst.maven.Orchestrator.Plan.Segment;
-import java.io.IOException;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.Path;
+import com.pingidentity.opendst.Faults;
+import com.pingidentity.opendst.Plan;
+import com.pingidentity.opendst.Plan.Segment;
+import com.pingidentity.opendst.maven.Commons.SignalEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.apache.maven.plugin.logging.Log;
-import tools.jackson.databind.ObjectMapper;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Orchestrates the simulation by generating plans and handling their results.
+ */
 interface Orchestrator {
-    record Plan(String rid, List<Segment> segments) {
-        record Segment(long seed, long iteration) {}
-
-        public Plan {
-            Segment last = null;
-            for (var segment : segments) {
-                if (last != null && last.iteration() > segment.iteration()) {
-                    System.err.println("The plan is invalid: at least one segment is out of order");
-                    getRuntime().halt(1);
-                }
-                last = segment;
-            }
-            segments = List.copyOf(segments);
-        }
+    /**
+     * Interface for monitoring signals emitted by the simulation.
+     */
+    interface SignalMonitor {
+        /**
+         * Called when a signal is hit during simulation.
+         *
+         * @param event The signal event details.
+         * @return true if the signal was interesting (e.g. new discovery).
+         */
+        boolean onSignalHit(SignalEvent event);
     }
 
-    Plan nextPlan();
+    record ExecutionPlan(Plan plan, SignalMonitor monitor) {}
 
-    void onLogReceived(Plan plan, LogStatement logLine);
+    ExecutionPlan nextPlan();
 
-    void onPlanTerminated(Plan plan, int code, LogStatement lastLog);
+    /** Thrown when a simulation session should be stopped due to a failure. */
+    @SuppressWarnings("serial")
+    class SimulationFailureException extends RuntimeException {}
 
-    final class RandomOrchestrator implements Orchestrator {
-        private final Log logger;
-        private final Path failureDir;
+    /**
+     * An orchestrator that uses signals (assertions) to guide the exploration.
+     * It branches from interesting states to increase coverage.
+     */
+    final class GuidedOrchestrator implements Orchestrator {
+        private final OpenDstLogger logger;
         private final long duration;
-        private final double replayProbability;
-        private final Map<String, Plan> pastPlans = new ConcurrentHashMap<>();
-        private final Map<String, LogStatement> lastLogs = new ConcurrentHashMap<>();
-        private long planCount = 0;
+        private final double branchProbability;
+        private final Faults.Config faultsConfig;
 
-        RandomOrchestrator(Log logger, Path failureDir, long duration, double replayProbability) {
+        // Exploration map: count of how many times we branched FROM this signal+condition
+        private final Map<String, Integer> signalExplorationCount = new ConcurrentHashMap<>();
+        // Per-signal condition-balanced state: prefixes and hit counts for true/false outcomes
+        private final Map<String, ConditionPrefixes> signalState = new ConcurrentHashMap<>();
+        // Minimum distance-to-violation observed per comparative assertion signal
+        private final Map<String, Double> signalMinDistance = new ConcurrentHashMap<>();
+
+        /**
+         * Tracks two prefixes per signal (one for condition=true, one for condition=false)
+         * along with hit counts per condition. This allows the orchestrator to preferentially
+         * branch from the minority outcome, balancing exploration across both branches.
+         */
+        private static final class ConditionPrefixes {
+            volatile List<Segment> truePrefix;
+            volatile List<Segment> falsePrefix;
+            final AtomicInteger trueHits = new AtomicInteger();
+            final AtomicInteger falseHits = new AtomicInteger();
+        }
+
+        GuidedOrchestrator(OpenDstLogger logger, long duration, double branchProbability, Faults.Config faultsConfig) {
             this.logger = logger;
-            this.failureDir = failureDir;
             this.duration = duration;
-            this.replayProbability = replayProbability;
+            this.branchProbability = branchProbability;
+            this.faultsConfig = faultsConfig;
         }
 
         @Override
-        public synchronized Plan nextPlan() {
-            if (!pastPlans.isEmpty() && current().nextDouble() < replayProbability) {
-                var keys = new ArrayList<>(pastPlans.keySet());
-                var rid = keys.get(current().nextInt(keys.size()));
-                var originalPlan = pastPlans.get(rid);
-                var replayRid = "replay-" + rid + "-" + (++planCount);
-                var replayPlan = new Plan(replayRid, originalPlan.segments());
-                logger.info("Replaying plan %s (original rid: %s) to validate determinism".formatted(replayRid, rid));
-                return replayPlan;
+        public synchronized ExecutionPlan nextPlan() {
+            if (signalState.isEmpty() || current().nextDouble() > branchProbability) {
+                return newRandomWalk();
             }
-            return new Plan(
-                    Long.toString(++planCount), List.of(new Segment(current().nextLong(), duration)));
+            // Build a list of branchable candidates: each signal can contribute up to 2
+            // candidates (one for condition=true, one for condition=false).
+            record BranchCandidate(String signal, boolean condition, List<Segment> prefix, double score) {}
+            var candidates = new ArrayList<BranchCandidate>();
+            for (var entry : signalState.entrySet()) {
+                var label = entry.getKey();
+                var state = entry.getValue();
+                if (state.truePrefix != null) {
+                    double s = score(label, state.truePrefix.size(), state, true);
+                    candidates.add(new BranchCandidate(label, true, state.truePrefix, s));
+                }
+                if (state.falsePrefix != null) {
+                    double s = score(label, state.falsePrefix.size(), state, false);
+                    candidates.add(new BranchCandidate(label, false, state.falsePrefix, s));
+                }
+            }
+            if (candidates.isEmpty()) {
+                return newRandomWalk();
+            }
+
+            // Tournament selection: pick best of 10 random candidates
+            var selected = candidates.get(current().nextInt(candidates.size()));
+            for (int i = 0; i < 10; i++) {
+                var candidate = candidates.get(current().nextInt(candidates.size()));
+                if (candidate.score() > selected.score()) {
+                    selected = candidate;
+                }
+            }
+            var explorationKey = selected.signal() + ":" + selected.condition();
+            signalExplorationCount.merge(explorationKey, 1, Integer::sum);
+            var prefixSegments = selected.prefix();
+            long prefixEnd = prefixSegments.getLast().iteration();
+
+            // For distance-guided signals, rewind the prefix to a random point before the assertion.
+            // This explores different paths *leading to* the assertion, which may produce different
+            // left/right values and narrow the distance further.
+            long branchPoint = prefixEnd;
+            if (signalMinDistance.containsKey(selected.signal()) && prefixEnd > 0) {
+                branchPoint = current().nextLong(prefixEnd);
+                prefixSegments = truncateAt(prefixSegments, branchPoint);
+            }
+
+            // Ensure we don't explore beyond the provided total duration
+            long remainingBudget = duration - branchPoint;
+            if (remainingBudget <= 0) {
+                return newRandomWalk();
+            }
+            // Vary the last iteration: from 10% of remaining to 100% of remaining
+            // Use a higher minimum to force meaningful exploration
+            long minExploration = Math.max(1000, (long) (remainingBudget * 0.1));
+            long explorationLength = (long) (remainingBudget * (0.1 + current().nextDouble() * 0.9));
+            explorationLength = Math.max(Math.min(minExploration, remainingBudget), explorationLength);
+
+            var segments = new ArrayList<>(prefixSegments);
+            long seed = current().nextLong();
+            segments.add(new Segment(seed, branchPoint + explorationLength));
+            var exploratoryPlan = new Plan(segments, faultsConfig);
+            logger.run("explore")
+                    .withSeed(seed)
+                    .withScore(selected.score())
+                    .withStartingAt(branchPoint)
+                    .withDuration(explorationLength)
+                    .withSignal(explorationKey)
+                    .log();
+            return new ExecutionPlan(exploratoryPlan, new GuidanceMonitor(exploratoryPlan));
         }
 
-        @Override
-        public void onLogReceived(Plan plan, LogStatement log) {
-            // Ignored
+        private ExecutionPlan newRandomWalk() {
+            long seed = current().nextLong();
+            logger.run("random-walk").withSeed(seed).log();
+            var plan = new Plan(List.of(new Segment(seed, duration)), faultsConfig);
+            return new ExecutionPlan(plan, new GuidanceMonitor(plan));
         }
 
-        @Override
-        public synchronized void onPlanTerminated(Plan plan, int code, LogStatement lastLog) {
-            if (code != 0) {
-                logger.error("Simulation failed with code %d. Last log received: %s".formatted(code, lastLog));
-                savePlanAndExit(plan);
-            } else if (plan.rid().startsWith("replay-")) {
-                var originalRid = plan.rid().split("-")[1];
-                var originalLastLog = lastLogs.get(originalRid);
-                if (originalLastLog == null) {
-                    logger.info(("Determinism cannot be verified for replayed plan %s as there was no log produced")
-                            .formatted(plan.rid()));
-                } else if (originalLastLog.equals(lastLog)) {
-                    logger.info("Deterministic execution verified for replayed plan %s".formatted(plan.rid()));
+        private double score(String signal, int depth, ConditionPrefixes state, boolean condition) {
+            var explorationKey = signal + ":" + condition;
+            int explorationHeat = signalExplorationCount.getOrDefault(explorationKey, 0);
+            // Use exponential scoring for depth to strongly favor progress
+            double base = Math.pow(10, depth) / (1.0 + explorationHeat);
+            // Boost signals that are close to violation (small distance = high boost)
+            var distance = signalMinDistance.get(signal);
+            if (distance != null) {
+                // distanceBoost: approaches 10x at distance=0, decays toward 1x as distance grows
+                double distanceBoost = 1.0 + 9.0 / (1.0 + distance);
+                base *= distanceBoost;
+            }
+            // Boost the minority condition outcome to balance exploration.
+            // If one outcome is observed much less frequently, boost it so the orchestrator
+            // preferentially branches from the rare outcome's prefix.
+            int trueCount = state.trueHits.get();
+            int falseCount = state.falseHits.get();
+            int total = trueCount + falseCount;
+            if (total > 0) {
+                int thisCount = condition ? trueCount : falseCount;
+                double ratio = (double) thisCount / total;
+                // minorityBoost: approaches 10x when ratio->0 (very rare), 1x when ratio=0.5 (balanced)
+                double minorityBoost = 1.0 + 9.0 * (1.0 - 2.0 * ratio);
+                // Clamp to [1.0, 10.0]: no boost when this is the majority (ratio > 0.5)
+                minorityBoost = Math.max(1.0, Math.min(10.0, minorityBoost));
+                base *= minorityBoost;
+            }
+            return base;
+        }
+
+        /**
+         * Truncates a prefix segment list at the given iteration. Segments ending before
+         * the target are kept as-is; the segment containing the target is truncated.
+         * Zero-duration segments (where the truncated iteration equals the previous segment's
+         * iteration) are dropped to avoid degenerate plans.
+         */
+        private static List<Segment> truncateAt(List<Segment> segments, long targetIteration) {
+            var result = new ArrayList<Segment>();
+            for (var segment : segments) {
+                if (segment.iteration() <= targetIteration) {
+                    result.add(segment);
                 } else {
-                    logger.error("A non-deterministic execution has been detected for plan %s".formatted(plan.rid()));
-                    logger.error("Expected last log: %s".formatted(originalLastLog.toString()));
-                    logger.error("Actual last log:   %s".formatted(lastLog.toString()));
-                    savePlanAndExit(plan);
+                    // Only add the truncated segment if it would have positive duration
+                    long previousIteration =
+                            result.isEmpty() ? 0 : result.getLast().iteration();
+                    if (targetIteration > previousIteration) {
+                        result.add(new Segment(segment.seed(), targetIteration));
+                    }
+                    break;
                 }
-            } else {
-                lastLogs.put(plan.rid(), lastLog);
-                pastPlans.put(plan.rid(), plan);
             }
+            return result;
         }
 
-        private void savePlanAndExit(Plan plan) {
-            try {
-                createDirectories(failureDir);
-                var mapper = new ObjectMapper();
-                for (int i = 0; i < 1000; i++) {
-                    var failureFile = failureDir.resolve("failure-%d.json".formatted(i));
-                    try {
-                        createFile(failureFile);
-                    } catch (FileAlreadyExistsException e) {
-                        continue;
-                    }
-                    mapper.writerFor(Plan.class).writeValue(failureFile, plan);
-                    logger.error("Plan saved to '%s'".formatted(failureFile));
-                    exit(1);
+        private final class GuidanceMonitor implements SignalMonitor {
+            private final Plan plan;
+
+            GuidanceMonitor(Plan plan) {
+                this.plan = plan;
+            }
+
+            @Override
+            public boolean onSignalHit(SignalEvent event) {
+                var label = event.signal().message();
+                long iteration = event.iteration();
+                boolean interesting = false;
+
+                // Ensure per-signal state exists
+                var state = signalState.computeIfAbsent(label, _ -> new ConditionPrefixes());
+
+                // Determine condition value (only assert signals have condition)
+                boolean condition = true;
+                if (event.signal() instanceof Signal.AssertSignal assertSignal) {
+                    condition = assertSignal.condition();
                 }
-            } catch (IOException e) {
-                logger.error("Unable to save the failing plan", e);
-                exit(1);
+
+                // Track hit counts per condition
+                int totalBefore = state.trueHits.get() + state.falseHits.get();
+                if (condition) {
+                    state.trueHits.incrementAndGet();
+                } else {
+                    state.falseHits.incrementAndGet();
+                }
+
+                if (totalBefore == 0) {
+                    logger.signal("found")
+                            .withSeed(plan.segments().getLast().seed())
+                            .withIteration(iteration)
+                            .withLabel(label)
+                            .log();
+                    interesting = true;
+                }
+
+                // Track distance-to-violation for comparative assertions
+                boolean distanceNarrowed = false;
+                if (event.signal() instanceof Signal.AssertSignal assertSignal) {
+                    double distance = assertSignal.distanceToViolation();
+                    if (!Double.isNaN(distance)) {
+                        var improved = new AtomicBoolean(false);
+                        signalMinDistance.compute(label, (_, existing) -> {
+                            if (existing == null || distance < existing) {
+                                improved.set(existing != null);
+                                return distance;
+                            }
+                            return existing;
+                        });
+                        if (improved.get()) {
+                            logger.signal("narrowed")
+                                    .withSeed(plan.segments().getLast().seed())
+                                    .withIteration(iteration)
+                                    .withDistance(distance)
+                                    .withSignal(label)
+                                    .log();
+                            interesting = true;
+                            distanceNarrowed = true;
+                        }
+                    }
+                }
+
+                // Build the prefix segment list for this hit
+                var prefixSegments = buildPrefix(iteration);
+
+                // Save prefix under the appropriate condition slot
+                var discovery = new AtomicBoolean(false);
+                final boolean updateForDistance = distanceNarrowed;
+                synchronized (state) {
+                    var existing = condition ? state.truePrefix : state.falsePrefix;
+                    if (existing == null) {
+                        // First time seeing this condition outcome
+                        if (condition) {
+                            state.truePrefix = prefixSegments;
+                        } else {
+                            state.falsePrefix = prefixSegments;
+                        }
+                        discovery.set(true);
+                    } else {
+                        long existingTotal = existing.getLast().iteration();
+                        if (iteration < existingTotal || updateForDistance) {
+                            // Shorter path or closer to violation
+                            logger.signal("improved")
+                                    .withSeed(plan.segments().getLast().seed())
+                                    .withIteration(iteration)
+                                    .withWas(existingTotal)
+                                    .withSignal(label + ":" + condition)
+                                    .log();
+                            if (condition) {
+                                state.truePrefix = prefixSegments;
+                            } else {
+                                state.falsePrefix = prefixSegments;
+                            }
+                            discovery.set(true);
+                        }
+                    }
+                }
+                return interesting || discovery.get();
+            }
+
+            private List<Segment> buildPrefix(long iteration) {
+                var prefixSegments = new ArrayList<Segment>();
+                for (var segment : plan.segments()) {
+                    if (segment.iteration() < iteration) {
+                        prefixSegments.add(segment);
+                    } else {
+                        // Truncate the segment where the signal was hit
+                        prefixSegments.add(new Segment(segment.seed(), iteration));
+                        break;
+                    }
+                }
+                return prefixSegments;
             }
         }
     }
 
     final class ReplayOrchestrator implements Orchestrator {
         private final Plan plan;
-        private final Log logger;
 
-        ReplayOrchestrator(Log logger, Plan plan) {
-            this.logger = logger;
+        ReplayOrchestrator(Plan plan) {
             this.plan = plan;
         }
 
         @Override
-        public Plan nextPlan() {
-            return plan;
-        }
-
-        @Override
-        public void onLogReceived(Plan plan, LogStatement log) {}
-
-        @Override
-        public void onPlanTerminated(Plan plan, int code, LogStatement lastLog) {
-            if (code == 0) {
-                logger.info("The plan completed successfully");
-            } else if (code == 1) {
-                logger.error("The plan has failed. Last log received: %s".formatted(lastLog));
-                exit(1);
-            } else {
-                logger.error("The plan has failed because of an internal error: %s".formatted(lastLog));
-                exit(2);
-            }
+        public ExecutionPlan nextPlan() {
+            return new ExecutionPlan(plan, _ -> false);
         }
     }
 }

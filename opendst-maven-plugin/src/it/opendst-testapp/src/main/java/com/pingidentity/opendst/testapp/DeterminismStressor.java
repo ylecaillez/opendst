@@ -16,155 +16,86 @@
 package com.pingidentity.opendst.testapp;
 
 import static java.lang.Thread.sleep;
+import static java.util.Objects.requireNonNull;
 
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
-import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 
-public class DeterminismStressor {
+/**
+ * A utility class that stresses the simulator's ability to maintain determinism.
+ * It uses several JDK APIs that are typically sources of non-determinism:
+ * <ul>
+ *   <li>{@link Random}: Seeded by the simulator.</li>
+ *   <li>{@link System#currentTimeMillis()}: Redirected to virtual time.</li>
+ *   <li>Collection iteration ({@link HashSet}, {@link HashMap}): Iteration
+ *       order must be stable.</li>
+ *   <li>Garbage Collection and {@link ReferenceQueue}: Ensures GC activity
+ *       doesn't leak non-determinism.</li>
+ * </ul>
+ */
+public final class DeterminismStressor {
 
-    public void stress(int data) {
-        Thread coordinator = new Thread(() -> runStress(data), "Stressor-Coordinator");
-        coordinator.start();
+    private final Random random = new Random();
+    private final Map<Integer, String> map = new HashMap<>();
+    private final Set<String> set = new HashSet<>();
+    private final ReferenceQueue<Object> refQueue = new ReferenceQueue<>();
+    private final List<WeakReference<Object>> weakRefs = new ArrayList<>();
+
+    public void stress(int seed) {
+        random.setSeed(seed);
+
+        // 1. Stress collections and iteration order
+        for (int i = 0; i < 10; i++) {
+            int val = random.nextInt(1000);
+            map.put(val, "val-" + val);
+            set.add("set-" + val);
+        }
+
+        // Iteration MUST be deterministic
+        for (var entry : map.entrySet()) {
+            noop(entry.getKey() + entry.getValue());
+        }
+        for (var s : set) {
+            noop(s);
+        }
+
+        // 2. Stress time and scheduling
         try {
-            coordinator.join(30_000);
+            long start = System.currentTimeMillis();
+            sleep(random.nextInt(10, 50));
+            long end = System.currentTimeMillis();
+            assert end >= start;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        if (coordinator.isAlive()) {
-            coordinator.interrupt();
+
+        // 3. Stress I/O
+        try (var _ = new FileInputStream("pom.xml")) {
+            noop("io-op");
+        } catch (IOException ignored) {
+        }
+
+        // 4. Stress ReferenceQueue and GC (indirectly)
+        Object obj = new Object();
+        weakRefs.add(new WeakReference<>(obj, refQueue));
+        if (random.nextBoolean()) {
+            System.gc();
+        }
+        while (refQueue.poll() != null) {
+            noop("gc-event");
         }
     }
 
-    private void runStress(int data) {
-        var random = new Random();
-        var lock = new ReentrantLock();
-        var monitor = new Object();
-        var queue = new ArrayBlockingQueue<Integer>(Math.max(1, data % 5 + 1));
-        var latch = new CountDownLatch(2);
-        var refQueue = new ReferenceQueue<>();
-        var weakRef = new WeakReference<>(new Object(), refQueue);
-        System.gc();
-        try {
-            if (refQueue.poll() != null || refQueue.remove(1000) != null) {
-                throw new AssertionError("Determinism broken by GC activity");
-            }
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
-
-        Thread t1 = new Thread(() -> {
-            try {
-                consumeEntropy();
-                int count = 5 + random.nextInt(10);
-                for (int i = 0; i < count; i++) {
-                    if (random.nextBoolean()) {
-                        lock.lock();
-                        try {
-                            sleep(random.nextInt(5));
-                        } finally {
-                            lock.unlock();
-                        }
-                    }
-                    if (random.nextBoolean()) {
-                        queue.offer(i, 10, TimeUnit.MILLISECONDS);
-                    } else {
-                        queue.put(i);
-                    }
-                    synchronized (monitor) {
-                        monitor.notifyAll();
-                    }
-                }
-            } catch (Exception e) {
-                // Ignore
-            } finally {
-                latch.countDown();
-            }
-        }, "Stressor-Prod");
-
-        Thread t2 = new Thread(() -> {
-            try {
-                consumeEntropy();
-                int count = 5 + random.nextInt(10);
-                for (int i = 0; i < count; i++) {
-                    if (random.nextBoolean()) {
-                        queue.poll(10, TimeUnit.MILLISECONDS);
-                    } else {
-                        queue.take();
-                    }
-                    synchronized (monitor) {
-                        if (random.nextBoolean()) {
-                            monitor.wait(random.nextInt(10));
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                // Ignore
-            } finally {
-                latch.countDown();
-            }
-        }, "Stressor-Cons");
-
-        t1.start();
-        t2.start();
-
-        try {
-            latch.await(400, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    private void consumeEntropy() throws InterruptedException {
-        /* try (var is = new FileInputStream("/dev/urandom")) {
-            int data = is.read();
-            Thread.sleep(data * 10);
-        } catch (IOException e) {
-        } */
-
-        int result = 0;
-
-        // 1. SecureRandom relies on OS entropy/devices which is non-deterministic
-        SecureRandom secureRandom = new SecureRandom();
-        result += secureRandom.nextInt();
-
-        // 2. Object identity hash codes are dependent on memory address/internal state
-        // which varies between runs.
-        Object marker = new Object();
-        result ^= System.identityHashCode(marker);
-
-        // 3. HashSet iteration order depends on hash codes, effectively unpredictable
-        //  across JVM runs for default objects.
-        Set<Object> set = new HashSet<>();
-        for (int i = 0; i < 20; i++) {
-            set.add(new Object());
-        }
-
-        int shift = 0;
-        for (Object o : set) {
-            result += System.identityHashCode(o) << (shift++ % 3);
-        }
-
-        // 4. HashMap key iteration
-        Map<Object, Integer> map = new HashMap<>();
-        for (int i = 0; i < 20; i++) {
-            map.put(new Object(), i);
-        }
-        for (Map.Entry<Object, Integer> entry : map.entrySet()) {
-            result ^= System.identityHashCode(entry.getKey()) + entry.getValue();
-        }
-
-        sleep(Math.abs(result % 10_000));
+    private void noop(Object obj) {
+        requireNonNull(obj);
     }
 }

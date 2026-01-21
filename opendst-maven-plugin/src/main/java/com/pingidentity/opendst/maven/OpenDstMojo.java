@@ -15,41 +15,33 @@
  */
 package com.pingidentity.opendst.maven;
 
+import static com.pingidentity.opendst.maven.Commons.INSTRUMENTED_WARS_DIR;
+import static com.pingidentity.opendst.maven.Commons.JAVA_DEBUG_OPTS;
+import static com.pingidentity.opendst.maven.Commons.JSON_MAPPER;
+import static com.pingidentity.opendst.maven.Commons.WARS_DIR;
+import static com.pingidentity.opendst.maven.Commons.deleteRecursively;
 import static java.io.File.pathSeparator;
 import static java.lang.Runtime.getRuntime;
 import static java.lang.String.join;
-import static java.lang.System.exit;
-import static java.lang.System.getProperty;
-import static java.nio.file.FileVisitResult.CONTINUE;
 import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
-import static java.nio.file.Files.delete;
-import static java.nio.file.Files.exists;
 import static java.nio.file.Files.newOutputStream;
-import static java.nio.file.Files.walkFileTree;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
-import static java.util.Arrays.asList;
 import static java.util.concurrent.Executors.newFixedThreadPool;
-import static tools.jackson.core.StreamReadFeature.AUTO_CLOSE_SOURCE;
-import static tools.jackson.core.StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION;
-import static tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS;
+import static java.util.stream.Collectors.toSet;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.pingidentity.opendst.maven.Orchestrator.Plan;
-import com.pingidentity.opendst.maven.Orchestrator.RandomOrchestrator;
+import com.pingidentity.opendst.Faults;
+import com.pingidentity.opendst.Plan;
+import com.pingidentity.opendst.maven.Orchestrator.GuidedOrchestrator;
 import com.pingidentity.opendst.maven.Orchestrator.ReplayOrchestrator;
-import java.io.BufferedReader;
+import com.pingidentity.opendst.maven.TestDiscoverer.TestRequest;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
+import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 import org.apache.maven.artifact.DependencyResolutionRequiredException;
@@ -62,50 +54,42 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.node.NullNode;
 
-@Mojo(name = "test", defaultPhase = LifecyclePhase.VERIFY, requiresDependencyResolution = ResolutionScope.TEST)
+@Mojo(
+        name = "test",
+        defaultPhase = LifecyclePhase.INTEGRATION_TEST,
+        requiresDependencyResolution = ResolutionScope.TEST)
 public class OpenDstMojo extends AbstractMojo {
-    private static final Path JAVA_BIN_PATH = Path.of(System.getProperty("java.home"), "bin", "java");
-    public static final List<String> JAVA_BASE_OPTIONS = List.of(
-            "--enable-native-access=ALL-UNNAMED", "--add-opens=java.base/java.lang=ALL-UNNAMED",
-            "--add-opens=java.base/java.util=ALL-UNNAMED", "-Dnet.bytebuddy.safe=true",
-            "-XX:+UnlockExperimentalVMOptions", "-XX:hashCode=2");
-    private static final String JAVA_DEBUG_OPTS =
-            "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=localhost:5005";
-    private static final String RUNS_BASE_DIR = "runs";
-    private static final String INSTRUMENTED_WARS_DIR = "instrumented-wars";
-    private static final String WARS_DIR = "target/wars";
-    private static final String FAILURE_BASE_DIR = "failures";
-    private static final String RUN_DIR_FORMAT = "run-%d";
-    private Orchestrator orchestrator;
+    private static final String OPENDST_SIMULATOR_JAR = "/META-INF/agents/opendst-core.jar";
+
+    record LogStatement(@JsonProperty("it") long iteration, String source, JsonNode log) {}
 
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;
 
-    @Parameter(property = "opendst.testClass", required = true)
-    private String testClass;
+    @Parameter(property = "opendst.test")
+    private String test;
 
-    @Parameter(property = "opendst.testMethod", required = true)
-    private String testMethod;
+    @Parameter(property = "opendst.includes")
+    private List<String> includes;
+
+    @Parameter(property = "opendst.excludes")
+    private List<String> excludes;
 
     @Parameter(property = "opendst.parallelism", defaultValue = "1")
     private int parallelism;
 
     @Parameter(property = "opendst.jvmArguments")
     private String jvmArguments;
-    /**
-     * Arguments for the JVM debug agent (e.g. -agentlib:jdwp=...).
-     * If set to "true" or empty, uses default settings.
-     * If set to a string, uses that string as the arguments.
-     */
+
     @Parameter(property = "opendst.debug")
     private String debug;
 
     @Parameter(property = "opendst.replayProbability", defaultValue = "0.05")
     private double replayProbability;
+
+    @Parameter(property = "opendst.branchProbability", defaultValue = "0.7")
+    private double branchProbability;
 
     @Parameter(property = "opendst.plan")
     private File planFile;
@@ -113,12 +97,80 @@ public class OpenDstMojo extends AbstractMojo {
     @Parameter(property = "opendst.duration", defaultValue = "100000")
     private long duration;
 
+    @Parameter(property = "opendst.stagnation-limit", defaultValue = "100")
+    private int stagnationLimit;
+
+    @Parameter
+    private NetworkFaults networkFaults;
+
+    @Parameter
+    private FileSystemFaults fileSystemFaults;
+
+    @Parameter(property = "opendst.logSpy")
+    private File logSpy;
+
     @Parameter(property = "skipTests")
     private boolean skipTests;
+
+    public static class NetworkFaults {
+        @Parameter(defaultValue = "false")
+        boolean enabled = false;
+
+        @Parameter(defaultValue = "0.01")
+        double latencyProbability = 0.01;
+
+        @Parameter(defaultValue = "10")
+        long minLatencyMs = 10;
+
+        @Parameter(defaultValue = "100")
+        long maxLatencyMs = 100;
+
+        @Parameter(defaultValue = "0.001")
+        double partitionProbability = 0.001;
+
+        @Parameter(defaultValue = "1000")
+        long minPartitionDurationMs = 1000;
+
+        @Parameter(defaultValue = "10000")
+        long maxPartitionDurationMs = 10000;
+
+        @Parameter(defaultValue = "0.0")
+        double packetLossProbability = 0.0;
+    }
+
+    public static class FileSystemFaults {
+        @Parameter(defaultValue = "false")
+        boolean enabled = false;
+
+        @Parameter(defaultValue = "0.005")
+        double ioErrorProbability = 0.005;
+    }
+
+    private Faults.Config getFaultsConfig() {
+        var net = networkFaults != null
+                ? new Faults.Config.NetworkConfig(
+                        networkFaults.enabled,
+                        networkFaults.latencyProbability,
+                        networkFaults.minLatencyMs,
+                        networkFaults.maxLatencyMs,
+                        networkFaults.partitionProbability,
+                        networkFaults.minPartitionDurationMs,
+                        networkFaults.maxPartitionDurationMs,
+                        networkFaults.packetLossProbability)
+                : new Faults.Config.NetworkConfig();
+
+        var fs = fileSystemFaults != null
+                ? new Faults.Config.FileSystemConfig(fileSystemFaults.enabled, fileSystemFaults.ioErrorProbability)
+                : new Faults.Config.FileSystemConfig();
+
+        return new Faults.Config(net, fs);
+    }
 
     private Path opendstBasePath;
     private Path basePath;
     private Path instrumentedWarsDir;
+    private Set<Instrumentation.DiscoveredProperty> discoveredProperties;
+    private OpenDstLogger logger;
 
     private boolean isDebug() {
         return debug != null && !"false".equalsIgnoreCase(debug);
@@ -129,22 +181,25 @@ public class OpenDstMojo extends AbstractMojo {
     }
 
     private String debugArgs() {
-        return isDebug() ? debug.isEmpty() || "true".equalsIgnoreCase(debug) ? JAVA_DEBUG_OPTS : debug : null;
+        if (!isDebug()) {
+            return null;
+        }
+        return debug.isEmpty() || "true".equalsIgnoreCase(debug) ? JAVA_DEBUG_OPTS : debug;
     }
 
     private String agentJarPath;
 
     private static String getAgentJarPath() throws MojoFailureException {
-        try (var is = OpenDstMojo.class.getResourceAsStream("/META-INF/agents/opendst-simulator.jar")) {
+        try (var is = OpenDstMojo.class.getResourceAsStream(OPENDST_SIMULATOR_JAR)) {
             if (is == null) {
-                throw new MojoFailureException("Could not find embedded opendst-simulator.jar");
+                throw new MojoFailureException("Could not find embedded opendst-core.jar");
             }
-            var agentJar = new File("opendst-simulator.jar");
+            var agentJar = new File("opendst-core.jar");
             agentJar.deleteOnExit();
             copy(is, agentJar.toPath(), REPLACE_EXISTING);
             return agentJar.getAbsolutePath();
-        } catch (IOException e) {
-            throw new MojoFailureException("Failed to extract opendst-simulator.jar", e);
+        } catch (Exception e) {
+            throw new MojoFailureException("Failed to extract opendst-core.jar", e);
         }
     }
 
@@ -154,60 +209,97 @@ public class OpenDstMojo extends AbstractMojo {
             getLog().info("Skipping opendst-maven-plugin execution because -DskipTests is enabled.");
             return;
         }
+        agentJarPath = getAgentJarPath();
         try {
             basePath = project.getBasedir().toPath().toRealPath();
             opendstBasePath = basePath.resolve("target").resolve("opendst");
+        } catch (Exception e) {
+            throw new MojoExecutionException(e);
+        }
+        instrumentedWarsDir = opendstBasePath.resolve(INSTRUMENTED_WARS_DIR);
+        try {
+            deleteRecursively(basePath, instrumentedWarsDir);
         } catch (IOException e) {
             throw new MojoExecutionException(e);
         }
-        agentJarPath = getAgentJarPath();
-        var warsDir = project.getBasedir().toPath().resolve(WARS_DIR);
-        instrumentedWarsDir = opendstBasePath.resolve(INSTRUMENTED_WARS_DIR);
+
+        logger = new OpenDstLogger(getLog());
+
+        try (var instrumentationExecutor = newFixedThreadPool(getRuntime().availableProcessors() * 2)) {
+            discoveredProperties = new Instrumentation(
+                            basePath, basePath.resolve(WARS_DIR), instrumentedWarsDir, instrumentationExecutor, logger)
+                    .instrumentWars();
+        }
+
+        if (isDebug() || isReplay()) {
+            this.parallelism = 1;
+        }
+
+        var discoverer = new TestDiscoverer(project, basePath, getLog());
+        var testsToRun = discoverer.getTestsToRun(test, includes, excludes);
+        if (testsToRun.isEmpty()) {
+            throw new MojoExecutionException("No OpenDST tests found to run.");
+        }
+
+        boolean atLeastOneTestFailed = false;
         try {
-            deleteDir(instrumentedWarsDir);
-        } catch (IOException e) {
-            throw new MojoFailureException(e);
-        }
-        new Instrumentation(basePath, warsDir, instrumentedWarsDir, getLog()).instrumentWars();
-
-        // Allow command line -Dopendst.parallelism to override pom.xml configuration
-        // unless debug is enabled, which forces it to 1
-        var parallelism = isDebug() ? "1" : getProperty("opendst.parallelism");
-        if (parallelism != null) {
-            try {
-                this.parallelism = Integer.parseInt(parallelism);
-            } catch (NumberFormatException e) {
-                getLog().warn("Invalid value for opendst.parallelism: " + parallelism);
+            var classpath = getClasspath();
+            for (var request : testsToRun) {
+                atLeastOneTestFailed |= runSingleTest(request, classpath, testsToRun);
             }
+        } catch (DependencyResolutionRequiredException e) {
+            throw new MojoFailureException("Failed to resolve runtime classpath", e);
         }
 
+        if (atLeastOneTestFailed) {
+            throw new MojoFailureException("OpenDST found at least one failure. See reports for details.");
+        }
+    }
+
+    /** {@return true if the test failed}. */
+    private boolean runSingleTest(TestRequest request, String classpath, List<TestRequest> allTests)
+            throws MojoExecutionException, MojoFailureException {
+        var testClass = request.className();
+        var testMethod = request.methodName();
+
+        var testProperties = discoveredProperties.stream()
+                .filter(prop -> prop.origin().equals(testClass)
+                        || allTests.stream().noneMatch(t -> t.className().equals(prop.origin())))
+                .collect(toSet());
+
+        Orchestrator orchestrator;
         if (isReplay()) {
             getLog().info("OpenDST replays %s#%s with plan %s"
                     .formatted(testClass, testMethod, basePath.relativize(planFile.toPath())));
-            orchestrator = new ReplayOrchestrator(getLog(), new ObjectMapper().readValue(planFile, Plan.class));
+            try {
+                orchestrator = new ReplayOrchestrator(JSON_MAPPER.readValue(planFile, Plan.class));
+            } catch (Exception e) {
+                throw new MojoFailureException("Failed to read plan file", e);
+            }
         } else {
-            getLog().info("OpenDST runs %s#%s with parallelism set to %d"
-                    .formatted(testClass, testMethod, this.parallelism));
-            orchestrator = new RandomOrchestrator(
-                    getLog(), opendstBasePath.resolve(FAILURE_BASE_DIR), duration, replayProbability);
+            var faultsConfig = getFaultsConfig();
+            getLog().info("OpenDST runs %s#%s with parallelism set to %d (faults: %s)"
+                    .formatted(testClass, testMethod, this.parallelism, faultsConfig.summary()));
+            orchestrator = new GuidedOrchestrator(logger, duration, branchProbability, faultsConfig);
         }
-        try (var executor = newFixedThreadPool(this.parallelism)) {
-            var classpath = getClasspath();
-            var simulators = new ArrayList<Future<Void>>();
-            for (int i = 0; i < this.parallelism; i++) {
-                int count = i;
-                simulators.add(executor.submit(() -> runLoop(count, classpath)));
-            }
-            for (var simulatorExecutor : simulators) {
-                simulatorExecutor.get();
-            }
-            executor.shutdown();
-        } catch (DependencyResolutionRequiredException e) {
-            throw new MojoFailureException("Failed to resolve runtime classpath", e);
+
+        var executor = new TestExecutor(
+                opendstBasePath.resolve(testClass),
+                testClass,
+                testMethod,
+                classpath,
+                testProperties,
+                new TestExecutor.JvmConfig(instrumentedWarsDir, agentJarPath, jvmArguments, debugArgs(), logSpy),
+                logger,
+                orchestrator,
+                new TestExecutor.RunConfig(replayProbability, isDebug() || isReplay(), stagnationLimit, parallelism));
+
+        try {
+            return executor.execute();
         } catch (InterruptedException e) {
             throw new MojoExecutionException("Interrupted while waiting for test execution", e);
-        } catch (ExecutionException e) {
-            throw new MojoExecutionException("A test execution has failed unexpectedly", e);
+        } catch (RuntimeException e) {
+            throw new MojoExecutionException(e.getMessage(), e);
         }
     }
 
@@ -226,156 +318,29 @@ public class OpenDstMojo extends AbstractMojo {
         }
         classpathElements.remove(
                 basePath.resolve("target/classes").toAbsolutePath().toString());
-        classpathElements.add(getMethodRunnerPath());
+        classpathElements.add(getOpenDstRunnerPath());
         return join(pathSeparator, classpathElements);
     }
 
-    private String getMethodRunnerPath() throws MojoFailureException {
-        var classFile = "/" + MethodRunner.class.getName().replace('.', '/') + ".class";
+    private String getOpenDstRunnerPath() throws MojoFailureException {
+        var classFile = "/" + OpenDstRunner.class.getName().replace('.', '/') + ".class";
         try {
-            var dir = basePath.resolve("target").resolve("opendst");
-            var jar = dir.resolve("runner.jar");
-            createDirectories(dir);
-            try (var is = MethodRunner.class.getResourceAsStream(classFile);
+            var jar = opendstBasePath.resolve("runner.jar");
+            createDirectories(opendstBasePath);
+            try (var is = OpenDstRunner.class.getResourceAsStream(classFile);
                     var jos = new JarOutputStream(newOutputStream(jar))) {
                 if (is == null) {
                     throw new MojoFailureException("Could not find " + classFile);
                 }
                 jos.putNextEntry(
-                        new JarEntry(MethodRunner.class.getPackageName().replace('.', '/') + "/"
-                                + MethodRunner.class.getSimpleName() + ".class"));
+                        new JarEntry(OpenDstRunner.class.getPackageName().replace('.', '/') + "/"
+                                + OpenDstRunner.class.getSimpleName() + ".class"));
                 is.transferTo(jos);
                 jos.closeEntry();
                 return jar.toAbsolutePath().toString();
             }
-        } catch (IOException e) {
-            throw new MojoFailureException("Failed to extract opendst-simulator.jar", e);
-        }
-    }
-
-    private Void runLoop(int count, String classpath) throws InterruptedException, IOException {
-        do {
-            runOnce(createRunBaseDir(count), classpath, orchestrator.nextPlan());
-            // In debug/replay, we just run once
-        } while (!isDebug() && !isReplay());
-        return null;
-    }
-
-    public record LogStatement(long lid, @JsonProperty("it") long iteration, String vhost, JsonNode log) {}
-
-    private void runOnce(Path runBaseDir, String classpath, Plan plan) throws IOException {
-        var commandLine = buildJvmCommandLine(runBaseDir, classpath);
-        int code = -1;
-        var proc = new ProcessBuilder(commandLine)
-                .directory(runBaseDir.toFile())
-                .redirectErrorStream(true)
-                .start();
-        var simulatorKiller = new Thread(proc::destroyForcibly);
-        getRuntime().addShutdownHook(simulatorKiller);
-
-        // Send the execution plan to the simulator and then listen for log produced.
-        var lastLog = new LogStatement(-1, -1, "<none>", NullNode.getInstance());
-        new ObjectMapper().writeValue(proc.outputWriter(), plan);
-        var mapper = JsonMapper.builder()
-                .enable(INCLUDE_SOURCE_IN_LOCATION)
-                .disable(FAIL_ON_TRAILING_TOKENS)
-                .disable(AUTO_CLOSE_SOURCE)
-                .build();
-        try (var b = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
-            for (var line = b.readLine(); line != null; line = b.readLine()) {
-                if (line.length() > 2 && line.charAt(0) == '{' && line.charAt(line.length() - 1) == '}') {
-                    lastLog = mapper.readValue(line, LogStatement.class);
-                    orchestrator.onLogReceived(plan, lastLog);
-                } else {
-                    getLog().debug("Skipped malformed output: " + line);
-                }
-            }
-            code = proc.waitFor();
         } catch (Exception e) {
-            getLog().error("Unable to start the simulator process", e);
-        } finally {
-            try {
-                proc.destroyForcibly();
-                getRuntime().removeShutdownHook(simulatorKiller);
-            } catch (IllegalStateException e) {
-                // Shutdown sequence already started, we cannot mutate shutdown hooks anymore.
-                // This is not a problem: killing a stopped process is a no-op.
-            } finally {
-                orchestrator.onPlanTerminated(plan, code, lastLog);
-            }
+            throw new MojoFailureException("Failed to extract runner.jar", e);
         }
-    }
-
-    private List<String> buildJvmCommandLine(Path runBaseDir, String classpath) {
-        var runTmpDir = runBaseDir.resolve("tmp");
-        if (!runTmpDir.toFile().mkdirs()) {
-            // runBaseDir should be empty: this should never happen (famous words)
-            getLog().error("The run tmp directory already exists: " + runBaseDir);
-            exit(1);
-        }
-
-        var command = new ArrayList<String>();
-        command.add(JAVA_BIN_PATH.toString());
-        command.addAll(JAVA_BASE_OPTIONS);
-        command.addAll(List.of(
-                "-javaagent:%s".formatted(agentJarPath),
-                "-Djava.io.tmpdir=%s".formatted(runTmpDir),
-                "-Dopendst.wars-dir=%s".formatted(instrumentedWarsDir)));
-        if (jvmArguments != null && !jvmArguments.isBlank()) {
-            command.addAll(asList(jvmArguments.split("\\s+")));
-        }
-        var debugArgs = debugArgs();
-        if (debugArgs != null) {
-            // Split args to handle multiple flags if passed by user
-            command.addAll(asList(debugArgs.split("\\s+")));
-        }
-        command.addAll(asList("-cp", classpath, "com.pingidentity.opendst.maven.MethodRunner", testClass, testMethod));
-        return List.copyOf(command);
-    }
-
-    private Path createRunBaseDir(int count) throws IOException {
-        var runBaseDir = opendstBasePath
-                .resolve(RUNS_BASE_DIR)
-                .resolve(RUN_DIR_FORMAT.formatted(count))
-                .toAbsolutePath();
-        deleteDir(runBaseDir);
-        if (!runBaseDir.toFile().mkdirs()) {
-            getLog().error("The run base dir '%s' is unexpectedly already present".formatted(runBaseDir));
-        }
-        return runBaseDir;
-    }
-
-    private void deleteDir(Path runBaseDir) throws IOException {
-        if (!exists(runBaseDir)) {
-            return;
-        } else if (!runBaseDir.toRealPath().startsWith(basePath)) {
-            getLog().error("Directory '%s' will not be deleted as it is outside '%s'".formatted(runBaseDir, basePath));
-            exit(1);
-        }
-        walkFileTree(runBaseDir, new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                // Delete the file itself
-                delete(file);
-                return CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                // If an exception happened inside the directory, 'exc' won't be null.
-                if (exc != null) {
-                    throw exc;
-                }
-                delete(dir);
-                return CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
-                // Handle cases where a file exists but can't be accessed
-                getLog().error("Failed to access file '%s' due to %s".formatted(file, exc.getMessage()));
-                throw exc;
-            }
-        });
     }
 }
