@@ -1,0 +1,854 @@
+Bonjour et bienvenue a cette présentation sur le Déterministic Simulation Testing.
+
+Slide suivant:
+Tout d’abord un grand merci au snowcamp pour l’organisation et pour leur
+confiance pour cette présentation.
+Un grand merci également a tous les sponsors de l’événement sans qui tout
+celà ne serait pas possible.
+Celà fait plaisir de voir ces grands noms de l’industrie aux côté de nos pépites
+grenobloises.
+
+Slide suivant:
+Je m’appel Yannick, et je suis développeur chez Ping Identity depuis maintenant un
+peu plus de 10 ans. Ping Identity est une entreprise qui évolue dans le domaine de la
+cyber sécurité, plus spécifiquement dans la gestion des identités et du controle
+d’accés.
+Chez Ping Identity j’ai la chance de travailler dans l’équipe PingDS qui est en charge
+de développer et maintenir le serveur LDAP du même nom. Alors LDAP, même pour
+ceux qui connaisse ça peut sembler un peu poussiéreux. Personellement je préfére
+voir le ça comme une base de données multimaster qui faisait du NoSQL avant que
+ce soit a la mode.
+Nos clients sont les grands comptes, parmis eux un peu plus de la moitié du Fortune
+100.
+Au quotidien Il y a en fait de très grande chance que vous intéragisiez avec un logiciel
+Ping sans même le savoir.
+Mais ce n’est pas vraiment de ça dont je vais vous parler aujourd’hui.
+Aujourd’hui j’aimerais vous parler d’une des découvertes les plus marquant que j’ai
+pu faire ces dernieres années. 
+
+Slide suivant:
+Avant de rentrer dans le vif du sujet je voulais vous présenter mes héros, ceux qui me
+guident dans ma nouvelle passion qu’est le “software correctness”.
+Je pense que l’autre nom plus conventionnel serait mes leaders d’opinions.
+Beaucoup des idées que je vais vous présenter ici sont en fait les leurs et je vous
+Invite a lire et consulter leur travaux.
+Rapidement: en partant en haut a gauche, Will Wilson CEO et fondateur d’antithesis.
+Antithesis fournis une solution de Deterministic Simulation Testing en mode SaaS.
+C’est via Will que ma passion pour le correcness à commencé
+Joran Dirk Greef: CEO Fondateur Tigger Beetle. Base de données spécialisé dans la
+finance, un ledger en Zig. Utilise le DST, une approche tres innovante et
+rafraichissante du développement logiciel. Super conference distributed systems
+Rohan Padhye: Assistant Professor a Carnegie Mellon. Lead l’équipe PASTA focalisé
+sur le testing. Auteur de JQF/Zest un framework de PBT en JAva que nous utilisons
+dans PingDS.
+Dominik Tornow: CEO et Fondateur de Reasonate HQ. Utilise le DST pour tester son
+produit de distributed async-await. Des continuations qui traverse les barriere des
+machines.
+Ankush Desai: Contrairement a ce qui est indiqué je crois qu’il travail aujourd’hui chez
+snowflake. Auteur de P-Lang un langage formel developeur friendly. Si vous aves eu 
+peur en regardant TLA+, allez jetter un coup d’oeil c’est super.
+Utilisé notamment par DeepSeek pour construire leur filesystem distributé. Disponible
+en opensource.
+Enfin John Hughes: Qui m’a ouvert les yeux sur le property-based testing grace a ses
+conferences. Bref, ils sont ma principale source d'inspiration pour ce travail.
+
+Slide suivant:
+Partons de qqchose que nous connaissons tous, cette fameuse pyramide des tests.
+Alors je pense qu’il n’y a pas vraiment de consensus sur le libélés des axes mais ici
+Je propose que l’axe horizontal représente la quantité de tests, le nombre de tests
+existant et sur l’axe vertical la vitesse d’éxécution de ceux-ci.
+En bas nous avons les unit tests, on en a plein parcequ’ils sont bien isolés, du coup
+déterministe, peut de flaky tests et ils s’executent rapidement.
+L’inconvénient c’est qu’il sont souvent en prise très direcet avec l’implémentation du
+composant testé. Un refactoring même léger peut parfois signifier de devoir revisiter
+tous ces tests.
+Tout en haut nous avons les e2 tests qui testent tout le système un peu “pour de vrai”
+un peu comme un utilisateur le ferai. Ces tests changent rarement car on change bien
+moins souvent l’interface “publique” de notre produit que l’interface “privé” de nos
+classes.
+Mais ces tests sont compliqué a mettre en oeuvre: ils sont lent nécessite souvent plus
+d’infra. Ils sont souvent flaky et on fini par développer la notion “d’erreur normale”. On
+met en place des outils pour gérer cette flakyness a posteriori etc …
+En préparant cette prsentation j’ai vu deux talks devoxx interessant sur le sujet de la
+Flakiness. Un de Docker Desktop et un de Doctolib. J’ai particuliérement apprécié
+cette présentation de doctolib qui ose un peu sortir des sentiers batu et propose que
+cette pyramide
+devrait peut être a revisité. Peut être que ça devrait être en fait un carré, ou une 
+pyramide inversé ? Plus de e2e moins de unit tests …. J’avoue être assez en accord
+avec cette remise en cause.
+Je vais d’ailleurs me permettre moi aussi de modifier cette pyramide a ma façon. Je
+trouve qu’il manque quelque chose.
+Attention, accrochez vous, ça va piquer un peu !
+
+Slide suivant:
+Aaaah Oui je sais ça fait mal. Triste réalitée. Tout ce qui n’est pas testé pendant la
+phase du développement du logiciel finira quand même par être testé.
+En production. Alors la bonne nouvelle c’est qu’a partir d’un certain nombre de
+clients/utilisateurs le test coverage a cette étape est excellent.
+L’inconvénient c’est que quand un bug est trouvé à ce stade, ça nous réveille a 3h du
+matin, les clients ne sont pas content et il faut réparer ça dans l’instant
+et remettre la prod en marche. Donc on redémarre deux pods, change un ou deux
+settings, et s’est reparti. Possiblement en mode dégradé mais c’est reparti. On peut
+retourner se coucher.
+Mais le vrai moment de bonheur c’est le lendemain. Lors du RCA. On étudie les logs,
+les métrics, on fait des réunions avec le client pour essayer de comprendre ce qui
+était entre de se passer
+À ce moment là, que faisait le client avec un niveau de détail qui dépasse rarement
+des explications du type “j’ai cliqué sur le bouton et d’un coup ça marchait plus”. Petit
+a petit il y’a des gens
+du support, de l’engineering, des managers, des sales … le coût de ces réunions est
+astronomique. On ne sait tjrs pas pourquoi ça a planté parceque, forcément, il nous
+manque LE log qui
+Nous indiquerais ce qui ne va pas. Ce log qu’on a jamais pensé a mettre dans le
+code. Soudain la petite tape sur l’épaule: “pardon de te déranger mais le client
+demande quand ça sera fixé ?”
+Personne ne veut vivre ça. Mais on finit tjrs par y arriver avec du sang et sueurs. On
+découvre que c’est suite au commit sur ce code qui ne change jamais, là ou on a du
+changer “42” en “43”
+et en fait ça fait un IllegalStateException qui etc etc …
+Ce code on osera plus jamais le modifier. On préférera tjrs trouver des alternatives,
+d’autre façon de faires, on va le contourner. Et en faisant ça on crée de la dette
+technique qui, devinez quoi,
+va probablement augmenter le nombre de bug etc etc … quand le projet sera
+complétement sclérosé par la dette technique et la peur de casser qqchose, arrivera
+le moment de la grande
+réécriture. Et c’est reparti pour un tour.
+Un logiciel qui n’est pas correctement testé cest un risque en production, mais c’est
+aussi un risque pour le développement du logiciel lui même; soudain on ose plus rien
+toucher, plus rien bouger,
+Les délais s’allongent car il faut faire de plus en plus de détour.
+Le manque de couverture dans nos tests, c’est l’éléphant dans la piécé, c’est ce qui
+nous empeche de faire, ralentit nos progres …
+Ce qui veut aussi dire que de s’améliorer sur cet axe aura trés probablement un
+impact significatif sur notre capacité a livrer du logiciel qui marche en continue.
+Alors aujourd’hui on à ce sujet de l’IA qui est présent partout et aussi, donc, dans les
+tests. Après tout l’IA générative pourrait aussi écrire des plus de tests ? Mais est-ce
+vraiment désirable ? Plus de tests c’est aussi plus de code, plus de maintenance.
+Et combien de tests devont nous générer en plus ? 10, 50 … 1000 ? Qui pour les
+maintenir ? Qui pour faire les code reviews ?
+Je pense qu’au mieux, grace a l’aide de l’IA, cette pyramide va passer de ça à ..
+
+Slide suivant:
+À ça. Tout est différent mais tout reste pareil.
+Les tests sont plus beaux et il y’en a plus. Donc on couvre plus. Oui mais encore une
+fois quel est le cout de ces tests a maintenir ? Si l’IA génére 10x plus de code et 10x
+plus de test et donc 10x plus de maintenance est-ce que J’ai vraiment gagné qqchose
+?
+De plus si on y réfléchit bien, ce système que l’on veut tester a probablement un
+nombre d’espace d’état a explorer qui doit se raprocher du nombre d’atome dans
+l’univers acceptable. Je peux tjrs rajouter 100 tests mais Estce que ça fera une réel
+différence ?
+Je suis assez convaincu que dans le domaine du testing aussi l’IA pourra nous aider.
+Mais je pense qu’il faut d’abord que l’on aide l’IA avant qu’elle puisse nous aider.
+Lui proposer un meilleur cadre dans lequel elle pourra nous aider. Un autre cadre que
+d’écrire plus de test. Car si écrire plus de tests ne semble pas être une solution dans
+ce cas je propose
+
+Slide suivant:
+Que nous arrêtions simplement d’écrire des tests. 
+
+Slide suivant:
+Nous devrions écrire des générateur
+
+Slide suivant:
+Generate au runtime.
+Alors pour l’anecdote j’ai piqué ce slide dans une présentation faite par John Hugues
+sur le Property-Based Testing et a l’époque il n’y avait pas de GenAI donc pas
+d’ambiguité possible.
+Du coup je me suis permis de rajouter ce (at runtime).
+Mais l’idée que je propose, soutiens ici c’est que écrire plus de tests n’est pas une
+solution. Que ces tests soit écrit par un humain ou une AI.
+
+Slide suivant:
+Alors forcément quand je dit qu’il faut arrêter d’écrire des tests il ne faut pas prendre
+ça au pied de la lettre. C’est plus une manière de faire réagir.
+D’ailleur a la question “mais du coup je dois vraiment arrêter d’écrire des tests ?
+Est-ce que cette nouvelle méthode de test dont il va être question ici
+vient en complément ou en remplacement de ce que je fais déjà ?”
+Alors je n’ai pas vraiment de réponse précise à ça, c’est encore trop frais pour moi
+pour pouvoir vous partager un retour d’expérience mais je peux vous
+partager ma vision. Ce que je crois c’est que comme très souvent: ça dépend. A mon
+sens, ça dépend de si on se trouve dans un supermarché ou dans
+un restaurant...
+
+Slide suivant:
+Vous êtes probablement nombreux a connaitre cette boutade ou une personne se voit
+confier la mission d’aller au supermarché pour acheter du lait. Ça se passe comme
+ça:
+“Va au supermarché et achéte moi une bouteille de lait. Si il y’a des oeufs, tu en
+prends six”.
+“La personne se rend au supermarché, prends un lire de lait. Puis vérifie si il y’a des
+oeufs. Ah oui il y’a des oeufs. Du coup la personne retourne au rayon lait
+ pour prendre 6 bouteilles”.
+“La personne ayant demandé le lait et les oeufs est surprise car le résultat ne
+correspond pas à sa demande. Même si en fait, quelque part, le résultat
+ correspond parfaitement à sa demande.”
+Le problème c’est l'ambiguïté de la demande, le problème c’est la définition des
+specs, des requirements et l’ambiguité qui s’y cache fréquemment.
+Alors c’est un problème que je connais tèrs bien, je suis un peu le ceinture noire
+dixieme dan pour comprendre les choses de manière différente et de voir
+de l’ambiguité là ou a priori il y’en a pas
+
+Slide suivant:
+Dans ce cas là, je pense que l’utilisation d’example-based testing est tout à fait
+approprié.
+Ça permet de désambiguité la spec et d’avoir une version executable de celle ci qui
+va s’assurer que, vu d’avion, on est bien en train
+de réaliser, de construire ce qui est attendu.
+Dans ce cas, c’est imbattable. Une version executable des requirements qui va
+valider la coherence de ce qu’on fait avec ce qu’on attends.
+Génial.
+Du coup l’example-based testing, quand on est au super marché pour acheter du lait,
+a mon avis c’est oui.
+
+Slide suivant:
+Maintenant voyant c’est autre cas. Quand je suis au restaurant. Cette boutade est
+également assez connu des développeurs
+On voit ici un développeur qui écrit une suite de test la plus exhaustive possible de
+son restaurant.
+Alors je vérifie que tout se passe bie en écrivant un test qui va commander une biére.
+Mais je sais aussi qu’il y’a des petit malins qui vont défier mon système de
+commande.
+Donc je vais aussi écrire un test pour commander 9999 biéres,
+Un test pour commander XYZ biéres,
+Un test pour commander -1 biére
+Un test pour commander un chameau …
+Haha oui ! Après tout pourquoi pas ? Je pense vraiment a tout …
+C’est bon tous les tests passent et on a le comportement attendu a chaque fois. On
+déploit en prod avec confiance et le sentiment du devoir accomplis.
+En prod, le premier client arrive et demande “bonjour, où sont vos toilettes s’il vous
+plait ?”
+Aarrgh !!! Nous n’avons pas prévu ce cas !! Soudain notre réalité se décompose, le
+ciel tombe en morceau et notre réalité se termine dans le tourbillon
+d’un StackOverflowException. Encore un exemple qu’il n’y bien qu’en production qu’on voit bien tous les cas
+d’utilisations :)
+
+Slide suivant:
+Bref dans cette problématique la, mon impression c’est que le example based testing
+n’est probablement pas l’outil le plus adapté.
+Donc quand on est au restaurant, l’example based testing c’est bof ..
+
+Slide suivant:
+L’example-based testing c’est imabattable pour clarifier les specs et s’assurer que ce
+qu’on construit est en cohérence avec ces specs.
+Par contre j’avoue avoir plus de double sur l’efficacité de cette approche pour vérifier
+et validité des comportements du système lorsqu’il
+exposé a une multitude de situations différentes.
+Ces tests il faut les écrire et il faut les maintenir… Que se passe t’il si demande on
+décide d’arrêter de ventre des biéres et on décide de
+Vendre des kombucha a la place ? Il y’a de grandes chances que tous ces suites de
+tests vont devoir être retouché ..
+D’ailleur il arrive fréquement qu’une partie non négligeable du temps nécessaire a la
+réalisation d’un travail de dévelopement soit passé
+dans la “correction des tests”. Mais si mes tests ne passent plus, non pas parceque
+‘jai introduit une regression mais a cause d’un détail
+D’implem (type changement de contrat, d’interface de signature) comment je sais que
+je n’ai pas introduit de regression ? Comment je sais
+Si ma correction ne va pas en fait carrément tester la presence de la regression que
+je viens d’introduire ?
+C’est pas super confortable comme situation et on sent bien qu’en faisaint ça on
+ouvre la une porte qui permettrait de laisser rentrer qq bugs dans notre systeme.
+
+Slide suivant:
+Donc fin de la parenthese. Du coup pour pouvoir tester de manière plus rigoureuse
+nos système l’idée est non pas d’écrire plus de test.
+Que ces tests soit écrit par un humain, ou par une AI qui ferait ça d’ailleurs de
+manière beaucoup plus rapide grace a sa particularité d’avoir 6 doigts par main.
+Donc non, l’idée ce n’est pas d’écrire plus de tests. L’idée c’est d’écrire un générateur
+de test.
+
+Slide suivant:
+Si on y réfléchit, la manière dont nous ecrvons habituellement les tests, le
+example-based testing, ne permet pas de tirer profit d’une des plus grandes
+resources dont nous disposons: la puissance de calcul phénoménale des machines
+modernes.
+Imaginons que je fasse une modificaiton non trivial d’une partie du code de mon
+application. J’éxécute la suite de test complete qui peut prendre plusieurs heures. A la
+fin j’ai un résultat a peut prés vert avec deux ou trois
+Flaky. Je relance pour être sur. Les flaky on disparu,, un nouveau est apparu mais il
+était green avant. Job done.
+Mais entre ces deux runs, les tests effectués était exactement les mêmes (a la
+flakiness pret). Je n’ai pas tester plus intensement mes modifications en lançant ces
+tests deux fois …
+Par contre si on execute un generateurs de tests, là l’histoire est totalement
+différente. Chaque run va générer de nouveaux tests qui vont tester des nouveaux
+cas et potentiellement tester d’autre partie du code et pourquoi pas
+trouver un bug ! Puisque c’est de ça dont il s’agit. C’est une course entre notre
+capacité a trouver les bugs et la capacité de notre environement de prod a trouver
+ces mêmes bugs.
+Du coup si on écrit un générateurs de test on passe un peu moins de temps de
+développement que d’écrire tout une suite qui va essayer de tester tous les cas 
+auquel on passe. Et on va aussi passer beaucoup moins de temps à la maintenir.
+On échange du temps de développement qui coute cher avec du temps machine qui
+coute moins cher. En plus d’être efficace, c’est très rentable.
+D’ailleur a priori c’est ce que fait google avec ClusterFuzz. Ils ont 30k VM qui tournent
+h24 pour faire ça. Je suis convaincu que ce n’est pas les seuls.
+
+Slide suivant:
+Parceque cette idée de générer des tests au runtime n’est pas nouvelle. Cette idée
+date de 1988 et c’est l’idée de Barton Miller a l’University of Wisconsin en 1988
+A l’origine l’intention c’était de tester un CLI Unix, pour ça ils ont écrit un générateur
+de test qui a l’executoin aller appelr le CLI a chaque fois avec des argument généré
+aléatoirement.
+Si l’application crash, bravo, vous avez trouvé un bug.
+Cette technique a ensuite été adopté pour tester les protocoles réseau, les librairie de
+gestion de format de fichier etc … super pratique pour détecter des buffer overflow
+etc.
+Pour tester un protocol réseau, on imagine bien qu’on allait pas partir avec une
+approche du type “testQueLeProtocolPeutEnvoyerLaLettreA”,
+“testQueLeRéseauMarcheQuandJ’envoieLaLettreB”,
+“testQueLeRéseauMarcheQuandJ’envoieLaLettreApuisB”, …
+Avec le fuzz testing on écrit un générateur de test qui va générer des dixaine voir des
+centaines de milliers de tests.
+Des dixaine ou des centaines de milleirs de tests PAR SECONDE.
+Soudain notre garçon de restaurant dans l’example de tout à l’heure va être bien
+occupé.
+Et même si ça peut au début parraitre un petit peu bizarre comme approche, c’est
+assez efficace pour explorer ce qu’on appel “l’espace d’état” du système.
+L’espace d’état c’est la liste exaustive de tous les cas possible qu’un système peut
+rencontrer. Et cet espace est immense.
+Imaginons un simple tableau en deux dimensions de qui peut contenir des données
+de taille variable mais au maximum il peut être de 1000x1000.
+La taille variable de ce tableau représente a lui tout seul 1 millions d’état différent. Et
+on a même pas encore commencé a y mettre des données a l’intérieur…
+Oui mais bon, que le tableau fasse 1x1 ou 1000x1000 ça ne change rien … c’est
+pareil
+Tout comme stocker des chaines de caractére dans des variables d'environnement.
+Une chaine c’est une chaine de caractère …
+
+Slide suivant (shellshock):
+Et qu’une variable d’environment peut contenir n’importe quelle chaine de caractére
+… on va pas tout tester
+
+Slide suivant (stagefright):
+… ou comme envoyer des vidéos par MMS. Une vidéo de chat ou de chien ou une
+vidéo avec des headers érroné, … c’est pareil ..
+
+Slide suivant (heartbleed):
+… ou un heartbeat ! Peut importe le contenu de celui-ci. Après tout, tout est encrypté
+SSL, c’est forcément secure.
+
+Slide suivant (mongobleed):
+Ou alors plus récent, la compression des données c’est un détail d’implémentation
+n’est-ce pas ? Que les données soient compressé ou pas, fonctionnellement c’est
+pareil …
+Le coverage des “tests” en prod est vraiment imbattable … mais il ne pardonne pas.
+Je pense que face à ça il faut changer de mindset, il faut travailler avec l’humilité
+apporté par cette conviction que quoi que l’on fasse tous nos logciels ont et auront
+des bugs, tous et tout le temps.
+On ne sait simplement pas encore ou ni leur gravité. Rappelez vous, l’espace d’état a
+explorer est immense. Nous devons nous doter d’outil qui nous permettront d’en
+trouver le plus possible le
+plus rapidement possible. Ce n’est plus “je vérifie que les 10 cas auquel j’ai pensé
+fonctionnent. Si c’est le cas c’est que mon système marche” c’est “comment je vais
+faire pour explorer tout cet espace d’état le plus rapidement possible pour arriver a
+détecter les bugs”
+Et je pense que le fuzzing et plus globalement l’utilisation de générateur de tests est
+un pas dans la bonne direction.
+Bon ok, j’envoie du random dans mes sockets mais ça ne me dit pas comment utiliser
+cette technique pour tester par example une webapp. Quel est la probabilité que le
+générateur arrive a construire
+une requête HTTP valide avec son URL, ses headers, uniquement par random ?
+Impossible … 
+Ok je vais super bien tester les cas d’erreur de mon parser HTTP mais après … ?
+
+Slide suivant:
+En fait il s’agit d’utiliser cette source de randomness non pas directement pour
+envoyer ces bytes sur le port 80 de notre serveur HTTP
+Mais plutot comme un moyen de générer des données structurés et ou des
+sequences d’actions. Cette idée vient me semble t’il de John Hugues connu comme
+étant le co auteur de Quickcheck.
+Probablement la première librairie qui assiste dans la création de Property-Based test
+qui est le nom de cette méthode.
+Car si on utilise la même seed, les mêmes données et la même séquence d’action
+sera créé.
+Du coup on se retrouve a générer des séquences d’action du type: Login, Login,
+Order, Logout, Paiment, Login, … toute plus farfelues les une que les autres.
+Beacoup beaucoup plus efficace que d’écrire des tests du type
+testQueJePeuxMeLoguerEtCommanderEtMeDéLogguer,
+testQueJeNePeuxPasCommanderDarticleHorsStock, testQueJePeux etc etc ..
+Encore une fois, repensez a l’exemple du restaurant.
+Le Property-Based Testing est super interessant. C’est a mon sense du fuzzing a plus
+haut niveau. On a le système qui va transformer ces nombres aléatoire en données
+et/ou des actions
+que l’on va ensuite appliquer sur le système pour vérifier que les propriétés sont bien
+respectés. 
+Parceque après tout, je génére des requêtes aléatoirement mais du coup … je met
+quoi dans mes assert ? :)
+Et bien vu qu’on ne controle plus vraiment les inputs, il faut vérifier des choses qui
+sont tjrs vraies: des propriétés. D’ou le nom. Alors avec le fuzzing on testé déjà une
+propriété sans vraiment le savoir:
+La propriéte pourraît etre formulé “peut importe les données que je reçoit en entrée,
+le système ne doit pas crasher”. Et en fait, rien qu’avec cette propriété on peut déjà
+faire un bon bout peu de chemin.
+Car si un crash == failure de mon tests == bug, il suffit de faire crasher l’application
+quand elle rencontre un état indésirable en interne. Grace aux assertions que l’on
+pourra placer directement dans le code de l’application. Au plus prêt de l’action.
+Alors, je dit “crasher l’application” mais c’est plus une image. Si on est pas
+confortable avec cette idée de faire crasher l’application explicitement, on peut aussi
+simplement faire que les assertions loguent simplement un message.
+A la fin du test on vérifie qu’il n’y a pas de présence d’assertion qui on échoué dans le
+log.
+Mais des propriétes, il y’en a plein … Voici qq examples.
+
+Slide suivant:
+Idempotence, je vérifie que le fait d’appliquer une application deux fois n’a pas
+d’impact. Closer deux fois un fichier, ajouter deux fois la même valeur dans une
+implem custom d’un HashSet, vérifier qu’un refresh sur une page de paiement ne doit
+pas générer un double paiement etc ...
+
+Slide suivant:
+La propriété de symétrie est géniale pour tester tout ce qui est
+sérialization/désérialization. Avant j’écrivais des tests du style testCanSerializePojo,
+testCanSerializePojoWithAnArray, test …
+Maintenant j’écris un property-based test qui
+1. Generate random POJO graph
+2. Serialize it
+3. Deserialize it
+4. Compare with the original
+5. Profit
+Comment je sais que mes inputs test bien tous les cas ? Un petit run avec JaCoco
+pour faire du code coverage donnera pas mal d’info. Notamment les parties de code
+jamais exécutés.
+A partir de là on peut essayer mieux générer des inputs pour atteindre ces inputs:
+peut être généré des inputs invalide, peut être générer des références cyclic ?
+Autre example, la compression: je génère un input fait de bytes aléatoire, je
+compresse, je décompresse, en sortie je doit retrouver exactement on input (et ne
+pas avoir crashé)
+On change d’état d’esprit: le but du jeu c’est d’écrire une espéce de bot qui va
+essayer de casser l’implem, de trouver une faille.
+
+Slide suivant:
+Un de mes préférés, une puissance de fou. Pour tester les upgrades, du refactoring
+…
+Comment je m’assure que je n’ai pas introduit de changement de comportement dans
+mon composant logiciel après mon refactoring ?
+Encore une fois: mon PBT va générer plein d’inputs différents, que je vais envoyer a
+mes deux systèmes et a la fin (ou pendant) je m’assure que l'état final des deux
+système est identique.
+Mais peut être que mon système de référence a des bugs ? Spoiler alert oui il en a !
+c’est sur !
+Mais peut être que dans cette exploration, dans cette génération d’input il va y avoir
+un cas qui va générer un log, un crash, … Qqchose d’inattendu. Des bugs on en a
+plein, partout, tout le temps.
+On est là pour essayer de les mettres a jours. On essaie simplement d’arrêter de se
+promener seul dans l’obscurité de ce grand espace-d’état inifi avec une lame poche
+mais plutôt avec une armée de robot
+équipé de gros rack de projecteur a led. Faisons la lumière !
+On peut aussi l’utiliser a l’échelle d’un produit, en end-to-end test: un produit en v1,
+un produit en v2. On génére plein de sequences de scenario différent on compare les
+résultats.
+Taille et complexité du test limité, efficacité du test redoutable.
+
+Slide suivant:
+Celui là est peut être un peu plus tricky a mettre en place mais pareil, sacrément
+redoutable.
+Notamment pour tous les composants/systèmes stateful C’est une sorte de
+diff-fuzzing mais au lieu de comparer le systeme a tester avec une version
+différente/précédente
+on le compare avec une modélisation qu’on en fait. Du code qu’on écrit. Qui du coup
+lui aussi peut contenir des bugs
+Par exemple, une base de données type key/value store, distribué, transactionelle
+etc … bref une base de donnée toute option. Cette base de données peut être
+modélisé avec une simple hashmap.
+Même histoire on génére des opérations, open, put, delete, close. On applique sur les
+deux versions la base de données et notre modèle (hashmap) et a la fin on compare:
+le contenu de la base de donnée
+doit correspondre avec celui de la hashmap. Si ça marche pas, peut être que le bug
+est dans le système, ou le test, ou la hashmap … Encore une fois: armée de robot
+avec des projecteurs.
+Donc je génére des actions, que j’applique sur ma base de données et ma hashmap
+... Oui ok bon peut être quer vous avez l’idée mais ça reste probablement assez
+abstrait.
+A quoi ça ressemble ?
+
+Slide suivant:
+Un exemple que j’ai créé il y’a qq temps. Notre base de données est
+multi-master/répliqué de manière asynchrone.
+Une entrée dans cette base peut être modifié simultanément et de manière différente
+sur différent serveur et, du coup, on a a un instant T plusieurs versions différente de
+cette même entrée en fonction de la ou on regarde.
+Ces modifications sont ensuite propagé de manière asynchrone aux autres serveurs
+de la topologie pour pouvoir être appliqué de façon a arriver a rétablir la cohérence et
+obtenir la même version partout. Le fameux Eventual Consistency
+Mais du coup quelle version gardé ? Sachant que ces modifications peuvent être réçu
+dans le désordre par chacun des serveurs: par exemple on peut recevoir un delete
+d’une valeur avant le add correspondant.
+Ce processus de conflict résolution a +2k loc de test unitaire qui lui sont dédié. Sans
+compté tous les autres tests dans lesquels il est Impliqué: quasiement chaque test
+fonctionnel/intégration passent aussi par là …
+Du coup, qui pensent que cette quinzaine de lignes de code ont réussi a trouver un
+bug inconnu ? Bingo. La raison est simple: ce bout de code génére 100k tests par
+seconde par CPU.
+Une armée de robot équipé de projecteur.
+Si un jours on a besoin de refactorer le code de résolution de conflit, on sera
+beaucoup plus détendu.
+Bref j’espère avoir réussi a vous faire apercevoir la puissance de cette approche.
+Sinon je vous invite a regarder les présentation de John Hugues qui est plus ou
+moins le co créateur du concept.
+Il y’a également une super présentation sur PropertyBased Testing et un site web F#
+for fun and profit qui propose une espéce de bibliothéque de propriétés dans lequel
+on peut aller piocher
+En cas de manque d’inspiration. Aussi les chatbot sont assez efficace pour donner
+des idées.
+Ok donc on a vu le fuzzing le property-Based testing ok mais … a la base on est là
+pour du DST non ? Alors oui, bonne question, regardons ou nous en sommes.
+
+Slide suivant:
+Donc on a notre système distribué qu’on a soigneusement designer et conçu dans le
+régles de l’art. C’est ce système que l’on souhaite vendre directement (on-prem) ou
+indirectement (SaaS).
+C’est notre produit.
+
+Slide suivant:
+Grace au Fuzzing/Property-based testing on arrive maintenant a explorer cet espace
+d’etat a l’aide d’une armée de robot équipé de projecteur. Ils vont se comporter
+comme les utilisateurs du système. Comme tous les différents types d’utilisateurs du
+système.
+Ceux qui l’utilisent correctement, ceux qui l’utilisent de manière original et ceux qui
+veulent simplement le casser. On est déjà un petit peu plus détendu.
+Mais il nous manque un morceau. Notre produit se fait certes maintenant “attaqué”
+par cette armée de robot mais notre système n’existe pas dans un vide d’air ...
+
+Slide suivant:
+Notre système distribué est déployé dans un environnement: cloud ou on-prem. En
+on-prem on a encore moins de controle. Il sera probablement installé sur des
+machines mal configurés, totalement sous dimensioné avec des disque dur de récup
+a la fiabilité douteuse.
+L'environnement essaie lui aussi de s’attaquer a la stabilité de notre beau système !
+Et rien de ce qu’on a fait jusque là prépare notre système a recevoir de telles
+attaques…
+Quelque part on voudrait pouvoir faire pareil que ce qu’on a fait pour les utilisateurs,
+utiliser une autre armée de robot …
+
+Slide suivant:
+De céer un environement instable, le pire des environnements que notre système est
+censé pouvoir supporter.
+Il y’a un peu de l’idée de chaos testing derriére ça. Sauf que le chaos testing c’est
+aussi une usine a flakyness et de lourdeur … c’est long …
+Tester un timeout de 30 seconds nécessite de générer une coupure réseau d’au
+minimum 30 secondes ...
+Nous avons besoin d’explorer un espace d’état infinie, Devoir attendre 30 secondes
+par test généré impliquant des partitions réseau n’est juste pas possible …
+A moins que …
+
+Slide suivant:
+A moins qu’on ne déploie pas notre système dans un environnement “physique” mais
+plutôt dans une simulation d'environnement.
+Un environnement où l’on aurait remplacé le temps, le réseau, les disks, les threads,
+les générateurs de nombre aléatoire par leur équivalent déterministe.
+Par des versions que l’on contrôle.
+Des versions que l’on contrôle et à qui l’on pourrait demander de simuler les pires cas
+que notre système est censé supporté ...
+Du coup, si l’on controle le système distribué, les utilisateurs dans toute leur diversité
+d’utilisation de notre système mais également l'environnement
+et tous ces sautes d’humeur tel que partition réseau, disk error, …
+On contrôle l’intégralité de ce qui se passe, on controle l’entiéreté de l’execution du
+système, aucun événement extérieur ne viendra perturbe ce qui s’y passe.
+On est de nouveau dans un monde idéal, isolé de toute source de distraction.
+
+Slide suivant:
+Du coup l’exploration le d’espace d’état est complétement controlé par la seed du
+PRNG qui sera utilisé pour piloter la generation des actions de nos utilisateurs,
+pour piloter les scénarios de chaos injecté dans notre environement simulé.
+Mais cette side drive aussi chaque opération de scheduling de thread, chaque
+fragmentation de paquet réseau, chaque latence, chaque accès disque.
+Avec le mm build et la même seed je peux rejouer exactement le film qui vient de se
+passer. Je vais pouvoir observer cette séquence d’éxecution a l’envie.
+avec 100% de reproducibilité. Chaque micro décision sera prise exactement de la
+même manière.
+
+Slide suivant:
+Ah oui, vous vous rappelez du temps ? Les fameux 30 secondes a attendre pour
+tester un timeout …
+Ici, même le temps est simulé. Si le système n’a rien a faire pendant 30 secondes, le
+simulateur avance automatiquement le temps a now + 30 secondes Et execute
+l’instruction suivante. 30s = 1ns
+Tout ce qui tourne dans notre environement d’éxécution déterministe pense que le
+temps a vraiment avancé de 30s alors que le temps réel a changé de qq nano
+secondes.
+Notre armée est nombreuse et maintenant en plus elle est rapide.
+
+Slide suivant:
+Histoire de rendre les choses un peu plus concrete
+Alors voici un example de test qui tourne dans notre simulateur.
+Ici on décrit les composants a déployer dans le simulateur. Je me suis un peu inspiré
+de ‘docker-compose’ qui liste les services a déployer.
+Sauf que bien sur ici on ne va rien déployer dans docker, tout va tourner dans le
+simulateur dans la JVM. A l’intérieur d’un seul et même thread platform. Ce qui est
+obligatoire pour le déterminisme
+Du coup en lieu et place d’image docker j’utilise des WARs comme image. Sauf que
+ce ne sont pas des vrai WARs. On a pas de web.xml, PingDS est une base de
+données pas une WebApp.
+C’était juste bcp plus partique pour moi et rapide de packager Ça en tant que WAR vu
+que maven possede déjà le tooling pour. Donc sur la fleche bleu on donne un nom a
+cette fake image, on indique
+où trouver le WAR de l’image sur disque Et le troisième paramètre c’est la classe de
+l’entry-point. Quand le service va démarrer on va invoker le public static main void()
+contenu dans la classe indiqué.
+Comme on peut le voir, un même WAR peut contenir plusieurs entry-point et c’est ici,
+lors du déploiement, qu’on décide lequel utiliser
+
+Slide suivant:
+Ici on voit que ce test va déployer 3 fois la même image “opendj-server” configuré ci
+dessus.
+Chacune de ces instances a une IP fixe associée et un hostname ds-0, ds-1, ds-2.
+Chaque service reçoit un tableau de paramétres, effectivement ce qui va être passé
+en argument a l’entry-point
+
+Slide suivant:
+Enfin, tout en bas on a ce service un peu spécial puisque celui-ci est notre client de
+test, celui qui va par example générer des requêtes de manière aléatoire contre nos
+serveurs déployé au dessus.
+Ce service a la particularité d’être responsable de la durée de vie du déploiement. La
+simulation va s’arrêter lorsque le testclient-0 sortira de sa methode main.
+
+Slide suivant:
+Voilà un example d’entry-point. Ici on démarre un outil que l’on distribue avec le
+produit PingDS et qui s’appel AddRate.
+AddRate est un outil qui génére des requêstes de ADD et de DELETE et qu’on utilise
+en interne principalement pour des tests de perfs.
+Ici il est configuré pour générer des requêtes ADD/DELETE pendant 5 minutes (900
+secondes) et va générer une requête par seconde.
+
+Slide suivant:
+Donc on démarrer notre simulateur, qui va démarrer nos trois serveurs et notre
+workload.
+Notre workoad va essayer de se connecter a un des trois serveurs pour envoyer des
+requêtes, les trois serveurs vont se connecter entre eux pour pouvoir répliquer leur
+données et le simulateur va empecher tout ce beau
+Monde de tourner rond en créer de la latence, des dédonnections, des partitions
+réseaux etc etc… dans l’espoire de trouver un bug qq part.
+
+Slide suivant:
+Donc au final grace au DST
+On génére des inputs très différentes pour simuler des utilisateurs créatif qui vont
+venir attaquer notre système qui est déjà lui même en train de se battre dans un
+environement chaotic.
+Si un comportement non attendu est rencontré on peut le reproduire, 100% du temps.
+C’est plus simple pour debugger.
+Avec ça, cest certain on peut partir a la chasse au bug !!!
+Bon, parcontre, contrairement a ce que laisse supposer cette image généré par IA sur
+la droite et bien que dans la nature ce soit le cas,
+Nos chere petit bug ne vont pas se mettre a courrir pour se placer d’eu même sous
+nos projecteurs ….
+
+Slide suivant:
+Au contraire il vont plutôt bien se planquer … il va falloir aller les chercher.
+
+Slide suivant:
+Cette image vient d’une autre présentation de Will Wilson qui aujourd’hui ne travaille
+plus a FoundationDB puisqu’il à maintenant créé une nouvelle startup qui s’appelle
+Antithesis et qui propose du DST en mode SaaS.
+Allez visitez leur site/blogs/chaine youtube. Une mine d’or.
+Donc ce visuel représente très bien le problème. Le jeu Mario a été écrit en 1985, fort
+a parier que tout est single threaded, il n’y a pas de réseau … Mario est
+probablement 100% déterministique. Pas de problème d'environnement chaotic.
+Si on veut faire du PBT, il nous reste donc la partie de génération d’action pour piloter
+mario: gauche, bas, droite, haut et saut. Le nombre d’input possible que le systéme,
+mario, peut recevoir tiens dans un seul octet. Et encore, il reste de la place.
+Donc on est a priori dans un cas idéal, l’espace d’état semble restreint …
+Pourtant on se rend bien compte que si on veut tester efficacement le jeu Mario, il
+faut au minimum pouvoir aller jusqu’a la fin du jeu et délivrer la princesse. Sauf que si
+on attaque à ce problème avec un pure random number generator on ne va pas aller
+bien loin.
+La probabilité de générer une séquence d’action de manière purement aléatoire qui
+permettrait de finir ne serait-ce que le premier niveau peut être arrondi a 0
+Peut être qu’avec un run sur 1000 on arivera a battre le premiere champignon, un run
+sur 1 millions on arrivera a sauter sous le premier point d’interogation. On sent bien
+qu’on va pas y arriver, même avec bcp de parallelisme, meme en accélérant le temps
+Ce qu’on veut c’est guider Mario un peu, lui dire d’aller plutôt vers la droite. Mais pas
+trop parce qu’on veut pouvoir continuer a faire n’importe quoi et sauter un peu partout
+pour explorer un peu mieux l’espace d’état.
+
+Slide suivant:
+Ce problème de la “guidance” est bien connu dans les libraries de fuzzers c’est
+pourquoi la pluspart des librairies de fuzzing/pbt utilise le code-coverage comme
+guidance pour optimiser la création d’input pertinente.
+Si aucun code nouveau n’a été exploré par l’input en cours, on droppe et essaie autre
+chose.
+Sinon je garde cette input et je la modifie un peu en espérant arriver ailleur. J’execute
+un peu de la mm chose mais aussi un peu de différent.
+Notre armée est nombreuse, rapide et intelligente.
+Sauf que ..
+
+Slide suivant:
+Cette technique est très efficace pour tester des partie de code restreinte, qq
+méthodes, qq classes. Ne fonctionne plus très bien avec des systèmes plus
+important.
+La quantité de code traversé n’est pas vraiment un bon indicateur de l’avancement
+dans le jeux. On peut imaginer qu’on aura déjà parcouru une bonne partie du code
+de Mario avant la fin du premier niveau.
+On a besoin de fournir des signaux de guidage plus précis, plus adapté, plus
+contextualisé pour aider Mario a sauver la princesse.
+Comme par exemple utiliser non pas le code-coverage mais la position de Mario sur l’
+écran: et avec une stratégie du type “arrivé un peu plus a droite que la position de
+départ c’est mieux que d’être n’importe ou ailleur”.
+Avec cette stratégie on a notre générateur d’input qui va avoir tendance a générer
+des cas qui vont amener mario vers la fin du jeu.
+Ça veut aussi dire qu’on teste moins bien. Après tout peut être qu’il y’a un bug au
+niveau 1, dés le départ. Peut être que si on saute 256 sur place sans bouger le jeu
+crash ...
+L’espace-d’état est quasi infini et dans un temps restreint on ne peut pas tout
+explorer. Il faut donc prioriser. C’est ce qui se cache derriére cette idée de guidance.
+
+Slide suivant:
+Ok donc dans Mario on avance vers la doite mais dans mon système ça veut dire
+quoi ? Qu’est-ce que je peux utiliser pour mesurer le progrés si je ne peut m’appuyer
+sur le code coverage ?
+En fait il y’a déjà un signal présent dans quasiement tous les systèmes que nous
+construisons et qui est assez simple a utiliser: les logs. Chaque log est un signal. Un
+log ERROR est un signal fort que l’on vient de toucher un point sensible. Trouver un
+log du type “Should never happen” c’est un peu comme avoir battu le boss de fin de
+niveau. On vient de trouver un nid de bugs !
+On va donc écouter/regarder les logs générés par le systeme …
+
+Slide suivant:
+Donc nous on fait du java, notre DST est donc en Java et on l’appel “le simulateur”.
+Oui c’est original
+Ce simulateur tourne dans une JVM avec un agent qui injecte la magie nécessaire
+pour pouvoir créer cette boite qui va nous isoler du monde pour pouvoir se retrouver
+dans le confort d’un environement d’execution déterministre.
+Dans cet environement nous voyons ici que nous avons déployé notre base de
+donnée PingDS ainsi qu’une Workload, en gros un client de tests. On peut imaginer
+que ces boites jaunes sont un peut comme des pods, des containers dockers.
+Bien sur ce n’est pas le cas vu qu’on est a l’intérieur d’une JVM mais c’est la même
+idée. Chaque boite jaune est isolé des autres et ne peut communiquer qu’au traver du
+réseau. Réseau simulé et déterministe.
+Tout ça démarre, le client de tests envoie des requêtes a un ou plusieurs DS, les
+serveurs répliquent les données (et utilise le mécanisme de conflict résolution décrit
+précédement). A partir de là, le Simulator va commencer a injecter du chaos,
+Injecter des fautes: les connections vont être plus longue a s’établir, les packets vont
+arriver plus tard, parfois même des partitions réseaux vont empecher ces paquets
+d’arriver. Ou alors ils ne peuvent voyager que d’un côté: la workload peut envoyer
+des requêsts au serveur qui vont les recevoir et les traiter mais les réponses du
+serveur seront droppé … les threads qui executent des taches dans differents ordre
+etc etc .. On crée un bazare immense.
+Lors de l’execution, chacun les serveur PIngDS et la Workload vont produire des 
+logs. Ces logs sont envoyés au système de log centralisé. (Alors j’utilise VictoriaLogs
+qui est absolument génial, c’est petit ça marche tout de suite sur un laptop et a priori
+ça peut scaler vers l’infini and beyond. Bref allez y jetter un coup d’oeil.
+Le DST orchestrator lui monitor ces logs a la recherche de la perle rare …
+
+Slide suivant:
+Alors l’orchestrator regarde les logs,
+Ok des logs INFO, cool, boring …
+Ah la ! Un warning !! Ça, ça m'intéresse … Allons voir ça d’un peu plus près ..
+
+Slide suivant:
+Alors que nous dit ce log warning …
+eid: c’est le numéro du run de test. Chaque execution du simulateur a sont eid
+unique.
+Ok donc ce warning a été généré par ds-0 dans le temps virtuel/simulé du 21 Octobre
+2015 a 16h29… Très bien
+Enfin, l’itération: 468132. Il s’agit en fait du nombre de fois ou un nombre aléatoire a
+été demandé. Rappel dans notre environement déterministe on controle tout, le
+temps, le réseau, les disques et les générateurs de nombre aléatoire.
+Donc l’execution a demandé la génération d’un nombre aléatoire soit pour générer
+une action utilisateur, soit pour envoyer un packet réseau et générer une latence, de
+la fragmentation, générer une partition réseau, etc etc …
+Donc ici on apprends que ce log a été généré après la 468132 demande de nombre
+aléatoire.
+
+Slide suivant:
+A la rencontre de ce log WARN intéressant, l’orchestrator va se poser la question de
+savoir si il a déjà vu ce log.
+Il va donc interroger sa base de donnée et là on peut voir les réponses qu’il obtient
+dans ces deux carrés bleu en bas
+
+Slide suivant:
+La base a vu passer 696481 logs en tout. Par contre, celui là, spécifiquement
+l’orchestrator ne l’a jamais vu: count 0.
+On obtient également une autre information: Ce run a l’eid c72 blahblah qui a généré
+ce log a été démarré avec le seed 42.
+Donc grace au déterminisme, si on veut se retrouver exactement dans cette même
+situation il suffira de relancer un run avec la seed 42.
+
+Slide suivant:
+Mais si on revient au log, le fait que l’orchestrator ne l’ai jamais rencontré avant c’est
+un peu le jackpot. Il vient, par hasard, d’arriver a déclencher un traitement/un log qui
+n’avait jamais été vu auparavant.
+Il vient de trouver la clé d’une porte vers l’inconnu.
+
+Slide suivant:
+Si on refait un pas en arriére, on a donc là une execution qui avec un seed 42 permet
+de générer ce log super intéressant car jamais rencontré jusque là.
+Et si le fait d’avoir un environement d’execution déterministe nous donne la propriété
+géniale de pouvoir reporduire les bugs a 100%,
+l’autre arme au moins aussi puissante c’est la possibilité de créer des banches
+d'exécutions …
+
+Slide suivant:
+L’orchestrator va en effet planifier un nouveau run en partant de cette même seed 42.
+Mais en cours de route a un moment aléatoire entre le début et le log warning, il va
+demander à ce que le simulateur change de seed.
+En faisant celà on généré une éxécution qui est un peu pareil que celle d’avant mais
+aussi un peu différente.
+Est-ce qu’on va réussir a faire que ce log WARN devient un ERROR ? Voir même on
+va arriver a trouver un contre-example a un invariant.
+Ou peut être allons nous réussir a obtenir ce log WARN plus tôt ?
+Ou peut être allons nous découvrir qqchose de complétement différent … que l’on
+connait déjà .. ou pas :)
+Il va donc planifier ce nouveau run et va le fournir au premier simulator qui en fera la
+demande. Ce run aura une priorité très important et passera sans doute devant
+beaucoup d’autre run planifié
+de part le fait qu’il a été généré suite a la rencontre d’un événement tellement rare
+qu’on ne l’avait jamais découvert jusqu’ici.
+
+Slide suivant:
+En fait il va planifier deux runs. Un run qui modifie légérement le passé de ce log
+warning. Et il va en faire un qui va modifier son futur.
+Peut être qu’on arrivera pas trouver un contre example en explorant le passé mais
+peut être qu’on en trouvera un plus loin dans le futur.
+On sait pas c’est la première fois qu’on arrive la. Ça vaut le coup d’essayer …
+
+Slide suivant:
+Donc on a notre orchestrator qui a écouté les signaux émis par notre système en train
+d’être testé
+Il a trouvé un cas super intéressant et il a planifié deux runs pour pouvoir explorer
+plus en détail ce cas intéressant.
+Et ce mécanisme il va l’appliquer pour chaqun des logs intéressant qu’il trouvera. En
+temps réel. Plus on aura de machinie qui executeront le simulator, plus on pourra
+executer de run planifié par l’orchestrator, plus on va explorer d’état, plus on a de
+chance de générer des logs intéressant … Une machine d’exploration de l’espace d’
+état.
+Un bug est trouvé ? Super ! On télécharge les seeds, on execute le tout en local, on
+met des breakpoints. On reproduit le bug a 100%
+
+Slide suivant:
+J’espque que ce que vous avez vu jusque là vous parle et vous intéresse. Si c’est le
+cas j’ai une excellent nouvelle pour vous.
+
+Slide suivant:
+Je suis très heureux de vous annoncer que Ping Identity a accepté la mise en
+OpenSource de notre simulator.
+Alors la news est super fraiche j’ai reçu l’accord semaine dernière et je n’ai pas
+encore eu le temps de finir de le packager correctement. Mais j’ai reçu l’approval
+technique et légal.
+D’ailleurs je tiens a remercier les membres de PingDS qui ont apporté leur support,
+Allan Matt Laurent … Merci !
+Donc je vous invite a monitorer le repository de pingidentity sur github et ça devrait
+arriver d’ici qq jours.
+La décision de passer le simulateur en open-souce est multiple:
+- C’est en parfaite cohesion avec la mission et les valeurs de PIng Identity. Nos
+produit dépendendent d’autre produit pour certain opensource et permettre a
+ses projets d’ête mieux testé nous permet de notre côté de fournir des
+produits plus fiable.
+- Pour remplir sa mission, le simulator via l’agent java, accéde a des API interne
+de la JVM et on aimerait bien pouvoir collaborer avec les équipes du JDK pour
+essayer d’établir des API publique. Jusque là il y aura tjrs un risque de devoir
+modifier constament l’agent pour l’adapter aux nouvelles version de Java. En
+ce moment il y’a tjrs un peut le risque qu’une release aura une feature qui
+empechere l’agent de faire sa magie
+- Permettre de compléter son implémentation. Pour le moment la partie réseau
+ne supporte que l’API Socket bloquante aussi appeler OIO. Peut être qu’il y’a
+des gens ici de chez redhat, quarkus qui pourrait aider a founir le support
+vertx, spring, …
+- Enfin, fournir une plateform au chercheurs AI pour trouver des moyens de
+debusquer les bugs plus rapidement ou que sais-je encore.
+
+Et c’est pour moi la fin de cette présentation. Je vous remercie et n’hésitez pas a
+venir a ma rencontre si vous avez des questions ou juste pour discuter, j’en serai
+ravis.
+Merci !
+

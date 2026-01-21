@@ -12,6 +12,7 @@
     <packaging>maven-plugin</packaging>
 
     <name>OpenDST Maven Plugin</name>
+    <description>Maven plugin for running OpenDST deterministic simulation tests</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -19,6 +20,28 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>org.codehaus.plexus</groupId>
+            <artifactId>plexus-utils</artifactId>
+            <version>3.6.0</version>
+        </dependency>
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>3.0.4</version>
+        </dependency>
+        <dependency>
+            <groupId>gg.jte</groupId>
+            <artifactId>jte</artifactId>
+            <version>3.2.3</version>
+        </dependency>
+        <!-- Required for offline instrumentation -->
+        <dependency>
+            <groupId>com.pingidentity.opendst</groupId>
+            <artifactId>opendst-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-core</artifactId>
@@ -37,18 +60,11 @@
             <version>3.15.2</version>
             <scope>provided</scope>
         </dependency>
-        <dependency>
-            <groupId>tools.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>3.0.4</version>
-            <scope>compile</scope>
-        </dependency>
-        <!-- Required for offline instrumentation -->
+
         <dependency>
             <groupId>com.pingidentity.opendst</groupId>
-            <artifactId>opendst-simulator</artifactId>
+            <artifactId>opendst-api</artifactId>
             <version>${project.version}</version>
-            <scope>compile</scope>
         </dependency>
     </dependencies>
 
@@ -58,6 +74,25 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-plugin-plugin</artifactId>
                 <version>3.15.2</version>
+            </plugin>
+            <plugin>
+                <groupId>gg.jte</groupId>
+                <artifactId>jte-maven-plugin</artifactId>
+                <version>3.1.12</version>
+                <executions>
+                    <execution>
+                        <id>precompile</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>precompile</goal>
+                        </goals>
+                        <configuration>
+                            <sourceDirectory>${project.basedir}/src/main/resources</sourceDirectory>
+                            <targetDirectory>${project.build.outputDirectory}</targetDirectory>
+                            <contentType>Html</contentType>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -71,7 +106,7 @@
                             <goal>copy-dependencies</goal>
                         </goals>
                         <configuration>
-                            <includeArtifactIds>opendst-simulator</includeArtifactIds>
+                            <includeArtifactIds>opendst-core</includeArtifactIds>
                             <outputDirectory>${project.build.outputDirectory}/META-INF/agents</outputDirectory>
                             <stripVersion>true</stripVersion>
                         </configuration>
@@ -91,7 +126,8 @@
                     <localRepositoryPath>${project.build.directory}/local-repo</localRepositoryPath>
                     <settingsFile>src/it/settings.xml</settingsFile>
                     <extraArtifacts>
-                        <extraArtifact>com.pingidentity.opendst:opendst-simulator:${project.version}:jar</extraArtifact>
+                        <extraArtifact>com.pingidentity.opendst:opendst-core:${project.version}:jar</extraArtifact>
+                        <extraArtifact>com.pingidentity.opendst:opendst-api:${project.version}:jar</extraArtifact>
                     </extraArtifacts>
                     <skipInvocation>${skipTests}</skipInvocation>
                 </configuration>

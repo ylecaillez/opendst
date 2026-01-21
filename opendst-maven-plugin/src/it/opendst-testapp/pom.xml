@@ -19,15 +19,25 @@
                 <artifactId>@project.artifactId@</artifactId>
                 <version>@project.version@</version>
                 <configuration>
-                    <testClass>com.pingidentity.opendst.testapp.ClientServerDST</testClass>
-                    <testMethod>run</testMethod>
+                    <parallelism>8</parallelism>
+                    <stagnationLimit>200</stagnationLimit>
+                    <replayProbability>0.2</replayProbability>
                     <jvmArguments>-XX:TieredStopAtLevel=1 -Xms64m -Xmx64m</jvmArguments>
+                    <networkFaults>
+                        <enabled>true</enabled>
+                        <latencyProbability>0.8</latencyProbability>
+                        <minLatencyMs>50</minLatencyMs>
+                        <maxLatencyMs>200</maxLatencyMs>
+                        <partitionProbability>0.2</partitionProbability>
+                    </networkFaults>
+                    <fileSystemFaults>
+                        <enabled>true</enabled>
+                        <ioErrorProbability>0.1</ioErrorProbability>
+                    </fileSystemFaults>
                 </configuration>
                 <executions>
                     <execution>
-                        <goals>
-                            <goal>test</goal>
-                        </goals>
+                        <goals><goal>test</goal></goals>
                     </execution>
                 </executions>
             </plugin>
@@ -54,7 +64,12 @@
         </dependency>
         <dependency>
             <groupId>com.pingidentity.opendst</groupId>
-            <artifactId>opendst-simulator</artifactId>
+            <artifactId>opendst-api</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.pingidentity.opendst</groupId>
+            <artifactId>opendst-core</artifactId>
             <version>0.0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>

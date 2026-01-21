@@ -29,13 +29,13 @@ By intercepting non-deterministic operations (like time, threading, and randomne
 
 ## How It Works
 
-OpenDST uses a Java Agent (`SimulatorAgent`) to instrument bytecode at runtime. It replaces calls to non-deterministic APIs with calls to the `Simulator`.
+OpenDST uses a Java Agent (`SimulatorAgent`) to instrument bytecode at runtime. It replaces calls to non-deterministic APIs with calls to the `Simulator`. Application code is instrumented **offline** by the Maven plugin using the JDK 25 ClassFile API (JEP 457). JDK internals are handled at **runtime** by a lightweight Java Agent.
 
 When running inside a simulation:
 *   **Time:** `System.currentTimeMillis()` and `System.nanoTime()` return a simulated time that advances only when the simulator decides.
 *   **Threads:** `new Thread()` and `startVirtualThread()` are intercepted to run as virtual threads managed by the simulator's scheduler.
 *   **Randomness:** `ThreadLocalRandom`, `SecureRandom`, and `Random` are seeded deterministically.
-*   **Network:** (Planned/In-progress) Network interactions can be simulated to test partition tolerance and message ordering.
+*   **Network:** Network interactions are simulated with a virtual IP stack, supporting programmable latency, partitions, and packet loss.
 
 ## Usage
 
@@ -56,27 +56,28 @@ mvn clean install
 
 ### Writing a Deterministic Test
 
-Wrap your test logic in `Simulator.runSimulation()`:
+Create a class whose name ends with `DST`. Each `public void` zero-arg method is a test:
 
 ```java
-import static com.pingidentity.opendst.Simulator.runSimulation;
+import static com.pingidentity.opendst.api.Simulator.startNode;
 import static java.lang.System.currentTimeMillis;
 import static java.lang.Thread.sleep;
-import static java.time.Duration.ofHours;
-import static org.assertj.core.api.Assertions.assertThat;
 
-public class MyDeterministicTest {
+import com.pingidentity.opendst.api.Assert;
+import com.pingidentity.opendst.api.Signals;
 
-    @Test
-    public void testTimeTravel() {
-        runSimulation(() -> {
+public class MyFirstDST {
+
+    public void run() throws Exception {
+        startNode("node-1", "10.0.0.1", () -> {
+            Signals.ready();
             long start = currentTimeMillis();
-            
+
             // This sleeps for 1 hour in simulation time, but returns instantly in real time
-            sleep(ofHours(1).toMillis());
-            
+            sleep(3_600_000);
+
             long end = currentTimeMillis();
-            assertThat(end - start).isEqualTo(ofHours(1).toMillis());
+            Assert.always(end - start == 3_600_000, "time-elapsed", null);
             return null;
         });
     }
@@ -86,7 +87,7 @@ public class MyDeterministicTest {
 ## Architecture
 
 *   **`Simulator`:** The core engine that manages the simulation loop, virtual time, and task scheduling.
-*   **`SimulatorAgent`:** A Java Agent that uses ByteBuddy to intercept JDK methods and redirect them to the `Simulator`.
+*   **`SimulatorAgent`:** A Java Agent that uses the ClassFile API (JEP 457) to intercept JDK methods and redirect them to the `Simulator`.
 *   **`Machine`:** Represents a node in the distributed system simulation (context for the current execution).
 
 ## References & Further Reading

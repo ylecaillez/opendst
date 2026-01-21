@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.pingidentity.opendst</groupId>
+    <artifactId>opendst-examples</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>example-app-dst</artifactId>
+  <name>OpenDST Example - Bank Transfer DST</name>
+
+  <dependencies>
+    <!-- The application under test -->
+    <dependency>
+      <groupId>com.pingidentity.opendst</groupId>
+      <artifactId>example-app</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <!-- OpenDST API (compile scope — needed for Assert and Signals) -->
+    <dependency>
+      <groupId>com.pingidentity.opendst</groupId>
+      <artifactId>opendst-api</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>com.pingidentity.opendst</groupId>
+        <artifactId>opendst-maven-plugin</artifactId>
+        <version>${project.version}</version>
+        <configuration>
+          <parallelism>8</parallelism>
+          <stagnationLimit>200</stagnationLimit>
+          <replayProbability>0.05</replayProbability>
+          <jvmArguments>-XX:TieredStopAtLevel=1 -Xms64m -Xmx64m</jvmArguments>
+          <networkFaults>
+            <enabled>true</enabled>
+            <latencyProbability>0.3</latencyProbability>
+            <minLatencyMs>50</minLatencyMs>
+            <maxLatencyMs>500</maxLatencyMs>
+            <partitionProbability>0.1</partitionProbability>
+            <packetLossProbability>0.05</packetLossProbability>
+          </networkFaults>
+        </configuration>
+        <executions>
+          <execution>
+            <goals><goal>test</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -9,11 +9,49 @@
   <packaging>pom</packaging>
 
   <name>OpenDST Parent</name>
+  <description>Deterministic Simulation Testing framework for Java</description>
+  <url>https://github.com/pingidentity/opendst</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <organization>Ping Identity Corporation</organization>
+      <organizationUrl>https://www.pingidentity.com</organizationUrl>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/pingidentity/opendst.git</connection>
+    <developerConnection>scm:git:git@github.com:pingidentity/opendst.git</developerConnection>
+    <url>https://github.com/pingidentity/opendst</url>
+    <tag>HEAD</tag>
+  </scm>
+
+  <issueManagement>
+    <system>GitHub Issues</system>
+    <url>https://github.com/pingidentity/opendst/issues</url>
+  </issueManagement>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <main.basedir>${project.basedir}</main.basedir>
   </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.github.spotbugs</groupId>
+      <artifactId>spotbugs-annotations</artifactId>
+      <version>4.9.1</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
 
   <build>
     <pluginManagement>
@@ -26,6 +64,15 @@
             <source>25</source>
             <target>25</target>
             <release>25</release>
+            <showWarnings>true</showWarnings>
+            <compilerArgs>
+              <arg>-Xlint:all</arg>
+              <arg>-Xlint:-deprecation</arg>
+              <arg>-Xlint:-removal</arg>
+              <arg>-Xlint:-unchecked</arg>
+              <arg>-Xlint:-processing</arg>
+              <arg>-Werror</arg>
+            </compilerArgs>
           </configuration>
         </plugin>
         <plugin>
@@ -49,23 +96,100 @@
               </format>
             </formats>
             <java>
+              <importOrder />
+              <removeUnusedImports />
               <palantirJavaFormat>
                 <version>2.86.0</version>
                 <style>PALANTIR</style>
                 <formatJavadoc>false</formatJavadoc>
               </palantirJavaFormat>
               <licenseHeader>
-                <file>${main.basedir}/license-header</file>
+                <file>${maven.multiModuleProjectDirectory}/license-header</file>
               </licenseHeader>
             </java>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-release-plugin</artifactId>
+          <version>3.1.1</version>
+          <configuration>
+            <autoVersionSubmodules>true</autoVersionSubmodules>
+            <releaseProfiles>release</releaseProfiles>
+            <tagNameFormat>v@{project.version}</tagNameFormat>
+            <goals>deploy</goals>
           </configuration>
         </plugin>
       </plugins>
     </pluginManagement>
   </build>
 
+  <profiles>
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>3.3.1</version>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>3.11.2</version>
+            <configuration>
+              <release>25</release>
+            </configuration>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.7</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.7.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
   <modules>
-    <module>opendst-simulator</module>
+    <module>opendst-core</module>
     <module>opendst-maven-plugin</module>
+    <module>opendst-api</module>
+    <module>opendst-examples</module>
   </modules>
 </project>
