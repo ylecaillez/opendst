@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Ping Identity Corporation
+ * Copyright 2025-2026 Ping Identity Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import static java.net.InetAddress.getLoopbackAddress;
 import static java.util.Locale.ROOT;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
+import com.pingidentity.opendst.Simulator.Machine;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
@@ -51,11 +52,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.locks.Condition;
 import java.util.stream.Stream;
-
 import javax.net.ServerSocketFactory;
 import javax.net.SocketFactory;
-
-import com.pingidentity.opendst.Simulator.Machine;
 
 /**
  * Simulated network implementing the blocking {@link Socket} API.
@@ -327,6 +325,7 @@ final class Node extends Machine {
         private final boolean isServer;
         /** For server sockets, contains the socket waiting to be accepted. */
         private ArrayBlockingQueue<NetSocketImpl> backlog;
+
         private Binding binding;
         private NetSocketImpl peer;
         /**
@@ -350,6 +349,7 @@ final class Node extends Machine {
          * {@link #accept(SocketImpl)}).
          */
         private int soTimeout;
+
         private Object soLinger;
         private boolean closed;
 
@@ -389,9 +389,10 @@ final class Node extends Machine {
 
                 if (binding == null) {
                     binding = netInterfaces.bind(
-                            peerAddress.isLoopbackAddress() ? getLoopbackAddress()
-                                                            : localHost,
-                            localport, this, soReuseAddr);
+                            peerAddress.isLoopbackAddress() ? getLoopbackAddress() : localHost,
+                            localport,
+                            this,
+                            soReuseAddr);
                     localport = binding.port();
                 }
 
@@ -443,7 +444,7 @@ final class Node extends Machine {
                     Objects.checkFromIndexSize(off, len, b.length);
                     simulator.lock.lock();
                     try {
-                        for (;;) {
+                        for (; ; ) {
                             if (closed) {
                                 throw new SocketException("Socket is closed");
                             } else if (isInputShutdown) {
@@ -512,7 +513,7 @@ final class Node extends Machine {
             return new OutputStream() {
                 @Override
                 public void write(int b) throws IOException {
-                    write(new byte[] { (byte) b });
+                    write(new byte[] {(byte) b});
                 }
 
                 @Override
@@ -675,7 +676,7 @@ final class Node extends Machine {
                 } else if (peerSocket == null) {
                     throw new InterruptedIOException();
                 }
-                acceptedLocalSocket.binding = new Binding(peerSocket.address, peerSocket.port, () -> { });
+                acceptedLocalSocket.binding = new Binding(peerSocket.address, peerSocket.port, () -> {});
                 acceptedLocalSocket.localport = localport;
                 acceptedLocalSocket.address = peerSocket.binding.address();
                 acceptedLocalSocket.port = peerSocket.binding.port();
@@ -689,8 +690,9 @@ final class Node extends Machine {
 
     SocketImpl route(InetAddress from, InetAddress address, int port)
             throws UnknownHostException, NoRouteToHostException {
-        return netInterfaces.isLocal(address) ? netInterfaces.route(address, port)
-                                              : simulator.route(from, address, port);
+        return netInterfaces.isLocal(address)
+                ? netInterfaces.route(address, port)
+                : simulator.route(from, address, port);
     }
 
     private record Binding(InetAddress address, int port, Closeable closeable) implements Closeable {
@@ -727,8 +729,8 @@ final class Node extends Machine {
 
         NetInterfaces(InetAddress localHost) {
             addresses = localHost.isLoopbackAddress()
-                        ? Set.of(localHost.getHostAddress())
-                        : Set.of(getLoopbackAddress().getHostAddress(), localHost.getHostAddress());
+                    ? Set.of(localHost.getHostAddress())
+                    : Set.of(getLoopbackAddress().getHostAddress(), localHost.getHostAddress());
         }
 
         boolean isLocal(InetAddress address) {

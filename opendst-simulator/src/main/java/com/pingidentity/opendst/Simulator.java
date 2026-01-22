@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 Ping Identity Corporation
+ * Copyright 2024-2026 Ping Identity Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -79,10 +79,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.LongFunction;
 import java.util.function.ToLongFunction;
 import java.util.stream.Stream;
-
 import javax.net.ServerSocketFactory;
 import javax.net.SocketFactory;
 
@@ -156,6 +154,7 @@ public final class Simulator implements AutoCloseable {
     public static class SystemExitError extends Error {
         @Serial
         private static final long serialVersionUID = 1L;
+
         private final int exitCode;
 
         /**
@@ -176,14 +175,12 @@ public final class Simulator implements AutoCloseable {
     public static final String SIMULATOR_RUN_DIR = "simulator.run-dir";
     private static final long SIMULATOR_SEED = 42;
     // Visible for testing
-    static final Set<String> REDIRECT_CONSTRUCTORS_OF = Set.of("java/lang/Thread",
-                                                               "java/net/Socket",
-                                                               "java/net/ServerSocket");
+    static final Set<String> REDIRECT_CONSTRUCTORS_OF =
+            Set.of("java/lang/Thread", "java/net/Socket", "java/net/ServerSocket");
     // 2015-10-21, back to the future.
     private static final long START_TIME_SECONDS = 1445385600;
 
-    private record UncaughtException(Machine machine, Thread thread, Throwable throwable) {
-    }
+    private record UncaughtException(Machine machine, Thread thread, Throwable throwable) {}
 
     private static final ThreadLocal<Machine> MACHINE = new ThreadLocal<>();
     private final Map<InetAddress, String> addressToName = new HashMap<>();
@@ -196,6 +193,7 @@ public final class Simulator implements AutoCloseable {
     private UncaughtException uncaughtException;
     /** The simulated wall-clock time. */
     private final long nowSeconds = START_TIME_SECONDS;
+
     final Path runBaseDir;
     /** Represents the offset in nanoseconds from the simulated wall-clock time. */
     private long nanoTime;
@@ -205,8 +203,8 @@ public final class Simulator implements AutoCloseable {
     private boolean closed;
 
     private Simulator() throws IOException {
-        this.runBaseDir = Path.of(getProperty(SIMULATOR_RUN_DIR, "target/simulation"))
-                              .resolve(toHexString(SIMULATOR_SEED));
+        this.runBaseDir =
+                Path.of(getProperty(SIMULATOR_RUN_DIR, "target/simulation")).resolve(toHexString(SIMULATOR_SEED));
         Files.createDirectories(runBaseDir);
     }
 
@@ -229,8 +227,9 @@ public final class Simulator implements AutoCloseable {
     public static void runSimulation(String hostName, String ipAddress, Callable<Void> scenario)
             throws ExecutionException {
         if (MACHINE.get() != null) {
-            throw new IllegalStateException(
-                    format("The carrier thread '%s' is already running a simulation", currentThread().getName()));
+            throw new IllegalStateException(format(
+                    "The carrier thread '%s' is already running a simulation",
+                    currentThread().getName()));
         } else if (!getBoolean(AGENT_PROPERTY)) {
             throw new IllegalStateException("The simulation cannot start because the simulator agent is not present");
         }
@@ -292,19 +291,20 @@ public final class Simulator implements AutoCloseable {
      * @throws IllegalArgumentException if the node cannot be started
      * @throws IllegalStateException    if the method is not called from within a running simulation.
      */
-    public static void startNode(String hostName,
-                                 InetAddress ipAddress,
-                                 ClassLoader classLoader,
-                                 Path filesystemSourceDir,
-                                 Method main,
-                                 String[] args) {
+    public static void startNode(
+            String hostName,
+            InetAddress ipAddress,
+            ClassLoader classLoader,
+            Path filesystemSourceDir,
+            Method main,
+            String[] args) {
         var simulator = machineOrThrow().simulator;
         try {
             var node = new Node(simulator, classLoader, hostName, ipAddress.getHostAddress());
             if (filesystemSourceDir != null) {
                 initFileSystem(filesystemSourceDir, node.workingDirectory);
             }
-            node.startNode(() ->  {
+            node.startNode(() -> {
                 try {
                     main.invoke(null, (Object) args);
                     return null;
@@ -340,9 +340,9 @@ public final class Simulator implements AutoCloseable {
     private static Machine machineOrThrow() {
         var machine = machineOrNull();
         if (machine == null) {
-            throw new IllegalStateException(
-                format("This operation cannot be performed from the thread '%s' as it is not part of a simulation",
-                       currentThread().getName()));
+            throw new IllegalStateException(format(
+                    "This operation cannot be performed from the thread '%s' as it is not part of a simulation",
+                    currentThread().getName()));
         }
         return machine;
     }
@@ -399,9 +399,11 @@ public final class Simulator implements AutoCloseable {
         if (uncaughtException != null) {
             var exception = uncaughtException;
             uncaughtException = null;
-            throw new SimulationError(format("Uncaught exception on node '%s' in thread '%s'",
-                                              exception.machine().hostName, exception.thread().getName()),
-                                      exception.throwable());
+            throw new SimulationError(
+                    format(
+                            "Uncaught exception on node '%s' in thread '%s'",
+                            exception.machine().hostName, exception.thread().getName()),
+                    exception.throwable());
         } else if (allThreadsAreStuck()) {
             throw new SimulationError(
                     "The simulation terminated because all the remaining threads are stuck and can't make progress");
@@ -446,11 +448,13 @@ public final class Simulator implements AutoCloseable {
         } else if (machineOrNull() == null) {
             // We defer the exception and still execute the task as this case happens when we try to dump the
             // stacktrace of all the virtual threads.
-            deferException(machine, new SimulationError(
-                    format("The thread '%s' is not allowed to schedule task as it is not part of this simulation",
-                           currentThread().getName())));
+            deferException(
+                    machine,
+                    new SimulationError(format(
+                            "The thread '%s' is not allowed to schedule task as it is not part of this simulation",
+                            currentThread().getName())));
             task.run();
-            return new FutureTask<>(() -> { }, null);
+            return new FutureTask<>(() -> {}, null);
         } else if (atNanos < nanoTime) {
             throw new SimulationError("Cannot schedule a task in the past");
         }
@@ -524,7 +528,7 @@ public final class Simulator implements AutoCloseable {
     }
 
     /** Deterministic implementation of {@link Socket#Socket(String, int, boolean)}. */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused", "removal" })
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused", "removal"})
     public static Socket newSocket(InetAddress address, int port, boolean stream) throws IOException {
         if (stream) {
             throw new UnsupportedOperationException("Cannot create a stream socket");
@@ -556,7 +560,7 @@ public final class Simulator implements AutoCloseable {
     }
 
     /** Deterministic implementation of {@link Socket#Socket(String, int, boolean)}. */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused", "removal" })
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused", "removal"})
     public static Socket newSocket(String host, int port, boolean stream) throws IOException {
         if (stream) {
             throw new UnsupportedOperationException("Cannot create a stream socket");
@@ -600,84 +604,87 @@ public final class Simulator implements AutoCloseable {
     }
 
     /** Deterministic implementation of {@link Executors#defaultThreadFactory()}. */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
     public ThreadFactory executorsDefaultThreadFactory() {
         return ofVirtual().factory();
     }
 
     /** Deterministic implementation of {@link Thread#Thread()}. */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod" })
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod"})
     public static Thread newThread() {
         var machine = machineOrNull();
         return machine != null ? machine.newThread() : new Thread();
     }
 
     /** Deterministic implementation of {@link Thread#Thread(String)}. */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod" })
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod"})
     public static Thread newThread(String name) {
         var machine = machineOrNull();
         return machine != null ? machine.newThread(name) : new Thread(name);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, String)}. */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod" })
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod"})
     public static Thread newThread(ThreadGroup group, String name) {
         var machine = machineOrNull();
         return machine != null ? machine.newThread(group, name) : new Thread(group, name);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(Runnable)}. */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
     public static Thread newThread(Runnable target) {
         var machine = machineOrNull();
         return machine != null ? machine.newThread(target) : new Thread(target);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable)}. */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
     public static Thread newThread(ThreadGroup group, Runnable target) {
         var machine = machineOrNull();
         return machine != null ? machine.newThread(group, target) : new Thread(group, target);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(Runnable, String)}. */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
     public static Thread newThread(Runnable target, String name) {
         var machine = machineOrNull();
         return machine != null ? machine.newThread(target, name) : new Thread(target, name);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String)}. */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
     public static Thread newThread(ThreadGroup group, Runnable target, String name) {
         var machine = machineOrNull();
         return machine != null ? machine.newThread(group, target, name) : new Thread(group, target, name);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long)}. */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
     public static Thread newThread(ThreadGroup group, Runnable target, String name, long stackSize) {
         var machine = machineOrNull();
-        return machine != null ? machine.newThread(group, target, name, stackSize)
-                               : new Thread(group, target, name, stackSize);
+        return machine != null
+                ? machine.newThread(group, target, name, stackSize)
+                : new Thread(group, target, name, stackSize);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long, boolean)}. */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
-    public static Thread newThread(ThreadGroup group, Runnable target, String name, long stackSize,
-                                   boolean inheritThreadLocal) {
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
+    public static Thread newThread(
+            ThreadGroup group, Runnable target, String name, long stackSize, boolean inheritThreadLocal) {
         var machine = machineOrNull();
-        return machine != null ? machine.newThread(group, target, name, stackSize, inheritThreadLocal)
-                               : new Thread(group, target, name, stackSize, inheritThreadLocal);
+        return machine != null
+                ? machine.newThread(group, target, name, stackSize, inheritThreadLocal)
+                : new Thread(group, target, name, stackSize, inheritThreadLocal);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, String, int, Runnable, long)} . */
-    @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
-    public static Thread newThread(ThreadGroup group, String name, int characteristics, Runnable target,
-                                   long stackSize) {
+    @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
+    public static Thread newThread(
+            ThreadGroup group, String name, int characteristics, Runnable target, long stackSize) {
         var machine = machineOrNull();
-        return machine != null ? machine.newThread(group, target, name, stackSize)
-                               : VirtualThreadInternals.newThread(group, name, characteristics, target, stackSize);
+        return machine != null
+                ? machine.newThread(group, target, name, stackSize)
+                : VirtualThreadInternals.newThread(group, name, characteristics, target, stackSize);
     }
 
     /**
@@ -710,7 +717,7 @@ public final class Simulator implements AutoCloseable {
          * threads are ignored by this method and are unblocked in the {@link #runLoop()} to preserve determinism.
          */
         public static void unblockVirtualThreads() {
-            for (;;) {
+            for (; ; ) {
                 var vthread = takeVirtualThreadListToUnblock();
                 while (vthread != null) {
                     var nextThread = getNext(vthread);
@@ -851,13 +858,14 @@ public final class Simulator implements AutoCloseable {
         }
 
         void startNode(Callable<Void> bootstrap) {
-            scheduleNow(() -> ofVirtual().name(format("start-node-%s", hostName)).start(() -> {
-                try {
-                    bootstrap.call();
-                } catch (Throwable e) {
-                    uncaughtExceptionHandler(currentThread(), e);
-                }
-            }));
+            scheduleNow(
+                    () -> ofVirtual().name(format("start-node-%s", hostName)).start(() -> {
+                        try {
+                            bootstrap.call();
+                        } catch (Throwable e) {
+                            uncaughtExceptionHandler(currentThread(), e);
+                        }
+                    }));
         }
 
         /** Stops this node. Behaves as if the node had invoked {@link Runtime#exit}. */
@@ -866,7 +874,8 @@ public final class Simulator implements AutoCloseable {
                 // Scheduling a new thread while this node is already being stopped would result in infinite loop as
                 // the termination of this thread might lead purgeAndUnblockVirtualThreads() to invoke this stopNode()
                 // method again.
-                scheduleNow(() -> ofVirtual().name(format("stop-node-%s", hostName)).start(() -> exit(0)));
+                scheduleNow(
+                        () -> ofVirtual().name(format("stop-node-%s", hostName)).start(() -> exit(0)));
             }
         }
 
@@ -883,9 +892,9 @@ public final class Simulator implements AutoCloseable {
             shutdownHooks.forEach(Thread::start);
             try {
                 if (!virtualThreads.remove(currentThread())) {
-                    throw new SimulationError(
-                            format("exit() has been invoked from thread '%s' which is not part of the node '%s'",
-                                   currentThread().getName(), hostName));
+                    throw new SimulationError(format(
+                            "exit() has been invoked from thread '%s' which is not part of the node '%s'",
+                            currentThread().getName(), hostName));
                 }
                 if (waitUntilAllThreadExits()) {
                     // End of the grace period, interrupt all remaining threads
@@ -896,8 +905,9 @@ public final class Simulator implements AutoCloseable {
                     if (thread.isAlive()) {
                         var stack = new IllegalStateException("Stack trace");
                         stack.setStackTrace(thread.getStackTrace());
-                        throw new SimulationError(format("The thread '%s' from node '%s' cannot be stopped.",
-                                                         thread.getName(), hostName), stack);
+                        throw new SimulationError(
+                                format("The thread '%s' from node '%s' cannot be stopped.", thread.getName(), hostName),
+                                stack);
                     }
                 }
                 shutdown.complete(status);
@@ -932,7 +942,7 @@ public final class Simulator implements AutoCloseable {
         boolean purgeAndUnblockVirtualThreads() {
             boolean unblocked = false;
             boolean alive = false;
-            for (var it = virtualThreads.iterator(); it.hasNext();) {
+            for (var it = virtualThreads.iterator(); it.hasNext(); ) {
                 var thread = it.next();
                 alive |= thread.isAlive();
                 if (TERMINATED.equals(thread.getState())) {
@@ -945,9 +955,9 @@ public final class Simulator implements AutoCloseable {
                     if (!compareAndSetOnWaitingList(thread, true, false)) {
                         // Should never happen. One possible explanation is that this thread has been unblocked by the
                         // VirtualThread-unblocker. Proof that this run is no more deterministic.
-                        throw new SimulationError(
-                                format("Thread '%s' is no more present on the waiting-list. Determinism is broken",
-                                       thread.getName()));
+                        throw new SimulationError(format(
+                                "Thread '%s' is no more present on the waiting-list. Determinism is broken",
+                                thread.getName()));
                     }
                     unblocked = true;
                     unblock(thread);
@@ -966,8 +976,10 @@ public final class Simulator implements AutoCloseable {
                         var ise = new IllegalStateException("Stack trace");
                         ise.setStackTrace(thread.getStackTrace());
                         throw new SimulationError(
-                                format("Thread '%s' from machine '%s' is unexpectedly present on the waiting-list",
-                                       thread.getName(), hostName), ise);
+                                format(
+                                        "Thread '%s' from machine '%s' is unexpectedly present on the waiting-list",
+                                        thread.getName(), hostName),
+                                ise);
                     }
                 }
             }
@@ -982,9 +994,8 @@ public final class Simulator implements AutoCloseable {
          * @param runnable The runnable to execute in the context of this simulator
          */
         public void scheduleNow(Runnable runnable) {
-            simulator.scheduleExactlyAt(this,
-                                        runnable,
-                                        nanoTime() + defaultSchedulingJitter.applyAsLong(simulator.random));
+            simulator.scheduleExactlyAt(
+                    this, runnable, nanoTime() + defaultSchedulingJitter.applyAsLong(simulator.random));
         }
 
         /**
@@ -1037,66 +1048,63 @@ public final class Simulator implements AutoCloseable {
         }
 
         /** Deterministic implementation of {@link Executors#defaultThreadFactory()}. */
-        @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
         public ThreadFactory executorsDefaultThreadFactory() {
             return ofVirtual().factory();
         }
 
         /** Deterministic implementation of {@link Thread#Thread()}. */
-        @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
         public Thread newThread() {
-            return ofVirtual().unstarted(() -> { });
+            return ofVirtual().unstarted(() -> {});
         }
 
         /** Deterministic implementation of {@link Thread#Thread(String)}. */
-        @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
         public Thread newThread(String name) {
-            return ofVirtual().name(name).unstarted(() -> { });
+            return ofVirtual().name(name).unstarted(() -> {});
         }
 
         /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, String)}. */
-        @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
         public Thread newThread(ThreadGroup group, String name) {
-            return ofVirtual().name(name).unstarted(() -> { });
+            return ofVirtual().name(name).unstarted(() -> {});
         }
 
         /** Deterministic implementation of {@link Thread#Thread(Runnable)}. */
-        @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
         public Thread newThread(Runnable target) {
             return ofVirtual().unstarted(target);
         }
 
         /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable)}. */
-        @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
         public Thread newThread(ThreadGroup group, Runnable target) {
             return ofVirtual().unstarted(target);
         }
 
         /** Deterministic implementation of {@link Thread#Thread(Runnable, String)}. */
-        @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
         public Thread newThread(Runnable target, String name) {
             return ofVirtual().name(name).unstarted(target);
         }
 
         /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String)}. */
-        @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
         public Thread newThread(ThreadGroup group, Runnable target, String name) {
             return ofVirtual().name(name).unstarted(target);
         }
 
         /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long)}. */
-        @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
+        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
         public Thread newThread(ThreadGroup group, Runnable target, String name, long stackSize) {
             return ofVirtual().name(name).unstarted(target);
         }
 
         /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long, boolean)}. */
-        @SuppressWarnings({ "checkstyle:JavadocMethod", "unused" })
-        public Thread newThread(ThreadGroup group,
-                                Runnable target,
-                                String name,
-                                long stackSize,
-                                boolean inheritThreadLocal) {
+        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
+        public Thread newThread(
+                ThreadGroup group, Runnable target, String name, long stackSize, boolean inheritThreadLocal) {
             return ofVirtual().name(name).unstarted(target);
         }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Ping Identity Corporation
+ * Copyright 2025-2026 Ping Identity Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -48,8 +48,9 @@ public final class InetAddressResolverProviderImpl extends InetAddressResolverPr
         @Override
         public String lookupByAddress(byte[] addr) throws UnknownHostException {
             var machine = machineOrNull();
-            return machine != null ? machine.lookupByAddress(InetAddress.getByAddress(addr))
-                                   : fallback.lookupByAddress(addr);
+            return machine != null
+                    ? machine.lookupByAddress(InetAddress.getByAddress(addr))
+                    : fallback.lookupByAddress(addr);
         }
     }
 }
