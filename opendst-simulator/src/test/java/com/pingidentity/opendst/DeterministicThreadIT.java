@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Ping Identity Corporation
+ * Copyright 2025-2026 Ping Identity Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,13 +28,13 @@ public class DeterministicThreadIT {
     @Test
     public void allThreadsAreCreatedVirtualInSimulator() throws Exception {
         runSimulation(() -> {
-            assertIsVirtual(ofVirtual().unstarted(() -> { }), 10_002).setDaemon(false);
-            assertIsVirtual(ofVirtual().factory().newThread(() -> { }), 10_003).setDaemon(false);
-            assertIsVirtual(startVirtualThread(() -> { }), 10_004);
+            assertIsVirtual(ofVirtual().unstarted(() -> {}), 10_002).setDaemon(false);
+            assertIsVirtual(ofVirtual().factory().newThread(() -> {}), 10_003).setDaemon(false);
+            assertIsVirtual(startVirtualThread(() -> {}), 10_004);
             assertIsVirtual(new Thread(), 10_005).setDaemon(false);
-            assertIsVirtual(ofPlatform().unstarted(() -> { }), 10_006).setDaemon(false);
-            assertIsVirtual(ofPlatform().factory().newThread(() -> { }), 10_007).setDaemon(false);
-            assertIsVirtual(defaultThreadFactory().newThread(() -> { }), 10_008).setDaemon(false);
+            assertIsVirtual(ofPlatform().unstarted(() -> {}), 10_006).setDaemon(false);
+            assertIsVirtual(ofPlatform().factory().newThread(() -> {}), 10_007).setDaemon(false);
+            assertIsVirtual(defaultThreadFactory().newThread(() -> {}), 10_008).setDaemon(false);
             return null;
         });
     }

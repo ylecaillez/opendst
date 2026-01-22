@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Ping Identity Corporation
+ * Copyright 2025-2026 Ping Identity Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,7 +38,6 @@ import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
-
 import org.junit.jupiter.api.Test;
 
 public class NetworkIT {
@@ -51,8 +50,7 @@ public class NetworkIT {
             var localHostAddress = getLocalHost();
             var hostName = localHostAddress.getHostName();
             // getHostName() returns an IP address if name cannot be resolved.
-            assertThatException().isThrownBy(() -> ofLiteral(hostName))
-                                 .isInstanceOf(IllegalArgumentException.class);
+            assertThatException().isThrownBy(() -> ofLiteral(hostName)).isInstanceOf(IllegalArgumentException.class);
             assertThat(hostName).isEqualTo("localhost");
 
             var address = localHostAddress.getAddress();
@@ -66,8 +64,10 @@ public class NetworkIT {
             assertThat(getLoopbackAddress().getHostName()).isEqualTo("localhost");
             assertThat(getLoopbackAddress().getCanonicalHostName()).isEqualTo("localhost");
             assertThat(getByName("localhost")).isEqualTo(getLoopbackAddress());
-            assertThat(getByAddress(getLoopbackAddress().getAddress()).getHostName()).isEqualTo("localhost");
-            assertThat(getByAddress(getLoopbackAddress().getAddress()).getCanonicalHostName()).isEqualTo("localhost");
+            assertThat(getByAddress(getLoopbackAddress().getAddress()).getHostName())
+                    .isEqualTo("localhost");
+            assertThat(getByAddress(getLoopbackAddress().getAddress()).getCanonicalHostName())
+                    .isEqualTo("localhost");
 
             assertThat(getByName(hostName)).isEqualTo(localHostAddress);
             return null;
@@ -115,7 +115,7 @@ public class NetworkIT {
                     // Then send back the transferBuffer content.
                     var is = socket.getInputStream();
                     var os = socket.getOutputStream();
-                    for (;;) {
+                    for (; ; ) {
                         int read, dataLen;
                         for (dataLen = 0; dataLen < transferBuffer.length; dataLen += read) {
                             if ((read = is.read(transferBuffer, dataLen, transferBuffer.length - dataLen)) == -1) {
@@ -133,22 +133,26 @@ public class NetworkIT {
 
     record EchoClient(InetAddress address, int port, int socketBufferSize, byte[] data) implements Callable<byte[]> {
         public byte[] call() throws Exception {
-            for (;;) {
+            for (; ; ) {
                 try (var socket = new Socket(address, port)) {
                     socket.setOption(SO_RCVBUF, socketBufferSize);
-                    new Thread(new FutureTask<>(() -> {
-                        // Write data to the echo server
-                        socket.getOutputStream().write(data, 0, data.length);
-                        socket.shutdownOutput();
-                        return null;
-                    }), "EchoClientSender").start();
+                    new Thread(
+                                    new FutureTask<>(() -> {
+                                        // Write data to the echo server
+                                        socket.getOutputStream().write(data, 0, data.length);
+                                        socket.shutdownOutput();
+                                        return null;
+                                    }),
+                                    "EchoClientSender")
+                            .start();
 
                     var receiver = new FutureTask<>(() -> {
                         // Read data from the echo server
                         var received = new byte[data.length];
                         var is = socket.getInputStream();
-                        for (int bytesRead = 0, totalRead = 0; bytesRead != -1 && totalRead < received.length;
-                             totalRead += bytesRead) {
+                        for (int bytesRead = 0, totalRead = 0;
+                                bytesRead != -1 && totalRead < received.length;
+                                totalRead += bytesRead) {
                             bytesRead = is.read(received, totalRead, received.length - totalRead);
                         }
                         return received;

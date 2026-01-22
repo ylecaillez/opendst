@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Ping Identity Corporation
+ * Copyright 2025-2026 Ping Identity Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,22 +28,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatException;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
+import com.pingidentity.opendst.Simulator.SimulationError;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeoutException;
-
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
-
-import com.pingidentity.opendst.Simulator.SimulationError;
 
 public class SimulatorAgentIT {
 
     @Test
     public void simulatorReportsException() {
         var ise = new IllegalStateException("Simulated failure");
-        assertThatExceptionOfType(SimulationError.class).isThrownBy(() -> runSimulation(() -> {
-            throw ise;
-        }));
+        assertThatExceptionOfType(SimulationError.class)
+                .isThrownBy(() -> runSimulation(() -> {
+                    throw ise;
+                }));
     }
 
     @Test
