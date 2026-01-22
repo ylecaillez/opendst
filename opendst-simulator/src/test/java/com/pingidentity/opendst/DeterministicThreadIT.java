@@ -15,33 +15,34 @@
  */
 package com.pingidentity.opendst;
 
+import static com.diffplug.selfie.Selfie.expectSelfie;
 import static com.pingidentity.opendst.Simulator.runSimulation;
 import static java.lang.Thread.ofPlatform;
 import static java.lang.Thread.ofVirtual;
 import static java.lang.Thread.startVirtualThread;
 import static java.util.concurrent.Executors.defaultThreadFactory;
-import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 public class DeterministicThreadIT {
     @Test
-    public void allThreadsAreCreatedVirtualInSimulator() throws Exception {
+    public void deterministicThreadId() throws Exception {
+        var writer = new ObjectMapper().writerWithDefaultPrettyPrinter();
+        var ref = new AtomicReference<String>();
         runSimulation(() -> {
-            assertIsVirtual(ofVirtual().unstarted(() -> {}), 10_002).setDaemon(false);
-            assertIsVirtual(ofVirtual().factory().newThread(() -> {}), 10_003).setDaemon(false);
-            assertIsVirtual(startVirtualThread(() -> {}), 10_004);
-            assertIsVirtual(new Thread(), 10_005).setDaemon(false);
-            assertIsVirtual(ofPlatform().unstarted(() -> {}), 10_006).setDaemon(false);
-            assertIsVirtual(ofPlatform().factory().newThread(() -> {}), 10_007).setDaemon(false);
-            assertIsVirtual(defaultThreadFactory().newThread(() -> {}), 10_008).setDaemon(false);
+            ref.set(writer.writeValueAsString(Map.of(
+                    "ofVirtual.unstarted", ofVirtual().unstarted(() -> {}),
+                    "ofVirtual.factory", ofVirtual().factory().newThread(() -> {}),
+                    "startVirtualThread", startVirtualThread(() -> {}),
+                    "new Thread", new Thread().threadId(),
+                    "ofPlatform.unstarted", ofPlatform().unstarted(() -> {}),
+                    "ofPlatform.factory", ofPlatform().factory().newThread(() -> {}),
+                    "defaultThreadFactory", defaultThreadFactory().newThread(() -> {}))));
             return null;
         });
-    }
-
-    private Thread assertIsVirtual(Thread thread, int expectedThreadId) {
-        assertThat(thread.isVirtual()).isTrue();
-        assertThat(thread.threadId()).isEqualTo(expectedThreadId);
-        return thread;
+        expectSelfie(ref.get()).toMatchDisk();
     }
 }

@@ -60,3 +60,5 @@ nohup.out
 #MacOS specific ignores
 .DS_Store
 
+#Selfie Snapshots
+*.ss
