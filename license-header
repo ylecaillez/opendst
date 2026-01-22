@@ -1,5 +1,5 @@
 /*
- * Copyright 2025-2026 Ping Identity Corporation
+ * Copyright $YEAR Ping Identity Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,20 +13,3 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
-
-import static com.pingidentity.opendst.Simulator.runSimulation;
-import static org.assertj.core.api.Assertions.assertThat;
-
-import org.junit.jupiter.api.Test;
-
-public class DeterministicSystemHashCodeIT {
-    @Test
-    public void testSystemHashCode() throws Exception {
-        runSimulation(() -> {
-            assertThat(new Object().hashCode()).isEqualTo(1);
-            assertThat(new Object().hashCode()).isEqualTo(1);
-            return null;
-        });
-    }
-}

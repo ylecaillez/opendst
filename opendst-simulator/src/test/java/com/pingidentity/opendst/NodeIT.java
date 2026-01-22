@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Ping Identity Corporation
+ * Copyright 2025-2026 Ping Identity Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,7 +47,6 @@ import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicBoolean;
-
 import org.junit.jupiter.api.Test;
 
 public class NodeIT {
@@ -59,8 +58,9 @@ public class NodeIT {
                 assertThat(localHostAddress).isEqualTo(InetAddress.ofLiteral("10.0.0.1"));
                 var hostName = localHostAddress.getHostName();
                 // getHostName() returns an IP address if name cannot be resolved.
-                assertThatException().isThrownBy(() -> ofLiteral(hostName))
-                                     .isInstanceOf(IllegalArgumentException.class);
+                assertThatException()
+                        .isThrownBy(() -> ofLiteral(hostName))
+                        .isInstanceOf(IllegalArgumentException.class);
                 assertThat(hostName).isEqualTo("node-hostname");
 
                 var address = localHostAddress.getAddress();
@@ -74,9 +74,10 @@ public class NodeIT {
                 assertThat(getLoopbackAddress().getHostName()).isEqualTo("localhost");
                 assertThat(getLoopbackAddress().getCanonicalHostName()).isEqualTo("localhost");
                 assertThat(getByName("localhost")).isEqualTo(getLoopbackAddress());
-                assertThat(getByAddress(getLoopbackAddress().getAddress()).getHostName()).isEqualTo("localhost");
-                assertThat(getByAddress(getLoopbackAddress().getAddress()).getCanonicalHostName()).isEqualTo(
-                        "localhost");
+                assertThat(getByAddress(getLoopbackAddress().getAddress()).getHostName())
+                        .isEqualTo("localhost");
+                assertThat(getByAddress(getLoopbackAddress().getAddress()).getCanonicalHostName())
+                        .isEqualTo("localhost");
 
                 assertThat(getByName(hostName)).isEqualTo(localHostAddress);
                 return null;
@@ -100,14 +101,18 @@ public class NodeIT {
             stopNode("node-hostname");
             sleep(ofSeconds(60));
 
-            assertThat(threadInterrupted.get()).describedAs("Remaining alive thread should be interrupted").isTrue();
-            assertThat(shutdownHookExecuted.get()).describedAs("Stopping node should trigger shutdown hooks").isTrue();
+            assertThat(threadInterrupted.get())
+                    .describedAs("Remaining alive thread should be interrupted")
+                    .isTrue();
+            assertThat(shutdownHookExecuted.get())
+                    .describedAs("Stopping node should trigger shutdown hooks")
+                    .isTrue();
             return null;
         });
     }
 
     private static boolean interruptibleSleep() {
-        for (;;) {
+        for (; ; ) {
             try {
                 sleep(ofSeconds(1));
             } catch (InterruptedException e) {
@@ -134,10 +139,15 @@ public class NodeIT {
             });
             sleep(ofSeconds(60));
 
-            assertThat(threadInterrupted.get()).describedAs("Remaining alive thread should be interrupted").isTrue();
-            assertThat(shutdownHookExecuted.get()).describedAs("Stopping node should trigger shutdown hooks").isTrue();
-            assertThat(codeAfterExitExecuted.get()).describedAs("Code after Runtime#exit() must not be executed")
-                                                   .isFalse();
+            assertThat(threadInterrupted.get())
+                    .describedAs("Remaining alive thread should be interrupted")
+                    .isTrue();
+            assertThat(shutdownHookExecuted.get())
+                    .describedAs("Stopping node should trigger shutdown hooks")
+                    .isTrue();
+            assertThat(codeAfterExitExecuted.get())
+                    .describedAs("Code after Runtime#exit() must not be executed")
+                    .isFalse();
             return null;
         });
     }
@@ -154,7 +164,8 @@ public class NodeIT {
         var data = new byte[dataSize];
         new Random(seed).nextBytes(data);
 
-        int[] clientBufferSize = clientSocketBufferSize.stream().mapToInt(Integer::intValue).toArray();
+        int[] clientBufferSize =
+                clientSocketBufferSize.stream().mapToInt(Integer::intValue).toArray();
         runSimulation(() -> {
             // start server
             startNode("echo-server", "10.0.0.1", new EchoServer(1234, transferBufferSize, serverBufferSize));
@@ -179,11 +190,14 @@ public class NodeIT {
             try (var serverSocket = new ServerSocket()) {
                 serverSocket.setOption(SO_REUSEADDR, true);
                 serverSocket.bind(new InetSocketAddress(port));
-                getRuntime().addShutdownHook(new Thread(() -> assertThatNoException().isThrownBy(serverSocket::close)));
-                for (;;) {
+                getRuntime().addShutdownHook(new Thread(() -> assertThatNoException()
+                        .isThrownBy(serverSocket::close)));
+                for (; ; ) {
                     var socket = serverSocket.accept();
-                    new Thread(() -> assertThatNoException().isThrownBy(() ->
-                        new Connection(socket, transferBufferSize, socketBufferSize).call())).start();
+                    new Thread(() -> assertThatNoException()
+                                    .isThrownBy(
+                                            () -> new Connection(socket, transferBufferSize, socketBufferSize).call()))
+                            .start();
                 }
             } catch (IOException e) {
                 assertThat(e).hasMessageContaining("Socket closed");
@@ -204,7 +218,7 @@ public class NodeIT {
                     // Then send back the transferBuffer content.
                     var is = socket.getInputStream();
                     var os = socket.getOutputStream();
-                    for (;;) {
+                    for (; ; ) {
                         int read, dataLen;
                         for (dataLen = 0; dataLen < transferBuffer.length; dataLen += read) {
                             read = is.read(transferBuffer, dataLen, transferBuffer.length - dataLen);
@@ -228,19 +242,23 @@ public class NodeIT {
                     // Exercise fragmentation by using different socket buffer.
                     // Note that there is only one buffer between two sockets. SO_SNDBUF is not supported.
                     socket.setOption(SO_RCVBUF, socketBufferSize);
-                    new Thread(new FutureTask<>(() -> {
-                        // Write data to the echo server
-                        socket.getOutputStream().write(data, 0, data.length);
-                        socket.shutdownOutput();
-                        return null;
-                    }), "EchoClientSender").start();
+                    new Thread(
+                                    new FutureTask<>(() -> {
+                                        // Write data to the echo server
+                                        socket.getOutputStream().write(data, 0, data.length);
+                                        socket.shutdownOutput();
+                                        return null;
+                                    }),
+                                    "EchoClientSender")
+                            .start();
 
                     var receiver = new FutureTask<>(() -> {
                         // Read data from the echo server
                         var received = new byte[data.length];
                         var is = socket.getInputStream();
-                        for (int bytesRead = 0, totalRead = 0; bytesRead != -1 && totalRead < received.length;
-                             totalRead += bytesRead) {
+                        for (int bytesRead = 0, totalRead = 0;
+                                bytesRead != -1 && totalRead < received.length;
+                                totalRead += bytesRead) {
                             bytesRead = is.read(received, totalRead, received.length - totalRead);
                         }
                         return received;

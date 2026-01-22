@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Ping Identity Corporation
+ * Copyright 2025-2026 Ping Identity Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,10 +19,9 @@ import static java.lang.invoke.MethodHandles.lookup;
 import static java.lang.invoke.MethodHandles.privateLookupIn;
 import static java.lang.invoke.MethodType.methodType;
 
+import com.pingidentity.opendst.Simulator.SimulationError;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.VarHandle;
-
-import com.pingidentity.opendst.Simulator.SimulationError;
 
 /** Exposes internal methods of {@link VirtualThread}. */
 final class VirtualThreadInternals {
@@ -51,8 +50,10 @@ final class VirtualThreadInternals {
             VTHREAD_ON_WAITING_LIST = privateLookupIn(VTHREAD_CLASS, lookup())
                     .findVarHandle(VTHREAD_CLASS, "onWaitingList", boolean.class);
             VTHREAD_CAS_ON_WAITING_LIST = privateLookupIn(VTHREAD_CLASS, lookup())
-                    .findVirtual(VTHREAD_CLASS, "compareAndSetOnWaitingList",
-                                 methodType(boolean.class, boolean.class, boolean.class));
+                    .findVirtual(
+                            VTHREAD_CLASS,
+                            "compareAndSetOnWaitingList",
+                            methodType(boolean.class, boolean.class, boolean.class));
             VTHREAD_TAKE_LIST_TO_UNBLOCK = privateLookupIn(VTHREAD_CLASS, lookup())
                     .findStatic(VTHREAD_CLASS, "takeVirtualThreadListToUnblock", methodType(VTHREAD_CLASS));
             VTHREAD_UNBLOCK = privateLookupIn(VTHREAD_CLASS, lookup())
@@ -62,12 +63,15 @@ final class VirtualThreadInternals {
             THREAD_LOCAL_SET = privateLookupIn(ThreadLocal.class, lookup())
                     .findVirtual(ThreadLocal.class, "set", methodType(void.class, Thread.class, Object.class));
             NEW_THREAD = privateLookupIn(Thread.class, lookup())
-                    .findConstructor(Thread.class, methodType(void.class,
-                                                              ThreadGroup.class,
-                                                              String.class,
-                                                              int.class,
-                                                              Runnable.class,
-                                                              long.class));
+                    .findConstructor(
+                            Thread.class,
+                            methodType(
+                                    void.class,
+                                    ThreadGroup.class,
+                                    String.class,
+                                    int.class,
+                                    Runnable.class,
+                                    long.class));
         } catch (Exception e) {
             throw new SimulationError("Unable to find virtual thread internal APIs", e);
         }

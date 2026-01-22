@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Ping Identity Corporation
+ * Copyright 2025-2026 Ping Identity Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -124,8 +124,10 @@ public final class Deployment implements Callable<Void> {
     private Deployment(List<Image> images, List<Service> services) throws IOException {
         DEPLOYMENT_DIR.toFile().mkdirs();
         for (var image : images) {
-            this.images.put(image.name(),
-                            image.withClassPath(classPath(WARS_DIR.resolve(image.warDir()).resolve("WEB-INF"))));
+            this.images.put(
+                    image.name(),
+                    image.withClassPath(
+                            classPath(WARS_DIR.resolve(image.warDir()).resolve("WEB-INF"))));
         }
         this.services = services.stream().collect(toMap(Service::name, identity()));
         this.services.values().forEach(s -> {
@@ -147,21 +149,24 @@ public final class Deployment implements Callable<Void> {
             var image = images.get(service.imageName());
             var serviceClassLoader = new URLClassLoader(service.name(), image.classPath(), getSystemClassLoader());
             var mainMethod = serviceClassLoader.loadClass(image.mainClassName()).getMethod("main", String[].class);
-            startNode(service.name(), service.ip(),
-                      serviceClassLoader, WARS_DIR.resolve(image.warDir()).resolve("WEB-INF/fs"),
-                      mainMethod, service.args());
+            startNode(
+                    service.name(),
+                    service.ip(),
+                    serviceClassLoader,
+                    WARS_DIR.resolve(image.warDir()).resolve("WEB-INF/fs"),
+                    mainMethod,
+                    service.args());
         }
         return null;
     }
 
-
     private static URL[] classPath(Path webInfDir) throws IOException {
         try (var libJars = walk(webInfDir.resolve("lib")).sorted()) {
-            var classPath = Stream.concat(Stream.of(webInfDir.resolve("classes")),
-                                          libJars.filter(p -> p.toString().toLowerCase().endsWith(".jar")
-                                                  && isRegularFile(p)));
+            var classPath = Stream.concat(
+                    Stream.of(webInfDir.resolve("classes")),
+                    libJars.filter(p -> p.toString().toLowerCase().endsWith(".jar") && isRegularFile(p)));
             var urls = new ArrayList<URL>();
-            for (var it = classPath.iterator(); it.hasNext();) {
+            for (var it = classPath.iterator(); it.hasNext(); ) {
                 urls.add(it.next().toUri().toURL());
             }
             return urls.toArray(new URL[0]);

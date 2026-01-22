@@ -11,9 +11,8 @@
   <name>OpenDST Parent</name>
 
   <properties>
-    <maven.compiler.source>25</maven.compiler.source>
-    <maven.compiler.target>25</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <main.basedir>${project.basedir}</main.basedir>
   </properties>
 
   <build>
@@ -27,6 +26,38 @@
             <source>25</source>
             <target>25</target>
             <release>25</release>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>com.diffplug.spotless</groupId>
+          <artifactId>spotless-maven-plugin</artifactId>
+          <version>3.1.0</version>
+          <configuration>
+            <ratchetFrom>origin/main</ratchetFrom>
+            <formats>
+              <format>
+                <includes>
+                  <include>.gitattributes</include>
+                  <include>.gitignore</include>
+                </includes>
+                <trimTrailingWhitespace />
+                <endWithNewline />
+                <indent>
+                  <tabs>true</tabs>
+                  <spacesPerTab>4</spacesPerTab>
+                </indent>
+              </format>
+            </formats>
+            <java>
+              <palantirJavaFormat>
+                <version>2.85.0</version>
+                <style>PALANTIR</style>
+                <formatJavadoc>false</formatJavadoc>
+              </palantirJavaFormat>
+              <licenseHeader>
+                <file>${main.basedir}/license-header</file>
+              </licenseHeader>
+            </java>
           </configuration>
         </plugin>
       </plugins>

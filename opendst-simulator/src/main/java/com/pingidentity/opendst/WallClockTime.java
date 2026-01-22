@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Ping Identity Corporation
+ * Copyright 2025-2026 Ping Identity Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 import static java.util.concurrent.TimeUnit.MICROSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
+import com.pingidentity.opendst.Simulator.SimulationError;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
@@ -30,8 +31,6 @@ import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
-
-import com.pingidentity.opendst.Simulator.SimulationError;
 
 /**
  * Provides access to foreign time functions {@code gettimeofday} and {@code clock_gettime}.
@@ -47,13 +46,15 @@ public final class WallClockTime {
     private static final Linker LINKER = Linker.nativeLinker();
     private static final SymbolLookup STDLIB_LOOKUP = LINKER.defaultLookup();
     /** struct timeval, assuming 64-bit time_t and suseconds_t. */
-    private static final MemoryLayout TIMEVAL_LAYOUT = structLayout(JAVA_LONG.withName("tv_sec"),
-                                                                    JAVA_LONG.withName("tv_usec"));
+    private static final MemoryLayout TIMEVAL_LAYOUT =
+            structLayout(JAVA_LONG.withName("tv_sec"), JAVA_LONG.withName("tv_usec"));
+
     private static final long TV_SEC_OFFSET = TIMEVAL_LAYOUT.byteOffset(groupElement("tv_sec"));
     private static final long TV_USEC_OFFSET = TIMEVAL_LAYOUT.byteOffset(groupElement("tv_usec"));
     /** struct timespec, assuming 64-bit time_t and long for nanoseconds. */
-    private static final MemoryLayout TIMESPEC_LAYOUT = structLayout(JAVA_LONG.withName("tv_sec"),
-                                                                     JAVA_LONG.withName("tv_nsec"));
+    private static final MemoryLayout TIMESPEC_LAYOUT =
+            structLayout(JAVA_LONG.withName("tv_sec"), JAVA_LONG.withName("tv_nsec"));
+
     private static final long TS_SEC_OFFSET = TIMESPEC_LAYOUT.byteOffset(groupElement("tv_sec"));
     private static final long TS_NSEC_OFFSET = TIMESPEC_LAYOUT.byteOffset(groupElement("tv_nsec"));
 
@@ -62,21 +63,21 @@ public final class WallClockTime {
 
     static {
         // gettimeofday: int gettimeofday(struct timeval *tv, struct timezone *tz);
-        var getTimeOfDayAddr =
-            STDLIB_LOOKUP.find("gettimeofday")
-                         .orElseThrow(() -> new SimulationError("Cannot find symbol: gettimeofday"));
-        var getTimeOfDayDesc = FunctionDescriptor.of(JAVA_INT,
-                                                     ADDRESS,  // struct timeval*
-                                                     ADDRESS); // struct timezone*
+        var getTimeOfDayAddr = STDLIB_LOOKUP
+                .find("gettimeofday")
+                .orElseThrow(() -> new SimulationError("Cannot find symbol: gettimeofday"));
+        var getTimeOfDayDesc = FunctionDescriptor.of(
+                JAVA_INT, ADDRESS, // struct timeval*
+                ADDRESS); // struct timezone*
         GETTIMEOFDAY = LINKER.downcallHandle(getTimeOfDayAddr, getTimeOfDayDesc);
 
         // clock_gettime: int clock_gettime(clockid_t clk_id, struct timespec *tp);
-        var clockGetTimeAddr =
-                STDLIB_LOOKUP.find("clock_gettime")
-                             .orElseThrow(() -> new SimulationError("Cannot find symbol: clock_gettime"));
-        var clockGetTimeDesc = FunctionDescriptor.of(JAVA_INT,
-                                                     JAVA_INT, // clockid_t (int)
-                                                     ADDRESS); // struct timespec*
+        var clockGetTimeAddr = STDLIB_LOOKUP
+                .find("clock_gettime")
+                .orElseThrow(() -> new SimulationError("Cannot find symbol: clock_gettime"));
+        var clockGetTimeDesc = FunctionDescriptor.of(
+                JAVA_INT, JAVA_INT, // clockid_t (int)
+                ADDRESS); // struct timespec*
         CLOCK_GETTIME = LINKER.downcallHandle(clockGetTimeAddr, clockGetTimeDesc);
     }
 
