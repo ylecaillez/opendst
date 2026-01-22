@@ -15,18 +15,24 @@
  */
 package com.pingidentity.opendst;
 
+import static com.diffplug.selfie.Selfie.expectSelfie;
 import static com.pingidentity.opendst.Simulator.runSimulation;
-import static org.assertj.core.api.Assertions.assertThat;
+import static java.util.List.of;
 
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 public class DeterministicSystemHashCodeIT {
     @Test
     public void testSystemHashCode() throws Exception {
+        var writer = new ObjectMapper().writerWithDefaultPrettyPrinter();
+        var ref = new AtomicReference<String>();
         runSimulation(() -> {
-            assertThat(new Object().hashCode()).isEqualTo(1);
-            assertThat(new Object().hashCode()).isEqualTo(1);
+            ref.set(writer.writeValueAsString(
+                    of(new Object().hashCode(), new Object().hashCode(), new Object().hashCode())));
             return null;
         });
+        expectSelfie(ref.get()).toMatchDisk();
     }
 }
