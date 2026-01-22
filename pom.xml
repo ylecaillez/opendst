@@ -1,137 +1,39 @@
-<?xml version="1.0" encoding="UTF-8"?><!--
- * Copyright 2024-2025 Ping Identity Corporation
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
--->
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>com.pingidentity</groupId>
+  <groupId>com.pingidentity.opendst</groupId>
   <artifactId>opendst</artifactId>
   <version>0.0.1-SNAPSHOT</version>
-  <packaging>jar</packaging>
-  <name>OpenDST Deterministic Simulation Testing</name>
+  <packaging>pom</packaging>
+
+  <name>OpenDST Parent</name>
 
   <properties>
+    <maven.compiler.source>25</maven.compiler.source>
+    <maven.compiler.target>25</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 
-  <dependencies>
-    <dependency>
-      <groupId>net.bytebuddy</groupId>
-      <artifactId>byte-buddy</artifactId>
-      <version>1.17.7</version>
-    </dependency>
-    <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter-engine</artifactId>
-      <version>6.0.0</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.assertj</groupId>
-      <artifactId>assertj-core</artifactId>
-      <version>3.27.6</version>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
-
   <build>
-    <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.14.1</version>
-        <configuration>
-          <source>25</source>
-          <target>25</target>
-          <release>25</release>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-shade-plugin</artifactId>
-        <version>3.6.1</version>
-        <executions>
-          <execution>
-            <phase>package</phase>
-            <goals>
-              <goal>shade</goal>
-            </goals>
-            <configuration>
-              <transformers>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer">
-                </transformer>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
-                  <addHeader>false</addHeader>
-                </transformer>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                  <manifestEntries>
-                    <Agent-Class>com.pingidentity.opendst.SimulatorAgent</Agent-Class>
-                    <Premain-Class>com.pingidentity.opendst.SimulatorAgent</Premain-Class>
-                    <Can-Redefine-Classes>true</Can-Redefine-Classes>
-                    <Can-Retransform-Classes>true</Can-Retransform-Classes>
-                    <Can-Set-Native-Method-Prefix>true</Can-Set-Native-Method-Prefix>
-                    <Boot-Class-Path>opendst-${project.version}.jar</Boot-Class-Path>
-                  </manifestEntries>
-                </transformer>
-              </transformers>
-              <filters>
-                <filter>
-                  <artifact>net.bytebuddy:byte-buddy</artifact>
-                  <excludes>
-                    <exclude>META-INF/MANIFEST.MF</exclude>
-                  </excludes>
-                </filter>
-              </filters>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-failsafe-plugin</artifactId>
-        <version>3.5.4</version>
-        <executions>
-          <execution>
-            <goals>
-              <goal>integration-test</goal>
-              <goal>verify</goal>
-            </goals>
-          </execution>
-        </executions>
-        <configuration>
-          <parallel>classes</parallel>
-          <forkCount>1C</forkCount>
-          <reuseForks>false</reuseForks>
-          <forkNode implementation="org.apache.maven.plugin.surefire.extensions.SurefireForkNodeFactory"/>
-          <!--
-          net.bytebuddy.safe=true is to disable Unsafe usage made by bytebuddy which is generating a warning
-          (see: https://github.com/raphw/byte-buddy/issues/1803)
-
-          enable-native-access=ALL-UNNAMED is required to allow invocation of the native methods gettimeofday and
-          clock_gettime which are used by the simulator agent to get the real current time in nanoseconds.
-          -->
-          <argLine>
-            -XX:+UnlockExperimentalVMOptions -XX:hashCode=2
-            -javaagent:${project.build.directory}/${project.build.finalName}.jar
-            --enable-native-access=ALL-UNNAMED
-            --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED
-            -Dnet.bytebuddy.safe=true
-          </argLine>
-        </configuration>
-      </plugin>
-    </plugins>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.14.1</version>
+          <configuration>
+            <source>25</source>
+            <target>25</target>
+            <release>25</release>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
   </build>
+
+  <modules>
+    <module>opendst-simulator</module>
+  </modules>
 </project>
