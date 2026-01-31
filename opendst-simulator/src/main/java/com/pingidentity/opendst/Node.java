@@ -453,7 +453,8 @@ final class Node extends Machine {
                             int readable = Math.min(len, receiveBuffer.readableBytes());
                             if (readable > 0) {
                                 // Randomly, perform either a complete or a partial read
-                                int read = random.nextBoolean() ? readable : random.nextInt(1, readable + 1);
+                                int read = simulator.random.nextBoolean() ? readable
+                                                                          : simulator.random.nextInt(1, readable + 1);
                                 return receiveBuffer.read(b, off, read);
                             } else if (peer.isOutputShutdown) {
                                 return -1;
@@ -547,7 +548,7 @@ final class Node extends Machine {
                 }
 
                 private void simulateBandwidth() {
-                    long bandwidthMs = random.nextInt(0, 3);
+                    long bandwidthMs = simulator.random.nextInt(0, 3);
                     try {
                         Thread.sleep(bandwidthMs);
                     } catch (InterruptedException e) {
@@ -751,7 +752,7 @@ final class Node extends Machine {
 
         Binding bind(InetAddress address, int port, SocketImpl socket, boolean reuseAddress) throws BindException {
             if (port == 0) {
-                port = random.nextInt(EPHEMERAL_RANGE_START, EPHEMERAL_RANGE_END);
+                port = simulator.random.nextInt(EPHEMERAL_RANGE_START, EPHEMERAL_RANGE_END);
             }
             if (address.isAnyLocalAddress()) {
                 // Check that the port is available on all addresses
@@ -774,7 +775,7 @@ final class Node extends Machine {
         }
 
         private void checkNotInUse(String hostPort, boolean reuseAddress) throws BindException {
-            if (boundSockets.containsKey(hostPort) || (!reuseAddress && random.nextInt(1000) == 0)) {
+            if (boundSockets.containsKey(hostPort) || (!reuseAddress && simulator.random.nextInt(1000) == 0)) {
                 throw new BindException("Address already in use");
             }
         }

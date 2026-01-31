@@ -26,8 +26,9 @@ import static com.pingidentity.opendst.VirtualThreadInternals.takeVirtualThreadL
 import static com.pingidentity.opendst.VirtualThreadInternals.unblock;
 import static java.lang.Boolean.getBoolean;
 import static java.lang.ClassLoader.getSystemClassLoader;
-import static java.lang.Long.toHexString;
+import static java.lang.Runtime.getRuntime;
 import static java.lang.String.format;
+import static java.lang.System.err;
 import static java.lang.System.getProperty;
 import static java.lang.Thread.State.TERMINATED;
 import static java.lang.Thread.currentThread;
@@ -36,14 +37,18 @@ import static java.lang.Thread.onSpinWait;
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
+import static java.nio.file.Files.exists;
 import static java.nio.file.Files.walkFileTree;
+import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 import static java.time.Duration.ofSeconds;
+import static java.time.temporal.ChronoUnit.NANOS;
+import static java.util.HexFormat.fromHexDigits;
 import static java.util.Locale.ROOT;
+import static java.util.UUID.randomUUID;
 import static java.util.concurrent.Future.State.SUCCESS;
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
-import static java.util.concurrent.TimeUnit.SECONDS;
 
 import java.io.IOException;
+import java.io.PrintStream;
 import java.io.Serial;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -58,20 +63,26 @@ import java.net.spi.InetAddressResolver;
 import java.net.spi.InetAddressResolver.LookupPolicy;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.PriorityQueue;
 import java.util.Random;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
@@ -83,6 +94,8 @@ import java.util.function.ToLongFunction;
 import java.util.stream.Stream;
 import javax.net.ServerSocketFactory;
 import javax.net.SocketFactory;
+
+import tools.jackson.jr.ob.JSON;
 
 /**
  * Implements a deterministic execution environment.
@@ -130,9 +143,21 @@ public final class Simulator implements AutoCloseable {
     public static final class SourceOfRandomness extends Random {
         @Serial
         private static final long serialVersionUID = 1L;
+        private final ArrayDeque<Segment> segments;
+        private long iteration;
+        private long nextIteration;
+        private int last;
 
-        private SourceOfRandomness(long seed) {
-            super(seed);
+        private SourceOfRandomness(List<Segment> segments) {
+            this.segments = new ArrayDeque<>(segments);
+            var segment = this.segments.removeFirst();
+            setSeed(segment.seed());
+            nextIteration = segment.iteration;
+        }
+
+        /** {@return the number of time a random number has been generated} */
+        public long iteration() {
+            return iteration;
         }
 
         /**
@@ -146,8 +171,34 @@ public final class Simulator implements AutoCloseable {
 
         @Override
         protected int next(int bits) {
-            return super.next(bits);
+            if (iteration == nextIteration) {
+                try {
+                    var segment = segments.removeFirst();
+                    nextIteration = segment.iteration;
+                    setSeed(segment.seed());
+                } catch (NoSuchElementException e) {
+                    halt(0);
+                }
+            }
+            iteration++;
+            last = super.next(bits);
+            return last;
         }
+    }
+
+    private static void halt(int code) {
+        var machine = Simulator.machineOrNull();
+        if (machine != null) {
+            try {
+                machine.simulator.nameToNode.values().forEach(Machine::flush);
+                machine.simulator.logger.log("Terminated",
+                                             Map.of("code", code, "last", machine.simulator.random.last));
+                machine.simulator.logger.flush();
+                machine.simulator.deleteRunBaseDir();
+            } catch (IOException e) {
+            }
+        }
+        getRuntime().halt(code);
     }
 
     /** Thrown by {@link Runtime#exit(int)} after stopping all the machine's threads. */
@@ -172,13 +223,13 @@ public final class Simulator implements AutoCloseable {
         }
     }
 
-    public static final String SIMULATOR_RUN_DIR = "simulator.run-dir";
-    private static final long SIMULATOR_SEED = 42;
+    public static final Path ROOT_DIR =
+            Path.of(getProperty("opendst.root-dir", "target"), "opendst").toAbsolutePath().normalize();
     // Visible for testing
     static final Set<String> REDIRECT_CONSTRUCTORS_OF =
             Set.of("java/lang/Thread", "java/net/Socket", "java/net/ServerSocket");
     // 2015-10-21, back to the future.
-    private static final long START_TIME_SECONDS = 1445385600;
+    private static final Instant START_TIME = Instant.ofEpochSecond(1445385600);
 
     private record UncaughtException(Machine machine, Thread thread, Throwable throwable) {}
 
@@ -186,26 +237,77 @@ public final class Simulator implements AutoCloseable {
     private final Map<InetAddress, String> addressToName = new HashMap<>();
     private final Map<String, Node> nameToNode = new HashMap<>();
     final Lock lock = new ReentrantLock();
-    final SourceOfRandomness random = new SourceOfRandomness(SIMULATOR_SEED);
+    private final ConsoleCapture logger;
+    private final Plan plan;
+    public final SourceOfRandomness random;
     /** Contains the tasks waiting to be executed in the simulated environment. */
     private final PriorityQueue<QueuedTask> taskQueue = new PriorityQueue<>();
     /** Keeps track of the latest uncaught exception which occurred in a simulator-carried virtual threads. */
     private UncaughtException uncaughtException;
     /** The simulated wall-clock time. */
-    private final long nowSeconds = START_TIME_SECONDS;
+    private Instant now = START_TIME;
 
     final Path runBaseDir;
-    /** Represents the offset in nanoseconds from the simulated wall-clock time. */
-    private long nanoTime;
     /** The task id is used to break ties in the scheduling of tasks with the same launch time. */
     private long taskId;
     /** Whether this simulator has been closed. */
     private boolean closed;
 
-    private Simulator() throws IOException {
-        this.runBaseDir =
-                Path.of(getProperty(SIMULATOR_RUN_DIR, "target/simulation")).resolve(toHexString(SIMULATOR_SEED));
+    private Simulator(Plan plan, ConsoleCapture logger) throws IOException {
+        this.plan = plan;
+        this.random = new SourceOfRandomness(plan.segments());
+        this.runBaseDir = ROOT_DIR.resolve(plan.rid() + "-" + randomUUID()).normalize();
+        if (exists(runBaseDir, NOFOLLOW_LINKS)) {
+            throw new IOException("The directory " + runBaseDir + " already exists");
+        }
         Files.createDirectories(runBaseDir);
+        if (!runBaseDir.toRealPath().startsWith(ROOT_DIR)) {
+            throw new IOException("Invalid plan id '" + plan.rid() + "'");
+        }
+        this.logger = logger;
+    }
+
+    public Random random() {
+        return random;
+    }
+
+    private void deleteRunBaseDir() throws IOException {
+        if (!exists(runBaseDir) || !runBaseDir.toRealPath().startsWith(ROOT_DIR)) {
+            return;
+        }
+        walkFileTree(runBaseDir, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                // Delete the file itself
+                Files.delete(file);
+                return CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                // If an exception happened inside the directory, 'exc' won't be null.
+                if (exc != null) throw exc;
+
+                // Delete the directory now that it is confirmed empty
+                Files.delete(dir);
+                return CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+                // Handle cases where a file exists but can't be accessed
+                err.println("Failed to access file: " + file + " due to " + exc.getMessage());
+                return FileVisitResult.TERMINATE; // Stop everything if we hit an error
+            }
+        });
+    }
+
+    private record Segment(long seed, long iteration) { }
+
+    private record Plan(String rid, List<Segment> segments) {
+        public Plan {
+            segments = List.copyOf(segments);
+        }
     }
 
     /**
@@ -213,19 +315,7 @@ public final class Simulator implements AutoCloseable {
      *
      * @param scenario The scenario to run in the simulated environment.
      */
-    public static void runSimulation(Callable<Void> scenario) throws ExecutionException {
-        runSimulation("simulator", "127.0.0.1", scenario);
-    }
-
-    /**
-     * Runs the provided scenario into a deterministic execution environment.
-     *
-     * @param hostName  Name of the host executing the provided scenario
-     * @param ipAddress IP address of the host executing the provided scenario
-     * @param scenario  The scenario to run in the simulated environment
-     */
-    public static void runSimulation(String hostName, String ipAddress, Callable<Void> scenario)
-            throws ExecutionException {
+    public static void runSimulation(Callable<Void> scenario) {
         if (MACHINE.get() != null) {
             throw new IllegalStateException(format(
                     "The carrier thread '%s' is already running a simulation",
@@ -233,24 +323,23 @@ public final class Simulator implements AutoCloseable {
         } else if (!getBoolean(AGENT_PROPERTY)) {
             throw new IllegalStateException("The simulation cannot start because the simulator agent is not present");
         }
-        var threadName = currentThread().getName();
-        currentThread().setName("Simulator Carrier Thread");
-        /* var out = System.out;
-        setOut(new PrintStream(OutputStream.nullOutputStream()));
-        var err = System.err;
-        setErr(new PrintStream(OutputStream.nullOutputStream())); */
-        try (var simulator = new Simulator()) {
-            var node = new Node(simulator, getSystemClassLoader(), "simulator", "127.0.0.1");
-            MACHINE.set(node);
-            node.startNode(scenario);
-            simulator.runLoop();
+
+        var plan = JSON.std.beanFrom(Plan.class, System.in);
+        currentThread().setName("OpenDST Simulator Carrier Thread");
+        try (var logger = new ConsoleCapture(plan.rid(), System.out)) {
+            logger.log("Simulation started", Map.of("level", "info"));
+            try (var simulator = new Simulator(plan, logger)) {
+                var node = new Node(simulator, getSystemClassLoader(), "simulator", "127.0.0.1");
+                MACHINE.set(node);
+                node.startNode(scenario);
+                simulator.runLoop();
+            } catch (Throwable t) {
+                logger.log("Simulation failed", Map.of("exception", t));
+            }
         } catch (IOException e) {
-            throw new SimulationError("The simulation has failed to start due to an I/O error", e);
+            throw new SimulationError(e);
         } finally {
-            MACHINE.remove();
-            currentThread().setName(threadName);
-            /* setOut(out);
-            setErr(err); */
+            halt(0);
         }
     }
 
@@ -271,6 +360,18 @@ public final class Simulator implements AutoCloseable {
     /** {@return the working directory of the current node} */
     public static Path workingDirectory() {
         return machineOrThrow().workingDirectory();
+    }
+
+    Instant instant() {
+        return now;
+    }
+
+    long iteration() {
+        return random.iteration();
+    }
+
+    String runId() {
+        return plan.rid();
     }
 
     /**
@@ -302,7 +403,7 @@ public final class Simulator implements AutoCloseable {
         try {
             var node = new Node(simulator, classLoader, hostName, ipAddress.getHostAddress());
             if (filesystemSourceDir != null) {
-                initFileSystem(filesystemSourceDir, node.workingDirectory);
+                initFileSystem(filesystemSourceDir, node.workingDirectory());
             }
             node.startNode(() -> {
                 try {
@@ -322,19 +423,23 @@ public final class Simulator implements AutoCloseable {
 
     @SuppressWarnings("NullableProblems")
     private static void initFileSystem(Path source, Path target) throws IOException {
-        walkFileTree(source, new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                createDirectories(target.resolve(source.relativize(dir)));
-                return CONTINUE;
-            }
+        try {
+            walkFileTree(source, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                    createDirectories(target.resolve(source.relativize(dir)));
+                    return CONTINUE;
+                }
 
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                copy(file, target.resolve(source.relativize(file)));
-                return CONTINUE;
-            }
-        });
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    copy(file, target.resolve(source.relativize(file)));
+                    return CONTINUE;
+                }
+            });
+        } catch (NoSuchFileException e) {
+            // No fs
+        }
     }
 
     private static Machine machineOrThrow() {
@@ -366,27 +471,37 @@ public final class Simulator implements AutoCloseable {
     }
 
     @Override
-    public void close() {
+    public void close() throws IOException {
+        logger.flush();
         closed = true;
     }
 
-    private void runLoop() {
+    private void runLoop() throws IOException {
         if (closed) {
             throw new IllegalStateException("This simulator has been closed");
         }
 
         QueuedTask maybeTask;
         while ((maybeTask = taskQueue.poll()) != null && uncaughtException == null) {
-            if (maybeTask.nanos < nanoTime) {
+            if (maybeTask.runAt.isBefore(now)) {
                 throw new SimulationError("Simulator has gone backward in time");
+            } else if (maybeTask.skip) {
+                continue;
             }
-            nanoTime = maybeTask.nanos;
+            now = maybeTask.runAt;
             currentThread().setContextClassLoader(maybeTask.machine.classLoader);
+            System.setOut(maybeTask.machine.console);
+            System.setErr(maybeTask.machine.console);
+
             MACHINE.set(maybeTask.machine);
             maybeTask.run();
             if (!SUCCESS.equals(maybeTask.state())) {
                 throw new SimulationError(maybeTask.exceptionNow());
             }
+            if (maybeTask.taskId % 100 == 0) {
+                logger.flush();
+            }
+
             // To keep determinism, unblock all the simulator-carried virtual threads that have exited an object monitor
             // during the previous task execution before the next iteration.
             maybeTask.machine.purgeAndUnblockVirtualThreads();
@@ -395,6 +510,7 @@ public final class Simulator implements AutoCloseable {
             //  conditioned (e.g. doing it once every hundred runs)
             nameToNode.values().forEach(node -> node.checkNoThreadOnWaitingList(machine));
         }
+        nameToNode.values().forEach(Machine::flush);
 
         if (uncaughtException != null) {
             var exception = uncaughtException;
@@ -405,25 +521,22 @@ public final class Simulator implements AutoCloseable {
                             exception.machine().hostName, exception.thread().getName()),
                     exception.throwable());
         } else if (allThreadsAreStuck()) {
-            throw new SimulationError(
-                    "The simulation terminated because all the remaining threads are stuck and can't make progress");
+            halt(0);
+            /* throw new SimulationError(
+                    "The simulation terminated because all the remaining threads are stuck and can't make progress"); */
         }
     }
 
     private boolean allThreadsAreStuck() {
-        boolean stuck = false;
         for (var node : nameToNode.values()) {
             for (var thread : node.virtualThreads) {
                 if (thread.isAlive()) {
-                    var stack = new IllegalStateException(
-                            format("Node '%s': the thread '%s' is stuck", node.hostName, thread.getName()));
-                    stack.setStackTrace(thread.getStackTrace());
-                    stack.printStackTrace(System.err);
-                    stuck = true;
+                    err.println("Warning: simulation ended prematurely because all remaining threads are blocked");
+                    return true;
                 }
             }
         }
-        return stuck;
+        return false;
     }
 
     /**
@@ -441,7 +554,7 @@ public final class Simulator implements AutoCloseable {
         }
     }
 
-    private Future<?> scheduleExactlyAt(Machine machine, Runnable task, long atNanos) {
+    private Future<?> scheduleExactlyAt(Machine machine, Runnable task, Instant at) {
         if (closed) {
             // At this point, the outcome of the simulation is not deterministic anymore.
             throw new SimulationError("Cannot schedule a task since this simulator is closed");
@@ -455,10 +568,10 @@ public final class Simulator implements AutoCloseable {
                             currentThread().getName())));
             task.run();
             return new FutureTask<>(() -> {}, null);
-        } else if (atNanos < nanoTime) {
+        } else if (at.isBefore(now)) {
             throw new SimulationError("Cannot schedule a task in the past");
         }
-        var queuedTask = new QueuedTask(machine, atNanos, task, taskId++);
+        var queuedTask = new QueuedTask(machine, at, task, taskId++);
         var added = taskQueue.add(queuedTask);
         assert added;
         return queuedTask;
@@ -483,14 +596,17 @@ public final class Simulator implements AutoCloseable {
     }
 
     private final class QueuedTask extends FutureTask<Void> implements Comparable<QueuedTask> {
+        private static final Comparator<QueuedTask> COMPARATOR =
+                Comparator.<QueuedTask, Instant>comparing(q -> q.runAt).thenComparingLong(a -> a.taskId);
         private final Machine machine;
-        private final long nanos;
+        private final Instant runAt;
         private final long taskId;
+        private boolean skip;
 
-        private QueuedTask(Machine machine, long launchTime, Runnable task, long taskId) {
+        private QueuedTask(Machine machine, Instant runAt, Runnable task, long taskId) {
             super(task, null);
             this.machine = machine;
-            this.nanos = launchTime;
+            this.runAt = runAt;
             this.taskId = taskId;
         }
 
@@ -499,14 +615,14 @@ public final class Simulator implements AutoCloseable {
             boolean cancelled = super.cancel(mayInterruptIfRunning);
             if (cancelled) {
                 // No need to execute it
-                taskQueue.remove(this);
+                skip = true;
             }
             return cancelled;
         }
 
         @Override
         public int compareTo(QueuedTask other) {
-            return nanos > other.nanos ? 1 : nanos < other.nanos ? -1 : Long.compare(taskId, other.taskId);
+            return COMPARATOR.compare(this, other);
         }
     }
 
@@ -613,58 +729,56 @@ public final class Simulator implements AutoCloseable {
     @SuppressWarnings({"checkstyle:JavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod"})
     public static Thread newThread() {
         var machine = machineOrNull();
-        return machine != null ? machine.newThread() : new Thread();
+        return machine != null ? ofVirtual().unstarted(() -> {}) : new Thread();
     }
 
     /** Deterministic implementation of {@link Thread#Thread(String)}. */
     @SuppressWarnings({"checkstyle:JavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod"})
     public static Thread newThread(String name) {
         var machine = machineOrNull();
-        return machine != null ? machine.newThread(name) : new Thread(name);
+        return machine != null ? ofVirtual().name(name).unstarted(() -> {}) : new Thread(name);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, String)}. */
     @SuppressWarnings({"checkstyle:JavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod"})
     public static Thread newThread(ThreadGroup group, String name) {
         var machine = machineOrNull();
-        return machine != null ? machine.newThread(group, name) : new Thread(group, name);
+        return machine != null ? ofVirtual().name(name).unstarted(() -> {}) : new Thread(group, name);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(Runnable)}. */
     @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
     public static Thread newThread(Runnable target) {
         var machine = machineOrNull();
-        return machine != null ? machine.newThread(target) : new Thread(target);
+        return machine != null ? ofVirtual().unstarted(target) : new Thread(target);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable)}. */
     @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
     public static Thread newThread(ThreadGroup group, Runnable target) {
         var machine = machineOrNull();
-        return machine != null ? machine.newThread(group, target) : new Thread(group, target);
+        return machine != null ? ofVirtual().unstarted(target) : new Thread(group, target);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(Runnable, String)}. */
     @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
     public static Thread newThread(Runnable target, String name) {
         var machine = machineOrNull();
-        return machine != null ? machine.newThread(target, name) : new Thread(target, name);
+        return machine != null ? ofVirtual().name(name).unstarted(target) : new Thread(target, name);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String)}. */
     @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
     public static Thread newThread(ThreadGroup group, Runnable target, String name) {
         var machine = machineOrNull();
-        return machine != null ? machine.newThread(group, target, name) : new Thread(group, target, name);
+        return machine != null ? ofVirtual().name(name).unstarted(target) : new Thread(group, target, name);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long)}. */
     @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
     public static Thread newThread(ThreadGroup group, Runnable target, String name, long stackSize) {
         var machine = machineOrNull();
-        return machine != null
-                ? machine.newThread(group, target, name, stackSize)
-                : new Thread(group, target, name, stackSize);
+        return machine != null ? ofVirtual().name(name).unstarted(target) : new Thread(group, target, name, stackSize);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long, boolean)}. */
@@ -672,9 +786,8 @@ public final class Simulator implements AutoCloseable {
     public static Thread newThread(
             ThreadGroup group, Runnable target, String name, long stackSize, boolean inheritThreadLocal) {
         var machine = machineOrNull();
-        return machine != null
-                ? machine.newThread(group, target, name, stackSize, inheritThreadLocal)
-                : new Thread(group, target, name, stackSize, inheritThreadLocal);
+        return machine != null ? ofVirtual().name(name).unstarted(target)
+                               : new Thread(group, target, name, stackSize, inheritThreadLocal);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, String, int, Runnable, long)} . */
@@ -682,9 +795,8 @@ public final class Simulator implements AutoCloseable {
     public static Thread newThread(
             ThreadGroup group, String name, int characteristics, Runnable target, long stackSize) {
         var machine = machineOrNull();
-        return machine != null
-                ? machine.newThread(group, target, name, stackSize)
-                : VirtualThreadInternals.newThread(group, name, characteristics, target, stackSize);
+        return machine != null ? ofVirtual().name(name).unstarted(target)
+                               : VirtualThreadInternals.newThread(group, name, characteristics, target, stackSize);
     }
 
     /**
@@ -793,14 +905,14 @@ public final class Simulator implements AutoCloseable {
     /** Provides deterministic implementation of JDK API. */
     public abstract static class Machine {
         public static final Duration SHUTDOWN_GRACE_TIME = ofSeconds(30);
-        final Simulator simulator;
+        public final Simulator simulator;
+        private final Path workingDirectory;
         private final ClassLoader classLoader;
         final List<Thread> virtualThreads = new ArrayList<>();
+        private final PrintStream console;
         private final long salt32l;
         private final boolean reverse;
         private final ToLongFunction<Random> defaultSchedulingJitter = r -> r.nextLong(1, 10_000);
-        final Path workingDirectory;
-        final Random random;
         final String hostName;
         private final List<Thread> shutdownHooks = new ArrayList<>();
         private final CompletableFuture<Integer> shutdown = new CompletableFuture<>();
@@ -809,18 +921,29 @@ public final class Simulator implements AutoCloseable {
         Machine(Simulator simulator, ClassLoader classLoader, String hostName) throws IOException {
             this.simulator = simulator;
             this.classLoader = classLoader;
-            var servicePath = simulator.runBaseDir.resolve("services", hostName);
-            this.workingDirectory = servicePath.resolve("fs");
+            this.workingDirectory = simulator.runBaseDir.resolve("fs").resolve(hostName);
             createDirectories(workingDirectory);
-            this.random = simulator.random;
             this.hostName = hostName.toLowerCase();
             this.salt32l = simulator.random.nextLong() & 0xFFFF_FFFFL;
             this.reverse = (salt32l & 1) == 0;
+            this.console = new PrintStream(simulator.logger.newLogWriter(simulator, hostName), true);
+        }
+
+        PrintStream console() {
+            return console;
+        }
+
+        void flush() {
+            console.flush();
         }
 
         /** Deterministic implementation of {@link InetAddress#getLocalHost()}. */
         @SuppressWarnings("checkstyle:JavadocMethod")
         public abstract InetAddress getLocalHost();
+
+        public Instant instant() {
+            return simulator.instant();
+        }
 
         /** Deterministic implementation of {@link InetAddressResolver#lookupByAddress(byte[])}. */
         @SuppressWarnings("checkstyle:JavadocMethod")
@@ -829,11 +952,6 @@ public final class Simulator implements AutoCloseable {
         /** Deterministic implementation of {@link InetAddressResolver#lookupByName(String, LookupPolicy)}. */
         @SuppressWarnings("checkstyle:JavadocMethod")
         public abstract Stream<InetAddress> lookupByName(String host) throws UnknownHostException;
-
-        /** Deterministic source of randomness. */
-        public SourceOfRandomness sourceOfRandomness() {
-            return simulator.random;
-        }
 
         /** Deterministic implementation of {@link SocketFactory}. */
         @SuppressWarnings("checkstyle:JavadocMethod")
@@ -939,8 +1057,7 @@ public final class Simulator implements AutoCloseable {
          * {@link VirtualThread#takeVirtualThreadListToUnblock()} which would return immediately if the list is empty
          * rather than blocking. Unfortunately this implies modifying the JDK code.
          */
-        boolean purgeAndUnblockVirtualThreads() {
-            boolean unblocked = false;
+        void purgeAndUnblockVirtualThreads() {
             boolean alive = false;
             for (var it = virtualThreads.iterator(); it.hasNext(); ) {
                 var thread = it.next();
@@ -959,14 +1076,12 @@ public final class Simulator implements AutoCloseable {
                                 "Thread '%s' is no more present on the waiting-list. Determinism is broken",
                                 thread.getName()));
                     }
-                    unblocked = true;
                     unblock(thread);
                 }
             }
             if (!alive) {
                 stopNode();
             }
-            return unblocked;
         }
 
         void checkNoThreadOnWaitingList(Machine machine) {
@@ -995,7 +1110,7 @@ public final class Simulator implements AutoCloseable {
          */
         public void scheduleNow(Runnable runnable) {
             simulator.scheduleExactlyAt(
-                    this, runnable, nanoTime() + defaultSchedulingJitter.applyAsLong(simulator.random));
+                    this, runnable, simulator.now.plusNanos(defaultSchedulingJitter.applyAsLong(simulator.random)));
         }
 
         /**
@@ -1010,8 +1125,7 @@ public final class Simulator implements AutoCloseable {
          * @return A {@link Future} representing pending completion of the task
          */
         public Future<?> scheduleAfterDelay(Runnable runnable, long delay, TimeUnit unit) {
-            var delayNanos = unit.toNanos(delay) + defaultSchedulingJitter.applyAsLong(simulator.random);
-            return simulator.scheduleExactlyAt(this, runnable, Math.addExact(nanoTime(), delayNanos));
+            return simulator.scheduleExactlyAt(this, runnable, simulator.now.plus(delay, unit.toChronoUnit()));
         }
 
         /** Deterministic implementation of {@code java.util.ImmutableCollections#REVERSE}. */
@@ -1027,12 +1141,12 @@ public final class Simulator implements AutoCloseable {
 
         /** {@return the current simulated wall-clock time in nanoseconds.} */
         public long nanoTime() {
-            return simulator.nanoTime;
+            return NANOS.between(START_TIME, simulator.now);
         }
 
         /** {@return the current simulated wall-clock time in milliseconds.} */
         public long currentTimeMillis() {
-            return SECONDS.toMillis(simulator.nowSeconds) + NANOSECONDS.toMillis(simulator.nanoTime);
+            return simulator.now.toEpochMilli();
         }
 
         /** Deterministic implementation of {@link Runtime#addShutdownHook(Thread)}. */
@@ -1045,67 +1159,6 @@ public final class Simulator implements AutoCloseable {
         @SuppressWarnings("checkstyle:JavadocMethod")
         public boolean removeShutdownHook(Thread hook) {
             return shutdownHooks.remove(hook);
-        }
-
-        /** Deterministic implementation of {@link Executors#defaultThreadFactory()}. */
-        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
-        public ThreadFactory executorsDefaultThreadFactory() {
-            return ofVirtual().factory();
-        }
-
-        /** Deterministic implementation of {@link Thread#Thread()}. */
-        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
-        public Thread newThread() {
-            return ofVirtual().unstarted(() -> {});
-        }
-
-        /** Deterministic implementation of {@link Thread#Thread(String)}. */
-        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
-        public Thread newThread(String name) {
-            return ofVirtual().name(name).unstarted(() -> {});
-        }
-
-        /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, String)}. */
-        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
-        public Thread newThread(ThreadGroup group, String name) {
-            return ofVirtual().name(name).unstarted(() -> {});
-        }
-
-        /** Deterministic implementation of {@link Thread#Thread(Runnable)}. */
-        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
-        public Thread newThread(Runnable target) {
-            return ofVirtual().unstarted(target);
-        }
-
-        /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable)}. */
-        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
-        public Thread newThread(ThreadGroup group, Runnable target) {
-            return ofVirtual().unstarted(target);
-        }
-
-        /** Deterministic implementation of {@link Thread#Thread(Runnable, String)}. */
-        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
-        public Thread newThread(Runnable target, String name) {
-            return ofVirtual().name(name).unstarted(target);
-        }
-
-        /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String)}. */
-        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
-        public Thread newThread(ThreadGroup group, Runnable target, String name) {
-            return ofVirtual().name(name).unstarted(target);
-        }
-
-        /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long)}. */
-        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
-        public Thread newThread(ThreadGroup group, Runnable target, String name, long stackSize) {
-            return ofVirtual().name(name).unstarted(target);
-        }
-
-        /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long, boolean)}. */
-        @SuppressWarnings({"checkstyle:JavadocMethod", "unused"})
-        public Thread newThread(
-                ThreadGroup group, Runnable target, String name, long stackSize, boolean inheritThreadLocal) {
-            return ofVirtual().name(name).unstarted(target);
         }
 
         /**

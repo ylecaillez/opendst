@@ -38,6 +38,11 @@
       <version>1.17.7</version>
     </dependency>
     <dependency>
+      <groupId>tools.jackson.jr</groupId>
+      <artifactId>jackson-jr-objects</artifactId>
+      <version>3.0.4</version>
+    </dependency>
+    <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-engine</artifactId>
       <version>5.0.0</version>
@@ -46,7 +51,7 @@
     <dependency>
       <groupId>org.assertj</groupId>
       <artifactId>assertj-core</artifactId>
-      <version>3.27.6</version>
+      <version>3.27.7</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -55,13 +60,7 @@
       <version>2.5.5</version>
       <scope>test</scope>
     </dependency>
-    <dependency>
-      <groupId>tools.jackson.core</groupId>
-      <artifactId>jackson-databind</artifactId>
-      <version>3.0.0</version>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
+    </dependencies>
 
   <build>
     <plugins>

@@ -18,19 +18,20 @@ package com.pingidentity.opendst;
 import static com.diffplug.selfie.Selfie.expectSelfie;
 import static com.pingidentity.opendst.Simulator.runSimulation;
 import static java.util.List.of;
+import static tools.jackson.jr.ob.JSON.Feature.PRETTY_PRINT_OUTPUT;
 
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
-import tools.jackson.databind.ObjectMapper;
+import tools.jackson.jr.ob.JSON;
 
 public class DeterministicSystemHashCodeIT {
     @Test
     public void testSystemHashCode() throws Exception {
-        var writer = new ObjectMapper().writerWithDefaultPrettyPrinter();
         var ref = new AtomicReference<String>();
         runSimulation(() -> {
-            ref.set(writer.writeValueAsString(
-                    of(new Object().hashCode(), new Object().hashCode(), new Object().hashCode())));
+            ref.set(JSON.std
+                    .with(PRETTY_PRINT_OUTPUT)
+                    .asString(of(new Object().hashCode(), new Object().hashCode(), new Object().hashCode())));
             return null;
         });
         expectSelfie(ref.get()).toMatchDisk();

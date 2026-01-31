@@ -21,26 +21,33 @@ import static java.lang.Thread.ofPlatform;
 import static java.lang.Thread.ofVirtual;
 import static java.lang.Thread.startVirtualThread;
 import static java.util.concurrent.Executors.defaultThreadFactory;
+import static tools.jackson.jr.ob.JSON.Feature.PRETTY_PRINT_OUTPUT;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
-import tools.jackson.databind.ObjectMapper;
+import tools.jackson.jr.ob.JSON;
 
 public class DeterministicThreadIT {
     @Test
     public void deterministicThreadId() throws Exception {
-        var writer = new ObjectMapper().writerWithDefaultPrettyPrinter();
         var ref = new AtomicReference<String>();
         runSimulation(() -> {
-            ref.set(writer.writeValueAsString(Map.of(
-                    "ofVirtual.unstarted", ofVirtual().unstarted(() -> {}),
-                    "ofVirtual.factory", ofVirtual().factory().newThread(() -> {}),
-                    "startVirtualThread", startVirtualThread(() -> {}),
-                    "new Thread", new Thread().threadId(),
-                    "ofPlatform.unstarted", ofPlatform().unstarted(() -> {}),
-                    "ofPlatform.factory", ofPlatform().factory().newThread(() -> {}),
-                    "defaultThreadFactory", defaultThreadFactory().newThread(() -> {}))));
+            ref.set(JSON.std
+                    .with(PRETTY_PRINT_OUTPUT)
+                    .asString(Map.of(
+                            "ofVirtual.unstarted",
+                                    ofVirtual().unstarted(() -> {}).toString(),
+                            "ofVirtual.factory",
+                                    ofVirtual().factory().newThread(() -> {}).toString(),
+                            "startVirtualThread", startVirtualThread(() -> {}).toString(),
+                            "new Thread", new Thread().toString(),
+                            "ofPlatform.unstarted",
+                                    ofPlatform().unstarted(() -> {}).toString(),
+                            "ofPlatform.factory",
+                                    ofPlatform().factory().newThread(() -> {}).toString(),
+                            "defaultThreadFactory",
+                                    defaultThreadFactory().newThread(() -> {}).toString())));
             return null;
         });
         expectSelfie(ref.get()).toMatchDisk();

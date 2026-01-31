@@ -18,29 +18,34 @@ package com.pingidentity.opendst;
 import static com.diffplug.selfie.Selfie.expectSelfie;
 import static com.pingidentity.opendst.Simulator.runSimulation;
 import static java.util.Map.of;
+import static tools.jackson.jr.ob.JSON.Feature.PRETTY_PRINT_OUTPUT;
 
 import java.security.SecureRandom;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Random;
 import java.util.SplittableRandom;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.random.RandomGenerator;
 import org.junit.jupiter.api.Test;
-import tools.jackson.databind.ObjectMapper;
+import tools.jackson.jr.ob.JSON;
 
 public class DeterministicRandomIT {
     @Test
     public void deterministicRandom() throws Exception {
-        var writer = new ObjectMapper().writerWithDefaultPrettyPrinter();
         var ref = new AtomicReference<String>();
+        var uuid = UUID.randomUUID().toString();
         runSimulation(() -> {
-            ref.set(writer.writeValueAsString(of(
-                    "newRandom", randomToMap(new Random()),
-                    "threadLocalRandom", randomToMap(ThreadLocalRandom.current()),
-                    "splittableRandom", randomToMap(new SplittableRandom()),
-                    "secureRandom", randomToMap(new SecureRandom()))));
+            var uuid2 = UUID.randomUUID().toString();
+            ref.set(JSON.std
+                    .with(PRETTY_PRINT_OUTPUT)
+                    .asString(of(
+                            "newRandom", randomToMap(new Random()),
+                            "threadLocalRandom", randomToMap(ThreadLocalRandom.current()),
+                            "splittableRandom", randomToMap(new SplittableRandom()),
+                            "secureRandom", randomToMap(new SecureRandom()))));
             return null;
         });
         expectSelfie(ref.get()).toMatchDisk();

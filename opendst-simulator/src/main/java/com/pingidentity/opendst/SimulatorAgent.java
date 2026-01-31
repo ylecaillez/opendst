@@ -21,14 +21,13 @@ import static com.pingidentity.opendst.WallClockTime.wallClockCurrentTimeMillis;
 import static com.pingidentity.opendst.WallClockTime.wallClockNanoTime;
 import static java.lang.Boolean.FALSE;
 import static java.lang.String.format;
+import static java.lang.System.setProperty;
 import static java.lang.ThreadLocal.withInitial;
 import static java.lang.classfile.ClassHierarchyResolver.ofClassLoading;
 import static java.lang.classfile.ClassTransform.transformingMethods;
 import static java.lang.classfile.MethodTransform.transformingCode;
 import static java.lang.classfile.Opcode.DUP;
 import static java.lang.classfile.Opcode.INVOKESPECIAL;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static net.bytebuddy.asm.Advice.to;
 import static net.bytebuddy.asm.MemberSubstitution.relaxed;
 import static net.bytebuddy.matcher.ElementMatchers.any;
@@ -70,7 +69,6 @@ import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.nio.file.ClosedWatchServiceException;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
@@ -82,6 +80,8 @@ import java.nio.file.WatchService;
 import java.nio.file.Watchable;
 import java.security.ProtectionDomain;
 import java.security.SecureRandomSpi;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
@@ -158,7 +158,6 @@ public final class SimulatorAgent {
      * @param instrumentation The instrumentation instance to use for transforming classes.
      */
     public static void premain(String agentArgs, Instrumentation instrumentation) {
-        System.out.println("Simulator Agent loading...");
         new Default()
                 .disableClassFormatChanges()
                 .enableNativeMethodPrefix("native")
@@ -179,10 +178,10 @@ public final class SimulatorAgent {
                 .type(named("java.lang.Runtime"))
                 .transform((builder, _, _, _, _) -> builder.method(named("exit"))
                         .intercept(to(RuntimeExitAdvice.class).wrap(StubMethod.INSTANCE)))
-                /** {@link VM#getNanoTimeAdjustment(long)}  } */
-                .type(named("jdk.internal.misc.VM"))
-                .transform((builder, _, _, _, _) -> builder.method(named("getNanoTimeAdjustment"))
-                        .intercept(to(VMGetNanoTimeAdjustementAdvice.class).wrap(StubMethod.INSTANCE)))
+                /** {@link Clock#currentInstant()}  */
+                .type(named("java.time.Clock"))
+                .transform((builder, _, _, _, _) ->
+                        builder.visit(to(ClockCurrentInstantAdvice.class).on(named("currentInstant"))))
                 .asTerminalTransformation()
                 /** {@link FlightRecorder#addPeriodicEvent(Class, Runnable)} */
                 .type(named("jdk.jfr.FlightRecorder"))
@@ -332,9 +331,7 @@ public final class SimulatorAgent {
                 .installOn(instrumentation);
 
         instrumentation.addTransformer(new CallSiteInstrumentation("com.pingidentity.opendst.Simulator"));
-
-        System.setProperty(AGENT_PROPERTY, "true");
-        System.out.println("Simulator agent installed successfully");
+        setProperty(AGENT_PROPERTY, "true");
     }
 
     /** Overrides {@link java.util.ImmutableCollections#SALT32L}. */
@@ -376,7 +373,7 @@ public final class SimulatorAgent {
         public static void intercept(@Enter Machine machine, @Return(readOnly = false) ThreadFactory threadFactory)
                 throws Throwable {
             if (machine != null) {
-                threadFactory = machine.executorsDefaultThreadFactory();
+                threadFactory = Thread.ofVirtual().factory();
             }
         }
     }
@@ -430,7 +427,7 @@ public final class SimulatorAgent {
         @SuppressWarnings("MissingJavadocMethod")
         public static void intercept(@Enter Machine machine, @Return(readOnly = false) long seed) {
             if (machine != null) {
-                seed = machine.sourceOfRandomness().nextLong();
+                seed = machine.simulator.random.nextLong();
             }
         }
     }
@@ -439,7 +436,7 @@ public final class SimulatorAgent {
     public static final class InetAddressGetLocalHost {
         @SuppressWarnings("MissingJavadocMethod")
         @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
-        public static InetAddress onEnter() throws UnknownHostException {
+        public static InetAddress onEnter() {
             var machine = machineOrNull();
             return machine != null ? machine.getLocalHost() : null;
         }
@@ -473,20 +470,20 @@ public final class SimulatorAgent {
         }
     }
 
-    /**
-     * Overrides {@link jdk.internal.misc.VM#getNanoTimeAdjustment(long)}.
-     * <p>
-     * This advice is also modifying a native method. See @{@link TimeAdvice}
-     */
-    public static final class VMGetNanoTimeAdjustementAdvice {
+    /** Overrides {@link Clock#currentInstant()}. */
+    public static final class ClockCurrentInstantAdvice {
+        @OnMethodEnter(skipOn = OnNonDefaultValue.class)
+        @SuppressWarnings("MissingJavadocMethod")
+        public static Machine onEnter() {
+            return machineOrNull();
+        }
+
         @OnMethodExit
         @SuppressWarnings("MissingJavadocMethod")
-        public static void intercept(
-                @Argument(value = 0, readOnly = true) long offsetInSeconds,
-                @Return(readOnly = false) long returnedTime) {
-            var machine = machineOrNull();
-            var nowMs = machine != null ? machine.currentTimeMillis() : wallClockCurrentTimeMillis();
-            returnedTime = MILLISECONDS.toNanos(nowMs - SECONDS.toMillis(offsetInSeconds));
+        public static void onExit(@Enter Machine machine, @Return(readOnly = false) Instant instant) {
+            if (machine != null) {
+                instant = machine.instant();
+            }
         }
     }
 
@@ -540,7 +537,7 @@ public final class SimulatorAgent {
         @SuppressWarnings("MissingJavadocMethod")
         public static void onExit(@Enter Machine machine, @Argument(value = 0, readOnly = false) byte[] bytes) {
             if (machine != null) {
-                machine.sourceOfRandomness().nextBytes(bytes);
+                machine.simulator.random.nextBytes(bytes);
             }
         }
     }
@@ -557,7 +554,7 @@ public final class SimulatorAgent {
         @SuppressWarnings({"MissingJavadocMethod", "ParameterCanBeLocal", "UnusedAssignment", "ReassignedVariable"})
         public static void onExit(@Enter Machine machine, @Return(readOnly = false) long nextLong) {
             if (machine != null) {
-                nextLong = machine.sourceOfRandomness().nextLong();
+                nextLong = machine.simulator.random.nextLong();
             }
         }
     }
@@ -577,7 +574,7 @@ public final class SimulatorAgent {
         public static void onExit(
                 @Enter Machine machine, @Argument(value = 0) int bits, @Return(readOnly = false) int next) {
             if (machine != null) {
-                next = machine.sourceOfRandomness().nextBits(bits);
+                next = machine.simulator.random.nextBits(bits);
             }
         }
     }
@@ -596,7 +593,7 @@ public final class SimulatorAgent {
         @SuppressWarnings({"MissingJavadocMethod", "ParameterCanBeLocal", "UnusedAssignment", "ReassignedVariable"})
         public static void onExit(@Enter Machine machine, @Return(readOnly = false) double out) {
             if (machine != null) {
-                out = machine.sourceOfRandomness().nextGaussian();
+                out = machine.simulator.random.nextGaussian();
             }
         }
     }
@@ -619,7 +616,7 @@ public final class SimulatorAgent {
                 @Argument(value = 1) double stddev,
                 @Return(readOnly = false) double out) {
             if (machine != null) {
-                out = machine.sourceOfRandomness().nextGaussian(mean, stddev);
+                out = machine.simulator.random.nextGaussian(mean, stddev);
             }
         }
     }
@@ -638,7 +635,7 @@ public final class SimulatorAgent {
                 @Enter Machine machine, @Argument(value = 0) int numBytes, @Return(readOnly = false) byte[] bytes) {
             if (machine != null) {
                 bytes = new byte[numBytes];
-                machine.sourceOfRandomness().nextBytes(bytes);
+                machine.simulator.random.nextBytes(bytes);
             }
         }
     }
@@ -657,7 +654,7 @@ public final class SimulatorAgent {
                 @Enter Machine machine, @Argument(value = 0) int numBytes, @Return(readOnly = false) byte[] bytes) {
             if (machine != null) {
                 bytes = new byte[numBytes];
-                machine.sourceOfRandomness().nextBytes(bytes);
+                machine.simulator.random.nextBytes(bytes);
             }
         }
     }

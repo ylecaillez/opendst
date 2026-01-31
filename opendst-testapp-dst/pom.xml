@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.pingidentity.opendst</groupId>
+        <artifactId>opendst</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>opendst-testapp-dst</artifactId>
+
+    <name>OpenDST Test App DST</name>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.pingidentity.opendst</groupId>
+            <artifactId>opendst-testapp</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+            <type>war</type>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.pingidentity.opendst</groupId>
+            <artifactId>opendst-simulator</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <goals><goal>properties</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>unpack-wars</id>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                        <phase>generate-resources</phase>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>com.pingidentity.opendst</groupId>
+                                    <artifactId>opendst-testapp</artifactId>
+                                    <type>war</type>
+                                    <overWrite>true</overWrite>
+                                    <outputDirectory>${project.build.directory}/wars/opendst-testapp</outputDirectory>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>com.pingidentity.opendst</groupId>
+                <artifactId>opendst-maven-plugin</artifactId>
+                <version>0.0.1-SNAPSHOT</version>
+                <configuration>
+                    <testClass>com.pingidentity.opendst.testapp.dst.DST</testClass>
+                    <testMethod>run</testMethod>
+                    <jvmArguments>
+                        -XX:+UnlockExperimentalVMOptions -XX:hashCode=2 -XX:TieredStopAtLevel=1 -Xms512m -Xmx512m
+                        -javaagent:${com.pingidentity.opendst:opendst-simulator:jar} --enable-native-access=ALL-UNNAMED
+                        --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED
+                        -Dnet.bytebuddy.safe=true
+                    </jvmArguments>
+                    <signalPatterns>
+                        <signalPattern>Level (?&lt;level&gt;\d+) unlocked</signalPattern>
+                        <signalPattern>Reset</signalPattern>
+                    </signalPatterns>
+                    <failurePatterns>
+                        <failurePattern>Goal Reached!</failurePattern>
+                    </failurePatterns>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>run-test</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

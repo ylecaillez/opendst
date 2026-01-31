@@ -66,5 +66,7 @@
 
   <modules>
     <module>opendst-simulator</module>
+    <module>opendst-testapp</module>
+    <module>opendst-testapp-dst</module>
   </modules>
 </project>

@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -161,15 +162,18 @@ public final class Deployment implements Callable<Void> {
     }
 
     private static URL[] classPath(Path webInfDir) throws IOException {
+
+        var urls = new ArrayList<URL>();
         try (var libJars = walk(webInfDir.resolve("lib")).sorted()) {
-            var classPath = Stream.concat(
-                    Stream.of(webInfDir.resolve("classes")),
-                    libJars.filter(p -> p.toString().toLowerCase().endsWith(".jar") && isRegularFile(p)));
-            var urls = new ArrayList<URL>();
-            for (var it = classPath.iterator(); it.hasNext(); ) {
+            var dependencies = libJars.filter(p -> p.toString().toLowerCase().endsWith(".jar") && isRegularFile(p));
+            for (var it = dependencies.iterator(); it.hasNext(); ) {
                 urls.add(it.next().toUri().toURL());
             }
-            return urls.toArray(new URL[0]);
+        } catch (NoSuchFileException e) {
+            // No dependency
         }
+        urls.add(webInfDir.resolve("classes").toUri().toURL());
+        return urls.toArray(new URL[0]);
     }
 }
+

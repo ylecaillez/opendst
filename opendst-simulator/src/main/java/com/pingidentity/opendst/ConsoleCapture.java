@@ -1,0 +1,161 @@
+/*
+ * Copyright 2026 Ping Identity Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.pingidentity.opendst;
+
+import static java.lang.System.lineSeparator;
+import static java.nio.charset.StandardCharsets.UTF_8;
+
+import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.util.Arrays;
+import java.util.Map;
+
+import com.pingidentity.opendst.Simulator.SimulationError;
+
+import tools.jackson.jr.ob.JSON;
+
+/**
+ * Provides logging capabilities for the simulator.
+ * Captures messages sent to console by simulated nodes, translate these to structured JSON logs and forward these to
+ * the real console
+ */
+final class ConsoleCapture implements Closeable {
+    private static final byte[] LINE_SEPERATOR = lineSeparator().getBytes();
+
+    private final String runId;
+    private final PrintStream out;
+
+    ConsoleCapture(String runId, PrintStream out) throws IOException {
+        this.runId = runId;
+        this.out = new CloseShieldPrintStream(out);
+    }
+
+    public void log(String message, Map<String, ?> details) {
+        try (var gen = JSON.std.createGenerator(out)) {
+            var json = gen.writeStartObject()
+                          .writeStringProperty("rid", runId)
+                          .writeStringProperty("source", "simulator")
+                          .writeName("log").writeStartObject();
+            json.writeStringProperty("message", message);
+            details.forEach(json::writePOJOProperty);
+            json.writeEndObject().writeEndObject();
+        }
+        out.writeBytes(LINE_SEPERATOR);
+    }
+
+    /**
+     * Creates a new {@link LogWriter} for a specific host.
+     *
+     * @param host The host associated with the logs.
+     * @return A new {@link LogWriter} instance.
+     */
+    public LogWriter newLogWriter(Simulator simulator, String host) {
+        return new LogWriter(simulator, host);
+    }
+
+    /**
+     * An {@link OutputStream} that captures log messages and formats them as JSON before sending them to the
+     * VictoriaLog instance.
+     */
+    final class LogWriter extends OutputStream {
+        private static final byte[] EOF = lineSeparator().getBytes();
+        private final Simulator simulator;
+        private final String host;
+        private final ByteArrayOutputStream consoleOut = new ByteArrayOutputStream();
+
+        LogWriter(Simulator simulator, String host) {
+            this.simulator = simulator;
+            this.host = host;
+        }
+
+        @Override
+        public void write(int b) {
+            consoleOut.write(b);
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) {
+            consoleOut.write(b, off, len);
+        }
+
+        @Override
+        public void flush() {
+            if (consoleOut.size() > 0) {
+                var str = consoleOut.toString(UTF_8);
+                int end = str.indexOf(lineSeparator());
+                int start = 0;
+                while (end != -1) {
+                    log(str.substring(start, end));
+                    start = end + lineSeparator().length();
+                    end = str.indexOf(lineSeparator(), start);
+                }
+
+                try {
+                    consoleOut.reset();
+                    if (start < str.length()) {
+                        consoleOut.write(str.substring(start).getBytes(UTF_8));
+                    }
+                } catch (IOException e) {
+                    // Should never happen
+                    throw new SimulationError(e);
+                }
+            }
+        }
+
+        private void log(String message) {
+            try (var gen = JSON.std.createGenerator(out)) {
+                gen.writeStartObject()
+                   .writeStringProperty("rid", simulator.runId())
+                   .writeStringProperty("source", "simulation")
+                   .writeStringProperty("vhost", host)
+                   .writePOJOProperty("vtime", simulator.instant())
+                   .writeNumberProperty("it", simulator.iteration());
+                if (message != null && message.startsWith("{") && message.endsWith("}")) {
+                    gen.writeName("log").writeRawValue(message);
+                } else {
+                    gen.writeName("log")
+                       .writeStartObject()
+                       .writeStringProperty("message", message)
+                       .writeEndObject();
+                }
+                gen.writeEndObject();
+            }
+            out.writeBytes(LINE_SEPERATOR);
+        }
+    }
+
+    void flush() throws IOException {
+        out.flush();
+    }
+
+    public void close() throws IOException {
+        flush();
+    }
+
+    private static final class CloseShieldPrintStream extends PrintStream {
+        CloseShieldPrintStream(PrintStream delegate) {
+            super(delegate);
+        }
+
+        @Override
+        public void close() {
+            // Do *not* clsoe
+        }
+    }
+}
