@@ -15,10 +15,18 @@
  */
 package com.pingidentity.opendst.maven;
 
-public final class ReplayOrchestrator implements Orchestrator {
-    private final Plan plan;
+import static java.lang.System.exit;
 
-    public ReplayOrchestrator(Plan plan) {
+import com.pingidentity.opendst.maven.ContinuousTestMojo.LogStatement;
+import org.apache.maven.plugin.logging.Log;
+
+final class ReplayOrchestrator implements Orchestrator {
+    private final Plan plan;
+    private final Log logger;
+    private String previousLog;
+
+    public ReplayOrchestrator(Log logger, Plan plan) {
+        this.logger = logger;
         this.plan = plan;
     }
 
@@ -28,8 +36,18 @@ public final class ReplayOrchestrator implements Orchestrator {
     }
 
     @Override
-    public void onLogReceived(Plan plan, String logLine) {}
+    public void onLogReceived(Plan plan, LogStatement log) {}
 
     @Override
-    public void onPlanTerminated(Plan plan, int code) {}
+    public void onPlanTerminated(Plan plan, int code, LogStatement lastLog) {
+        if (code == 0) {
+            logger.info("The plan completed successfully");
+        } else if (code == 1) {
+            logger.error("The plan has failed. Last log received: %s".formatted(lastLog));
+            exit(1);
+        } else {
+            logger.error("The plan has failed because of an internal error: %s".formatted(lastLog));
+            exit(2);
+        }
+    }
 }

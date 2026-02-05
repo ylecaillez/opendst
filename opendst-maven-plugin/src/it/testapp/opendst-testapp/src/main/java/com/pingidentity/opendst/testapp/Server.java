@@ -46,19 +46,16 @@ public final class Server {
 
     public void run(ServerSocket serverSocket) throws IOException, InterruptedException {
         int currentLevel = 0;
-        // boolean determinismStressorEnabled = false; // Boolean.getBoolean("determinismStressorEnabled");
         try (var socket = serverSocket.accept();
              var in = new DataInputStream(socket.getInputStream())) {
-            for (int code = in.readInt();; code = in.readInt()) {
-                /* if (determinismStressorEnabled) {
-                    stressor.stress(code);
-                } */
-                out.printf("Level 0 unlocked :)%n");
+            for (int code = in.readInt(); ; code = in.readInt()) {
+                stressor.stress(code);
+                out.printf("Level 0 unlocked%n");
                 if (code == SECRET_SEQUENCE[currentLevel]) {
                     currentLevel++;
                     out.printf("Level %d unlocked :)%n", currentLevel);
                     if (currentLevel == SECRET_SEQUENCE.length) {
-                        out.println("Goal Reached!");
+                        out.println("Bug reached!");
                         currentLevel = 0;
                     }
                 } else if (currentLevel > 0) {

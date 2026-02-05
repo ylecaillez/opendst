@@ -24,13 +24,10 @@ import static com.pingidentity.opendst.VirtualThreadInternals.isOnWaitingList;
 import static com.pingidentity.opendst.VirtualThreadInternals.setThreadLocal;
 import static com.pingidentity.opendst.VirtualThreadInternals.takeVirtualThreadListToUnblock;
 import static com.pingidentity.opendst.VirtualThreadInternals.unblock;
-import static com.pingidentity.opendst.WallClockTime.wallClockNanoTime;
 import static java.lang.Boolean.getBoolean;
 import static java.lang.ClassLoader.getSystemClassLoader;
 import static java.lang.Runtime.getRuntime;
 import static java.lang.String.format;
-import static java.lang.System.err;
-import static java.lang.System.getProperty;
 import static java.lang.Thread.State.TERMINATED;
 import static java.lang.Thread.currentThread;
 import static java.lang.Thread.ofVirtual;
@@ -38,13 +35,10 @@ import static java.lang.Thread.onSpinWait;
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
-import static java.nio.file.Files.exists;
 import static java.nio.file.Files.walkFileTree;
-import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 import static java.time.Duration.ofSeconds;
 import static java.time.temporal.ChronoUnit.NANOS;
 import static java.util.Locale.ROOT;
-import static java.util.UUID.randomUUID;
 import static java.util.concurrent.Future.State.SUCCESS;
 
 import com.pingidentity.opendst.Simulator.Plan.Segment;
@@ -63,7 +57,6 @@ import java.net.UnknownHostException;
 import java.net.spi.InetAddressResolver;
 import java.net.spi.InetAddressResolver.LookupPolicy;
 import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
@@ -114,15 +107,22 @@ import tools.jackson.jr.ob.JSON;
  * </ul>
  */
 public final class Simulator {
+    public interface LogProcessor {
+        record Log(String host, Instant time, long iteration, String message) {}
+
+        void process(Log log) throws Exception;
+    }
+
     private enum ExitReason {
-        OK("The plan has been fully executed"),
-        ERR_TIMEOUT("The simulation has been interrupted before its completion because of lack of time budget"),
-        ERR_STUCK("The simulation has been interrupted because the plan was stuck and not able to make progress"),
-        UNEXPECTED_ERROR("The simulation has failed unexpectedly");
+        PLAN_OK(0, "success"),
+        PLAN_FAILED(1, "failure"),
+        INTERNAL_ERROR(3, "internal error");
 
-        String message;
+        final int code;
+        final String message;
 
-        ExitReason(String message) {
+        ExitReason(int code, String message) {
+            this.code = code;
             this.message = message;
         }
     }
@@ -183,14 +183,14 @@ public final class Simulator {
 
         @Override
         protected int next(int bits) {
-            if (iteration == nextIteration) {
+            if (iteration >= nextIteration) {
                 try {
                     var segment = segments.removeFirst();
                     assert nextIteration > iteration;
                     nextIteration = segment.iteration();
                     setSeed(segment.seed());
                 } catch (NoSuchElementException e) {
-                    Simulator.this.exit(ExitReason.OK);
+                    Simulator.this.exitSimulation(ExitReason.PLAN_OK, null);
                 }
             }
             iteration++;
@@ -214,67 +214,56 @@ public final class Simulator {
         public SystemExitError(int exitCode) {
             this.exitCode = exitCode;
         }
-
-        /** {@return The status code provided to System.exit()} */
-        public int exitCode() {
-            return exitCode;
-        }
     }
 
-    public static final Path ROOT_DIR = Path.of(getProperty("opendst.root-dir", "target"), "opendst")
-            .toAbsolutePath()
-            .normalize();
+    private static final Path MACHINE_FS_DIR = Path.of("fs");
     // Visible for testing
     static final Set<String> REDIRECT_CONSTRUCTORS_OF =
             Set.of("java/lang/Thread", "java/net/Socket", "java/net/ServerSocket");
     // 2015-10-21, back to the future.
     private static final Instant START_TIME = Instant.ofEpochSecond(1445385600);
-
-    private record UncaughtException(Machine machine, Thread thread, Throwable throwable) {}
-
     private static final ThreadLocal<Machine> MACHINE = new ThreadLocal<>();
+
     private final Map<InetAddress, String> addressToName = new HashMap<>();
     private final Map<String, Node> nameToNode = new HashMap<>();
     final Lock lock = new ReentrantLock();
     private final ConsoleCapture logger;
-    private final Plan plan;
     private final SourceOfRandomness random;
     /** Contains the tasks waiting to be executed in the simulated environment. */
     private final PriorityQueue<QueuedTask> taskQueue = new PriorityQueue<>();
     /** The simulated wall-clock time. */
     private Instant now = START_TIME;
-
-    final Path runBaseDir;
     /** The task id is used to break ties in the scheduling of tasks with the same launch time. */
     private long taskId;
 
-    private Simulator(Plan plan) throws IOException {
-        this.plan = plan;
+    private Simulator(Plan plan, LogProcessor logProcessor) throws IOException {
         this.random = new SourceOfRandomness(plan.segments());
-        this.runBaseDir = ROOT_DIR.resolve(plan.rid() + "-" + randomUUID()).normalize();
-        if (exists(runBaseDir, NOFOLLOW_LINKS)) {
-            throw new IOException("The directory " + runBaseDir + " already exists");
-        }
-        Files.createDirectories(runBaseDir);
-        if (!runBaseDir.toRealPath().startsWith(ROOT_DIR)) {
-            throw new IOException("Invalid plan id '" + plan.rid() + "'");
-        }
-        this.logger = new ConsoleCapture(plan.rid(), System.out);
-        this.logger.log("Simulation started", Map.of("at", instant()));
+        this.logger = new ConsoleCapture(logProcessor, System.out);
+        this.logger
+                .withMessageAtIteration("Simulation started", 0)
+                .withPOJO("at", instant())
+                .log();
     }
 
-    void exit(ExitReason reason) {
+    void exitSimulation(ExitReason reason, Throwable cause) {
+        // Exit the simulation node: we don't want blocking operation to be accidentally scheduled on the run-loop
+        MACHINE.remove();
         nameToNode.values().forEach(Machine::flush);
-        logger.log(
-                "Terminated",
-                Map.of("reason", reason.message, "at", instant(), "iteration", iteration(), "lastRandom", random.last));
+        logger.withMessageAtIteration("Terminated", iteration())
+                .withString("reason", reason.message)
+                .withPOJO("at", instant())
+                .withNumber("lastRandom", random.last)
+                .withString(
+                        "cause",
+                        cause != null ? cause.getClass().getSimpleName() + ": " + cause.getMessage() : "<unknown>")
+                .log();
         try {
             logger.flush();
-            deleteRunBaseDir();
-            getRuntime().halt(ExitReason.UNEXPECTED_ERROR.equals(reason) ? 1 : 0);
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace(logger.getOut());
-            getRuntime().halt(1);
+        } finally {
+            logger.getOut().close();
+            getRuntime().halt(reason.code);
         }
     }
 
@@ -282,38 +271,7 @@ public final class Simulator {
         return random;
     }
 
-    private void deleteRunBaseDir() throws IOException {
-        if (!exists(runBaseDir) || !runBaseDir.toRealPath().startsWith(ROOT_DIR)) {
-            return;
-        }
-        walkFileTree(runBaseDir, new SimpleFileVisitor<Path>() {
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                // Delete the file itself
-                Files.delete(file);
-                return CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                // If an exception happened inside the directory, 'exc' won't be null.
-                if (exc != null) throw exc;
-
-                // Delete the directory now that it is confirmed empty
-                Files.delete(dir);
-                return CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
-                // Handle cases where a file exists but can't be accessed
-                err.println("Failed to access file: " + file + " due to " + exc.getMessage());
-                return FileVisitResult.TERMINATE; // Stop everything if we hit an error
-            }
-        });
-    }
-
-    record Plan(String rid, String timeout, List<Segment> segments) {
+    record Plan(List<Segment> segments) {
         record Segment(long seed, long iteration) {}
 
         Plan {
@@ -327,6 +285,20 @@ public final class Simulator {
      * @param scenario The scenario to run in the simulated environment.
      */
     public static void runSimulation(Callable<Void> scenario) {
+        runSimulation(scenario, _ -> {});
+    }
+
+    /**
+     * Runs the provided scenario into a deterministic execution environment.
+     *
+     * @param scenario     The scenario to run in the simulated environment.
+     * @param logProcessor The processor receiving the console output produced by systems running in the
+     *                     simulation. This processor is executed out of the simulation context: the simulation is
+     *                     paused and will not be impacted by the execution of this processor, unless the processor
+     *                     throws an {@link Exception} in which case the simulation will be immediately stopped and a
+     *                     failure will be reported.
+     */
+    public static void runSimulation(Callable<Void> scenario, LogProcessor logProcessor) {
         if (MACHINE.get() != null) {
             throw new IllegalStateException(format(
                     "The carrier thread '%s' is already running a simulation",
@@ -348,17 +320,17 @@ public final class Simulator {
 
         currentThread().setName("OpenDST Simulator Carrier Thread");
         try {
-            var simulator = new Simulator(plan);
+            var simulator = new Simulator(plan, logProcessor);
             try {
-                simulator.start(scenario);
+                simulator.run(scenario);
             } catch (Throwable e) {
-                simulator.logger.log(
-                        "Simulation failed",
-                        Map.of(
-                                "exception", e,
-                                "vtime", simulator.instant(),
-                                "iteration", simulator.iteration()));
-                simulator.exit(ExitReason.UNEXPECTED_ERROR);
+                simulator
+                        .logger
+                        .withMessageAtIteration("Simulation failed", simulator.iteration())
+                        .withPOJO("vtime", simulator.iteration())
+                        .withPOJO("exception", e)
+                        .log();
+                simulator.exitSimulation(ExitReason.PLAN_FAILED, e);
             }
         } catch (IOException e) {
             e.printStackTrace(err);
@@ -391,10 +363,6 @@ public final class Simulator {
 
     long iteration() {
         return random.iteration();
-    }
-
-    String runId() {
-        return plan.rid();
     }
 
     /**
@@ -475,37 +443,13 @@ public final class Simulator {
         return machine;
     }
 
-    /**
-     * Stops the node with the specified host name in the simulation environment.
-     * <p>
-     * This method should be called from within a running simulation. If the node exists, it will be stopped.
-     *
-     * @param hostName the name of the host to stop
-     */
-    public static void stopNode(String hostName) {
-        machineOrThrow().simulator.stopNode0(hostName);
-    }
-
-    private void stopNode0(String hostName) {
-        var node = nameToNode.get(hostName.toLowerCase());
-        if (node != null) {
-            node.stopNode();
-        }
-    }
-
-    private void start(Callable<Void> scenario) throws IOException {
-        long startAt = wallClockNanoTime();
-        long deadline = startAt + Duration.parse(plan.timeout()).toNanos();
-
+    private void run(Callable<Void> scenario) throws Exception {
         var bootstrap = new Node(this, getSystemClassLoader(), "simulator", "127.0.0.1");
         MACHINE.set(bootstrap);
         bootstrap.startNode(scenario);
-
-        for (var task = taskQueue.poll();
-                task != null /* && wallClockNanoTime() < deadline */;
-                task = taskQueue.poll()) {
+        for (var task = taskQueue.poll(); task != null; task = taskQueue.poll()) {
             if (task.runAt.isBefore(now)) {
-                throw new SimulationError("Simulator has gone backward in time");
+                exitSimulation(ExitReason.INTERNAL_ERROR, new SimulationError("Simulator has gone backward in time"));
             } else if (task.skip) {
                 continue;
             }
@@ -515,28 +459,37 @@ public final class Simulator {
             System.setErr(task.machine.console);
 
             MACHINE.set(task.machine);
-            task.run();
+            try {
+                task.run();
+                // To keep determinism, unblock all the simulator-carried virtual threads that have exited an object
+                // monitor
+                // during the previous task execution before the next iteration.
+                task.machine.purgeAndUnblockVirtualThreads();
+            } finally {
+                MACHINE.remove();
+            }
             if (!SUCCESS.equals(task.state())) {
-                throw new SimulationError(task.exceptionNow());
+                exitSimulation(ExitReason.INTERNAL_ERROR, new SimulationError("Task failed", task.exceptionNow()));
+            }
+            try {
+                logger.processLogs();
+            } catch (Exception e) {
+                exitSimulation(ExitReason.PLAN_FAILED, e);
             }
             if (task.taskId % 100 == 0) {
+                nameToNode.values().forEach(Machine::flush);
                 logger.flush();
             }
 
-            // To keep determinism, unblock all the simulator-carried virtual threads that have exited an object monitor
-            // during the previous task execution before the next iteration.
-            task.machine.purgeAndUnblockVirtualThreads();
-            var machine = task.machine;
             // TODO: this check is great a detecting sources of non-determinism but it is slow. It should probably be
             //  conditioned (e.g. doing it once every hundred runs)
+            var machine = task.machine;
             nameToNode.values().forEach(node -> node.checkNoThreadOnWaitingList(machine));
         }
         nameToNode.values().forEach(Machine::flush);
 
-        if (wallClockNanoTime() >= deadline) {
-
-        } else if (allThreadsAreStuck()) {
-            exit(ExitReason.ERR_STUCK);
+        if (allThreadsAreStuck()) {
+            exitSimulation(ExitReason.PLAN_OK, new SimulationError("All remaining threads are blocked"));
         }
     }
 
@@ -544,7 +497,6 @@ public final class Simulator {
         for (var node : nameToNode.values()) {
             for (var thread : node.virtualThreads) {
                 if (thread.isAlive()) {
-                    err.println("Warning: simulation ended prematurely because all remaining threads are blocked");
                     return true;
                 }
             }
@@ -561,46 +513,32 @@ public final class Simulator {
      * @param throwable The uncaught exception
      */
     void uncaughtExceptionHandler(Machine machine, Thread thread, Throwable throwable) {
-        logger.log(
-                "Uncaught exception",
-                Map.of(
-                        "vhost",
-                        machine.hostName,
-                        "thread",
-                        thread.getName(),
-                        "iteration",
-                        machine.simulator.iteration(),
-                        "vtime",
-                        machine.simulator.instant(),
-                        "exception",
-                        throwable));
+        logger.withMessageAtIteration("Uncaught exception", machine.simulator.iteration())
+                .withString("vhost", machine.hostName)
+                .withString("thread", thread.getName())
+                .withPOJO("vtime", machine.simulator.instant())
+                .withPOJO("exception", throwable)
+                .log();
+        exitSimulation(ExitReason.PLAN_FAILED, throwable);
     }
 
     private Future<?> scheduleExactlyAt(Machine machine, Runnable task, Instant at) {
         if (machineOrNull() == null) {
             // We're still executing the task as this case also happens when we dump the stacktrace of all the
             // virtual threads. The deterministic behavior is no more guaranteed from here.
-            logger.log(
-                    "The scheduler has been invoked from a non-simulated thread, determinism might be lost",
-                    Map.of("thread", currentThread().getName()));
+            logger.withMessageAtIteration(
+                            "The scheduler has been invoked from a non-simulated thread, determinism might be lost", -1)
+                    .withString("thread", currentThread().getName())
+                    .log();
             task.run();
             return new FutureTask<>(() -> {}, null);
         } else if (at.isBefore(now)) {
             // This should never happen, famous words.
-            throw new SimulationError("Cannot schedule a task in the past");
+            exitSimulation(ExitReason.INTERNAL_ERROR, new SimulationError("Cannot schedule a task in the past"));
         }
         var queuedTask = new QueuedTask(machine, at, task, taskId++);
         taskQueue.add(queuedTask);
         return queuedTask;
-    }
-
-    /**
-     * Keeps track of an error when this one cannot be thrown immediately because we're invoked by the JDK possibly
-     * from an internal thread (e.g: unparker, unblocker, ...). The error will then be thrown at the next run-loop
-     * iteration.
-     */
-    private void deferException(Machine machine, Throwable t) {
-        uncaughtExceptionHandler(machine, currentThread(), t);
     }
 
     /** {@return The Simulation attached to this thread or null if this thread is not part of a simulation}. */
@@ -612,7 +550,7 @@ public final class Simulator {
         return machine;
     }
 
-    private final class QueuedTask extends FutureTask<Void> implements Comparable<QueuedTask> {
+    private static final class QueuedTask extends FutureTask<Void> implements Comparable<QueuedTask> {
         private static final Comparator<QueuedTask> COMPARATOR =
                 Comparator.<QueuedTask, Instant>comparing(q -> q.runAt).thenComparingLong(a -> a.taskId);
         private final Machine machine;
@@ -869,7 +807,7 @@ public final class Simulator {
         }
     }
 
-    boolean registerDns(String hostName, Node host) {
+    void registerDns(String hostName, Node host) {
         var lowerCaseHostName = hostName.toLowerCase(ROOT);
         if (nameToNode.putIfAbsent(lowerCaseHostName, host) == null) {
             host.inetAddresses().forEach(address -> {
@@ -877,9 +815,7 @@ public final class Simulator {
                     addressToName.put(address, lowerCaseHostName);
                 }
             });
-            return true;
         }
-        return false;
     }
 
     void unregisterDns(String hostName) {
@@ -940,16 +876,12 @@ public final class Simulator {
         Machine(Simulator simulator, ClassLoader classLoader, String hostName) throws IOException {
             this.simulator = simulator;
             this.classLoader = classLoader;
-            this.workingDirectory = simulator.runBaseDir.resolve("fs").resolve(hostName);
+            this.workingDirectory = MACHINE_FS_DIR.resolve(hostName);
             createDirectories(workingDirectory);
             this.hostName = hostName.toLowerCase();
             this.salt32l = simulator.random.nextLong() & 0xFFFF_FFFFL;
             this.reverse = (salt32l & 1) == 0;
             this.console = new PrintStream(simulator.logger.newLogWriter(simulator, hostName), true);
-        }
-
-        PrintStream console() {
-            return console;
         }
 
         void flush() {
@@ -1005,17 +937,6 @@ public final class Simulator {
                     }));
         }
 
-        /** Stops this node. Behaves as if the node had invoked {@link Runtime#exit}. */
-        void stopNode() {
-            if (!stopped) {
-                // Scheduling a new thread while this node is already being stopped would result in infinite loop as
-                // the termination of this thread might lead purgeAndUnblockVirtualThreads() to invoke this stopNode()
-                // method again.
-                scheduleNow(
-                        () -> ofVirtual().name(format("stop-node-%s", hostName)).start(() -> exit(0)));
-            }
-        }
-
         /**
          * Overrides {@link Runtime#exit(int)}.
          *
@@ -1029,9 +950,11 @@ public final class Simulator {
             shutdownHooks.forEach(Thread::start);
             try {
                 if (!virtualThreads.remove(currentThread())) {
-                    throw new SimulationError(format(
-                            "exit() has been invoked from thread '%s' which is not part of the node '%s'",
-                            currentThread().getName(), hostName));
+                    simulator.exitSimulation(
+                            ExitReason.INTERNAL_ERROR,
+                            new SimulationError(format(
+                                    "exit() has been invoked from thread '%s' which is not part of the node '%s'",
+                                    currentThread().getName(), hostName)));
                 }
                 if (waitUntilAllThreadExits()) {
                     // End of the grace period, interrupt all remaining threads
@@ -1042,9 +965,13 @@ public final class Simulator {
                     if (thread.isAlive()) {
                         var stack = new IllegalStateException("Stack trace");
                         stack.setStackTrace(thread.getStackTrace());
-                        throw new SimulationError(
-                                format("The thread '%s' from node '%s' cannot be stopped.", thread.getName(), hostName),
-                                stack);
+                        simulator.exitSimulation(
+                                ExitReason.INTERNAL_ERROR,
+                                new SimulationError(
+                                        format(
+                                                "The thread '%s' from node '%s' cannot be stopped.",
+                                                thread.getName(), hostName),
+                                        stack));
                     }
                 }
                 shutdown.complete(status);
@@ -1077,10 +1004,8 @@ public final class Simulator {
          * rather than blocking. Unfortunately this implies modifying the JDK code.
          */
         void purgeAndUnblockVirtualThreads() {
-            boolean alive = false;
             for (var it = virtualThreads.iterator(); it.hasNext(); ) {
                 var thread = it.next();
-                alive |= thread.isAlive();
                 if (TERMINATED.equals(thread.getState())) {
                     it.remove();
                 } else if (isOnWaitingList(thread)) {
@@ -1098,9 +1023,6 @@ public final class Simulator {
                     unblock(thread);
                 }
             }
-            if (!alive) {
-                stopNode();
-            }
         }
 
         void checkNoThreadOnWaitingList(Machine machine) {
@@ -1109,11 +1031,14 @@ public final class Simulator {
                     if (isOnWaitingList(thread)) {
                         var ise = new IllegalStateException("Stack trace");
                         ise.setStackTrace(thread.getStackTrace());
-                        throw new SimulationError(
-                                format(
-                                        "Thread '%s' from machine '%s' is unexpectedly present on the waiting-list",
-                                        thread.getName(), hostName),
-                                ise);
+                        simulator.exitSimulation(
+                                ExitReason.INTERNAL_ERROR,
+                                new SimulationError(
+                                        format(
+                                                "Thread '%s' from machine '%s' is unexpectedly present on the waiting-list of"
+                                                        + " machine'%s'",
+                                                thread.getName(), hostName, machine.hostName),
+                                        ise));
                     }
                 }
             }

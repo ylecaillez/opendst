@@ -17,10 +17,11 @@ package com.pingidentity.opendst.maven;
 
 import static java.lang.Runtime.getRuntime;
 
+import com.pingidentity.opendst.maven.ContinuousTestMojo.LogStatement;
 import java.util.List;
 
-public interface Orchestrator {
-    record Plan(String rid, String timeout, List<Segment> segments) {
+interface Orchestrator {
+    record Plan(String rid, List<Segment> segments) {
         record Segment(long seed, long iteration) {}
 
         public Plan {
@@ -38,7 +39,7 @@ public interface Orchestrator {
 
     Plan nextPlan();
 
-    void onLogReceived(Plan plan, String logLine);
+    void onLogReceived(Plan plan, LogStatement logLine);
 
-    void onPlanTerminated(Plan plan, int code);
+    void onPlanTerminated(Plan plan, int code, LogStatement lastLog);
 }

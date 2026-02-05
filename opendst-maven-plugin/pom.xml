@@ -37,22 +37,10 @@
             <version>3.15.2</version>
             <scope>provided</scope>
         </dependency>
-
         <dependency>
-            <groupId>tools.jackson.jr</groupId>
-            <artifactId>jackson-jr-objects</artifactId>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
             <version>3.0.4</version>
-            <scope>compile</scope>
-        </dependency>
-        <dependency>
-            <groupId>it.unimi.dsi</groupId>
-            <artifactId>fastutil</artifactId>
-            <version>8.5.18</version>
-        </dependency>
-        <dependency>
-            <groupId>net.openhft</groupId>
-            <artifactId>zero-allocation-hashing</artifactId>
-            <version>2026.0</version>
             <scope>compile</scope>
         </dependency>
         <!-- Required to make this simulator is built before this plugin -->
@@ -95,28 +83,24 @@
                 <artifactId>maven-invoker-plugin</artifactId>
                 <version>3.9.1</version>
                 <configuration>
-                    <debug>true</debug>
                     <cloneProjectsTo>${project.build.directory}/it</cloneProjectsTo>
                     <pomIncludes>
                         <pomInclude>*/pom.xml</pomInclude>
                     </pomIncludes>
-                    <postBuildHookScript>verify</postBuildHookScript> <localRepositoryPath>${project.build.directory}/local-repo</localRepositoryPath>
+                    <postBuildHookScript>verify</postBuildHookScript>
+                    <localRepositoryPath>${project.build.directory}/local-repo</localRepositoryPath>
                     <settingsFile>src/it/settings.xml</settingsFile>
                     <extraArtifacts>
                         <extraArtifact>com.pingidentity.opendst:opendst-simulator:${project.version}:jar</extraArtifact>
                     </extraArtifacts>
-                    <goals>
-                        <goal>clean</goal>
-                        <goal>test-compile</goal>
-                    </goals>
+                    <skipInvocation>${skipTests}</skipInvocation>
                 </configuration>
                 <executions>
                     <execution>
                         <id>integration-test</id>
                         <goals>
                             <goal>install</goal>
-                            <goal>integration-test</goal>
-                            <goal>verify</goal>
+                            <goal>run</goal>
                         </goals>
                     </execution>
                 </executions>
