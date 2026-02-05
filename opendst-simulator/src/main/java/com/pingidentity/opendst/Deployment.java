@@ -17,6 +17,7 @@ package com.pingidentity.opendst;
 
 import static com.pingidentity.opendst.Simulator.startNode;
 import static java.lang.ClassLoader.getPlatformClassLoader;
+import static java.lang.System.getProperty;
 import static java.nio.file.Files.isRegularFile;
 import static java.nio.file.Files.walk;
 import static java.util.function.Function.identity;
@@ -42,8 +43,7 @@ import java.util.concurrent.Callable;
  * directory for the service.
  */
 public final class Deployment implements Callable<Void> {
-    private static final Path DEPLOYMENT_DIR = Path.of("target/deployment");
-    private static final Path WARS_DIR = Path.of("target/wars");
+    private static final Path WARS_DIR = Path.of(getProperty("opendst.wars-dir", "wars"));
 
     /**
      * Represents an image for a service, including its name, war directory, main class, and classpath.
@@ -122,7 +122,6 @@ public final class Deployment implements Callable<Void> {
     }
 
     private Deployment(List<Image> images, List<Service> services) throws IOException {
-        DEPLOYMENT_DIR.toFile().mkdirs();
         for (var image : images) {
             this.images.put(
                     image.name(),

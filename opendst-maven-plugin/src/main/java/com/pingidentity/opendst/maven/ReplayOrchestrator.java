@@ -15,18 +15,18 @@
  */
 package com.pingidentity.opendst.maven;
 
-import static java.lang.System.err;
+import static java.lang.System.exit;
 
-import com.pingidentity.opendst.maven.AcoOrchestrator.LogStatement;
-import tools.jackson.core.JacksonException;
-import tools.jackson.jr.ob.JSON;
+import com.pingidentity.opendst.maven.ContinuousTestMojo.LogStatement;
+import org.apache.maven.plugin.logging.Log;
 
-public final class ReplayOrchestrator implements Orchestrator {
+final class ReplayOrchestrator implements Orchestrator {
     private final Plan plan;
-    private String lastLogOrNull;
-    private boolean done;
+    private final Log logger;
+    private String previousLog;
 
-    public ReplayOrchestrator(Plan plan) {
+    public ReplayOrchestrator(Log logger, Plan plan) {
+        this.logger = logger;
         this.plan = plan;
     }
 
@@ -36,23 +36,18 @@ public final class ReplayOrchestrator implements Orchestrator {
     }
 
     @Override
-    public void onLogReceived(Plan plan, String logLine) {
-        try {
-            var log = JSON.std.beanFrom(LogStatement.class, logLine);
-            if (log.isEndOfSimulation()) {
-                lastLogOrNull = logLine;
-            }
-        } catch (JacksonException e) {
-            // Ignore badly formatted logs
-        }
-    }
+    public void onLogReceived(Plan plan, LogStatement log) {}
 
     @Override
-    public void onPlanTerminated(Plan plan, int code) {
-        if (code == 1) {
-            err.printf("The simulation has found a problem: %s%n", lastLogOrNull);
-        } else if (code != 0) {
-            err.printf("The simulation has failed unexpectedly: %s%n", lastLogOrNull);
+    public void onPlanTerminated(Plan plan, int code, LogStatement lastLog) {
+        if (code == 0) {
+            logger.info("The plan completed successfully");
+        } else if (code == 1) {
+            logger.error("The plan has failed. Last log received: %s".formatted(lastLog));
+            exit(1);
+        } else {
+            logger.error("The plan has failed because of an internal error: %s".formatted(lastLog));
+            exit(2);
         }
     }
 }
