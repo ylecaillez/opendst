@@ -67,12 +67,7 @@
                 <configuration>
                     <testClass>com.pingidentity.opendst.testapp.dst.DST</testClass>
                     <testMethod>run</testMethod>
-                    <jvmArguments>
-                        -XX:TieredStopAtLevel=1 -Xms64m -Xmx64m
-                    </jvmArguments>
-                    <signalPatterns>
-                        <signalPattern>Level (?&lt;level&gt;\d+) unlocked</signalPattern>
-                    </signalPatterns>
+                    <jvmArguments>-XX:TieredStopAtLevel=1 -Xms64m -Xmx64m</jvmArguments>
                 </configuration>
                 <executions>
                     <execution>

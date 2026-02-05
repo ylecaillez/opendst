@@ -3,8 +3,8 @@ File logFile = new File(basedir, "build.log")
 assert logFile.exists() : "The build.log file was not found!"
 def logContent = logFile.text
 
-def dstLines = logContent.readLines().findAll { it.contains("OpenDST testing") }
-assert dstLines.size() == 2 : "The string 'OpenDST Testing' was not found on exactly two different lines"
+assert logContent.contains("OpenDST tests") : "Test has not been done"
+assert logContent.contains("OpenDST replays test") : "Replay has not been done"
 
-def matchingLines = logContent.readLines().findAll { it.contains("Bug reached!") }
+def matchingLines = logContent.readLines().findAll { it.contains("Bug detected by the log-processor") }
 assert matchingLines.size() == 2 : "The string 'Bug reached!' was not found on exactly two different lines"
