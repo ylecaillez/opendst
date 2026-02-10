@@ -26,10 +26,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.nio.file.Path;
 
-import org.assertj.core.api.Assertions;
-
-import com.pingidentity.opendst.LogProcessor;
-
 public class DST {
     public static final Path WAR = Path.of("opendst-testapp");
 
