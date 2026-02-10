@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst.testapp.dst;
+package com.pingidentity.opendst.testapp;
 
 import static com.pingidentity.opendst.Deployment.Image.image;
 import static com.pingidentity.opendst.Deployment.Service.service;
@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.nio.file.Path;
 
-public class DST {
+public class ClientServerTest {
     public static final Path WAR = Path.of("opendst-testapp");
 
     public void run() throws IOException {
