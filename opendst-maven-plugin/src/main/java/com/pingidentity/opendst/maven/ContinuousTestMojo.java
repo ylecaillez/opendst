@@ -194,7 +194,7 @@ public class ContinuousTestMojo extends AbstractMojo {
                     getLog(), new File(project.getBasedir(), FAILURE_BASE_DIR), duration, replayProbability);
         }
         try (var executor = newFixedThreadPool(this.parallelism)) {
-            var classpathElements = new ArrayList<>(project.getRuntimeClasspathElements());
+            var classpathElements = new ArrayList<>(project.getTestClasspathElements());
             classpathElements.add(getMethodRunnerPath());
             var classpath = join(pathSeparator, classpathElements);
             var simulators = new ArrayList<Future<Void>>();
@@ -225,7 +225,7 @@ public class ContinuousTestMojo extends AbstractMojo {
 
     public record LogStatement(long lid, @JsonProperty("it") long iteration, String vhost, JsonNode log) {}
 
-    private void runOnce(Path runBaseDir, String classpath, Plan plan) throws InterruptedException, IOException {
+    private void runOnce(Path runBaseDir, String classpath, Plan plan) throws IOException {
         var commandLine = buildJvmCommandLine(runBaseDir, classpath);
         int code = -1;
         var proc = new ProcessBuilder(commandLine)
