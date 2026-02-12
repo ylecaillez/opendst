@@ -19,6 +19,8 @@ import static java.lang.Thread.sleep;
 
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
 import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -51,6 +53,16 @@ public class DeterminismStressor {
         var monitor = new Object();
         var queue = new ArrayBlockingQueue<Integer>(Math.max(1, data % 5 + 1));
         var latch = new CountDownLatch(2);
+        var refQueue = new ReferenceQueue<>();
+        var weakRef = new WeakReference<>(new Object(), refQueue);
+        System.gc();
+        try {
+            if (refQueue.poll() != null || refQueue.remove(1000) != null) {
+                throw new AssertionError("Determinism broken by GC activity");
+            }
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
 
         Thread t1 = new Thread(() -> {
             try {

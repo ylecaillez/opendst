@@ -67,6 +67,8 @@ import java.lang.constant.ClassDesc;
 import java.lang.constant.MethodTypeDesc;
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.Instrumentation;
+import java.lang.ref.Reference;
+import java.lang.ref.ReferenceQueue;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.nio.file.ClosedWatchServiceException;
@@ -80,7 +82,6 @@ import java.nio.file.WatchService;
 import java.nio.file.Watchable;
 import java.security.ProtectionDomain;
 import java.security.SecureRandomSpi;
-import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Random;
@@ -88,6 +89,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -178,6 +180,14 @@ public final class SimulatorAgent {
                 .type(named("java.lang.Runtime"))
                 .transform((builder, _, _, _, _) -> builder.method(named("exit"))
                         .intercept(to(RuntimeExitAdvice.class).wrap(StubMethod.INSTANCE)))
+                /** {@link ReferenceQueue} */
+                .type(named("java.lang.ref.ReferenceQueue"))
+                .transform((builder, _, _, _, _) -> builder.visit(
+                                to(ReferenceQueuePollAdvice.class).on(named("poll")))
+                        .visit(to(ReferenceQueueRemoveAdvice.class)
+                                .on(named("remove").and(takesNoArguments())))
+                        .visit(to(ReferenceQueueRemoveTimeoutAdvice.class)
+                                .on(named("remove").and(takesArguments(long.class)))))
                 /** {@link Clock#currentInstant()}  */
                 .type(named("java.time.Clock"))
                 .transform((builder, _, _, _, _) ->
@@ -467,6 +477,65 @@ public final class SimulatorAgent {
             out = machine != null
                     ? "currentTimeMillis".equals(method.getName()) ? machine.currentTimeMillis() : machine.nanoTime()
                     : "currentTimeMillis".equals(method.getName()) ? wallClockCurrentTimeMillis() : wallClockNanoTime();
+        }
+    }
+
+    /** Overrides {@link ReferenceQueue#poll()} }. */
+    public static final class ReferenceQueuePollAdvice {
+        @OnMethodEnter(skipOn = OnNonDefaultValue.class)
+        @SuppressWarnings("MissingJavadocMethod")
+        public static Machine onEnter() {
+            return machineOrNull();
+        }
+
+        @OnMethodExit
+        @SuppressWarnings("MissingJavadocMethod")
+        public static void onExit(@Enter Machine machine, @Return(readOnly = false) Reference object) {
+            if (machine != null) {
+                object = null;
+            }
+        }
+    }
+
+    /** Overrides {@link ReferenceQueue#remove()} }. */
+    public static final class ReferenceQueueRemoveAdvice {
+        @OnMethodEnter(skipOn = OnNonDefaultValue.class)
+        @SuppressWarnings("MissingJavadocMethod")
+        public static Machine onEnter() {
+            return machineOrNull();
+        }
+
+        @OnMethodExit
+        @SuppressWarnings("MissingJavadocMethod")
+        public static void onExit(@Enter Machine machine, @Return(readOnly = false) Reference object)
+                throws InterruptedException {
+            if (machine != null) {
+                new Semaphore(0).acquire();
+            }
+        }
+    }
+
+    /** Overrides {@link ReferenceQueue#remove(long)} }. */
+    public static final class ReferenceQueueRemoveTimeoutAdvice {
+        @OnMethodEnter(skipOn = OnNonDefaultValue.class)
+        @SuppressWarnings("MissingJavadocMethod")
+        public static Machine onEnter() {
+            return machineOrNull();
+        }
+
+        @OnMethodExit
+        @SuppressWarnings("MissingJavadocMethod")
+        public static void onExit(
+                @Enter Machine machine, @Argument(value = 0) long timeout, @Return(readOnly = false) Reference object)
+                throws InterruptedException {
+            if (machine != null) {
+                if (timeout == 0) {
+                    new Semaphore(0).acquire();
+                } else {
+                    new Semaphore(0).tryAcquire(timeout, TimeUnit.MILLISECONDS);
+                    object = null;
+                }
+            }
         }
     }
 
