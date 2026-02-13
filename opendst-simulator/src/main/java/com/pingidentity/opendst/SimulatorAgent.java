@@ -19,13 +19,9 @@ import static com.pingidentity.opendst.Simulator.REDIRECT_CONSTRUCTORS_OF;
 import static com.pingidentity.opendst.Simulator.machineOrNull;
 import static com.pingidentity.opendst.WallClockTime.wallClockCurrentTimeMillis;
 import static com.pingidentity.opendst.WallClockTime.wallClockNanoTime;
-import static java.lang.Boolean.FALSE;
 import static java.lang.String.format;
 import static java.lang.System.setProperty;
-import static java.lang.ThreadLocal.withInitial;
-import static java.lang.classfile.ClassHierarchyResolver.ofClassLoading;
 import static java.lang.classfile.ClassTransform.transformingMethods;
-import static java.lang.classfile.MethodTransform.transformingCode;
 import static java.lang.classfile.Opcode.DUP;
 import static java.lang.classfile.Opcode.INVOKESPECIAL;
 import static net.bytebuddy.asm.Advice.to;
@@ -54,10 +50,10 @@ import com.pingidentity.opendst.Simulator.SourceOfRandomness;
 import com.pingidentity.opendst.Simulator.SystemExitError;
 import com.pingidentity.opendst.Simulator.VirtualThreadUnblocker;
 import java.lang.classfile.ClassFile;
-import java.lang.classfile.ClassFile.ClassHierarchyResolverOption;
 import java.lang.classfile.ClassTransform;
 import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.CodeElement;
+import java.lang.classfile.CodeModel;
 import java.lang.classfile.CodeTransform;
 import java.lang.classfile.constantpool.ClassEntry;
 import java.lang.classfile.instruction.InvokeInstruction;
@@ -150,8 +146,7 @@ import net.bytebuddy.implementation.StubMethod;
  */
 public final class SimulatorAgent {
     public static final String AGENT_PROPERTY = "com.pingidentity.opendst.simulator.agent";
-    public static final ThreadLocal<Boolean> IS_DAEMON = withInitial(() -> FALSE);
-    public static final ThreadLocal<Boolean> IS_VIRTUAL = withInitial(() -> FALSE);
+    private static final ClassDesc SIMULATOR_CLASS = ClassDesc.of("com.pingidentity.opendst.Simulator");
 
     /**
      * Installs bytecode transformation.
@@ -176,10 +171,10 @@ public final class SimulatorAgent {
                                 named("currentTimeMillis").or(named("nanoTime")))
                         .intercept(to(TimeAdvice.class).wrap(StubMethod.INSTANCE)))
                 .asTerminalTransformation()
-                /** {@link Runtime#exit(int)} */
-                .type(named("java.lang.Runtime"))
-                .transform((builder, _, _, _, _) -> builder.method(named("exit"))
-                        .intercept(to(RuntimeExitAdvice.class).wrap(StubMethod.INSTANCE)))
+                /** {@link Runtime#exit(int)}
+                 * .type(named("java.lang.Runtime"))
+                 * .transform((builder, _, _, _, _) -> builder.method(named("exit"))
+                 * .intercept(to(RuntimeExitAdvice.class).wrap(StubMethod.INSTANCE))) */
                 /** {@link ReferenceQueue} */
                 .type(named("java.lang.ref.ReferenceQueue"))
                 .transform((builder, _, _, _, _) -> builder.visit(
@@ -340,7 +335,7 @@ public final class SimulatorAgent {
                 })
                 .installOn(instrumentation);
 
-        instrumentation.addTransformer(new CallSiteInstrumentation("com.pingidentity.opendst.Simulator"));
+        instrumentation.addTransformer(new CallSiteInstrumentation());
         setProperty(AGENT_PROPERTY, "true");
     }
 
@@ -925,12 +920,6 @@ public final class SimulatorAgent {
     }
 
     private static final class CallSiteInstrumentation implements ClassFileTransformer {
-        private final ClassDesc targetClassDesc;
-
-        private CallSiteInstrumentation(String targetClassName) {
-            this.targetClassDesc = ClassDesc.of(targetClassName);
-        }
-
         @Override
         public byte[] transform(
                 ClassLoader loader,
@@ -938,72 +927,75 @@ public final class SimulatorAgent {
                 Class<?> classBeingRedefined,
                 ProtectionDomain protectionDomain,
                 byte[] classfileBuffer) {
-            // Use the original classloader to resolve class hierarchy rather than the app class loader, which would
-            // force these classes to be shared across all nodes.
-            var classFile = loader != null
-                    ? ClassFile.of(ClassHierarchyResolverOption.of(ofClassLoading(loader)))
-                    : ClassFile.of();
-            // Do not instrument the JDK classes loaded by the bootstrap classloader (except the ThreadBuilders) nor
-            // the simulator class
-            return (className.startsWith("java/lang/ThreadBuilders") || loader != null)
-                    ? classFile.transformClass(classFile.parse(classfileBuffer), transformMethod())
+            var classFile = ClassFile.of();
+            // Instrument the JDK ThreadBuilders to return VirtualThread rather than Thread
+            return className.startsWith("java/lang/ThreadBuilders")
+                    ? classFile.transformClass(classFile.parse(classfileBuffer), callSiteTransformMethod())
                     : null;
         }
+    }
 
-        private ClassTransform transformMethod() {
-            return transformingMethods(transformingCode(new CodeTransform() {
-                private ClassEntry instantiated;
-                private boolean skipDup;
+    public static ClassTransform callSiteTransformMethod() {
+        return transformingMethods((methodBuilder, methodElement) -> {
+            if (methodElement instanceof CodeModel codeModel) {
+                var className =
+                        codeModel.parent().get().parent().get().thisClass().asInternalName();
+                methodBuilder.transformCode(codeModel, new CodeTransform() {
+                    private ClassEntry instantiated;
+                    private boolean skipDup;
 
-                @Override
-                public void accept(CodeBuilder builder, CodeElement element) {
-                    switch (element) {
-                        case NewObjectInstruction i -> {
-                            if (REDIRECT_CONSTRUCTORS_OF.contains(i.className().asInternalName())) {
-                                instantiated = i.className();
-                                skipDup = true;
-                            } else {
-                                builder.with(element);
-                            }
-                        }
-                        case InvokeInstruction i -> {
-                            if (i.opcode() == INVOKESPECIAL
-                                    && REDIRECT_CONSTRUCTORS_OF.contains(
-                                            i.method().owner().asInternalName())
-                                    && i.method().name().equalsString("<init>")) {
-                                if (!REDIRECT_CONSTRUCTORS_OF.contains(instantiated.asInternalName())) {
-                                    System.err.println(format(
-                                            "Class '%s' cannot be instrumented as it extends '%s'",
-                                            instantiated.asInternalName(),
-                                            i.method().owner().asInternalName()));
+                    @Override
+                    public void accept(CodeBuilder builder, CodeElement element) {
+                        switch (element) {
+                            case NewObjectInstruction i -> {
+                                if (REDIRECT_CONSTRUCTORS_OF.contains(
+                                        i.className().asInternalName())) {
+                                    instantiated = i.className();
+                                    skipDup = true;
+                                } else {
                                     builder.with(element);
-                                    return;
                                 }
-                                // Replace this instantiation of a non-deterministic implementation by a static
-                                // invocation to a factory class providing a deterministic alternative.
-                                var sourceClassDesc = i.method().owner().asInternalName();
-                                var methodName =
-                                        "new" + sourceClassDesc.substring(sourceClassDesc.lastIndexOf('/') + 1);
-                                var methodDesc = MethodTypeDesc.of(
-                                        i.method().owner().asSymbol(),
-                                        i.typeSymbol().parameterList());
-                                builder.invokestatic(targetClassDesc, methodName, methodDesc);
-                            } else {
-                                builder.with(element);
                             }
-                        }
-                        case StackInstruction s -> {
-                            if (s.opcode() == DUP && skipDup) {
-                                skipDup = false;
-                            } else {
-                                builder.with(element);
+                            case InvokeInstruction i -> {
+                                if (i.opcode() == INVOKESPECIAL
+                                        && REDIRECT_CONSTRUCTORS_OF.contains(
+                                                i.method().owner().asInternalName())
+                                        && i.method().name().equalsString("<init>")) {
+                                    if (instantiated == null) {
+                                        System.err.println(format(
+                                                "Class '%s' cannot be instrumented as it extends '%s'",
+                                                className, i.method().owner().asInternalName()));
+                                        builder.with(element);
+                                        return;
+                                    }
+                                    // Replace this instantiation of a non-deterministic implementation by a static
+                                    // invocation to a factory class providing a deterministic alternative.
+                                    var sourceClassDesc = i.method().owner().asInternalName();
+                                    var methodName =
+                                            "new" + sourceClassDesc.substring(sourceClassDesc.lastIndexOf('/') + 1);
+                                    var methodDesc = MethodTypeDesc.of(
+                                            i.method().owner().asSymbol(),
+                                            i.typeSymbol().parameterList());
+                                    builder.invokestatic(SIMULATOR_CLASS, methodName, methodDesc);
+                                } else {
+                                    builder.with(element);
+                                }
                             }
+                            case StackInstruction s -> {
+                                if (s.opcode() == DUP && skipDup) {
+                                    skipDup = false;
+                                } else {
+                                    builder.with(element);
+                                }
+                            }
+                            default -> builder.with(element);
                         }
-                        default -> builder.with(element);
                     }
-                }
-            }));
-        }
+                });
+            } else {
+                methodBuilder.with(methodElement);
+            }
+        });
     }
 
     private SimulatorAgent() {

@@ -43,12 +43,12 @@
             <version>3.0.4</version>
             <scope>compile</scope>
         </dependency>
-        <!-- Required to make this simulator is built before this plugin -->
+        <!-- Required for offline instrumentation -->
         <dependency>
             <groupId>com.pingidentity.opendst</groupId>
             <artifactId>opendst-simulator</artifactId>
             <version>${project.version}</version>
-            <scope>provided</scope>
+            <scope>compile</scope>
         </dependency>
     </dependencies>
 
@@ -66,7 +66,7 @@
                 <executions>
                     <execution>
                         <id>copy-dependencies</id>
-                        <phase>generate-resources</phase>
+                        <phase>prepare-package</phase>
                         <goals>
                             <goal>copy-dependencies</goal>
                         </goals>
@@ -98,6 +98,7 @@
                 <executions>
                     <execution>
                         <id>integration-test</id>
+                        <phase>integration-test</phase>
                         <goals>
                             <goal>install</goal>
                             <goal>run</goal>
