@@ -19,14 +19,14 @@
                 <artifactId>@project.artifactId@</artifactId>
                 <version>@project.version@</version>
                 <configuration>
-                    <testClass>com.pingidentity.opendst.testapp.ClientServerTest</testClass>
+                    <testClass>com.pingidentity.opendst.testapp.ClientServerDST</testClass>
                     <testMethod>run</testMethod>
                     <jvmArguments>-XX:TieredStopAtLevel=1 -Xms64m -Xmx64m</jvmArguments>
                 </configuration>
                 <executions>
                     <execution>
                         <goals>
-                            <goal>run-test</goal>
+                            <goal>test</goal>
                         </goals>
                     </execution>
                 </executions>

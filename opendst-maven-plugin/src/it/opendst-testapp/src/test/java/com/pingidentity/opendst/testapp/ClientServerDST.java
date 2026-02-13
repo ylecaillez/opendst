@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.nio.file.Path;
 
-public class ClientServerTest {
+public class ClientServerDST {
     public static final Path WAR = Path.of("opendst-testapp");
 
     public void run() throws IOException {

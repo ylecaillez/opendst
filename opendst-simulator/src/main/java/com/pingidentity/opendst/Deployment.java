@@ -170,7 +170,7 @@ public final class Deployment implements Callable<Void> {
         } catch (NoSuchFileException e) {
             // No dependency
         }
-        urls.add(webInfDir.resolve("classes").toUri().toURL());
+        urls.add(webInfDir.resolve("classes.jar").toUri().toURL());
         return urls.toArray(new URL[0]);
     }
 }

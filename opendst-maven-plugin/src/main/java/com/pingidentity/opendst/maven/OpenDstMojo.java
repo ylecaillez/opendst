@@ -22,17 +22,22 @@ import static java.lang.System.exit;
 import static java.lang.System.getProperty;
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static java.nio.file.Files.copy;
+import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Files.delete;
 import static java.nio.file.Files.exists;
+import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.Files.walkFileTree;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.util.Arrays.asList;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 import static tools.jackson.core.StreamReadFeature.AUTO_CLOSE_SOURCE;
 import static tools.jackson.core.StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION;
+import static tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.pingidentity.opendst.maven.Orchestrator.Plan;
+import com.pingidentity.opendst.maven.Orchestrator.RandomOrchestrator;
+import com.pingidentity.opendst.maven.Orchestrator.ReplayOrchestrator;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -45,6 +50,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 import org.apache.maven.artifact.DependencyResolutionRequiredException;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -54,17 +61,13 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
-import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.NullNode;
 
-@Mojo(
-        name = "run-test",
-        defaultPhase = LifecyclePhase.INTEGRATION_TEST,
-        requiresDependencyResolution = ResolutionScope.TEST)
-public class ContinuousTestMojo extends AbstractMojo {
+@Mojo(name = "test", defaultPhase = LifecyclePhase.VERIFY, requiresDependencyResolution = ResolutionScope.TEST)
+public class OpenDstMojo extends AbstractMojo {
     private static final Path JAVA_BIN_PATH = Path.of(System.getProperty("java.home"), "bin", "java");
     public static final List<String> JAVA_BASE_OPTIONS = List.of(
             "--enable-native-access=ALL-UNNAMED", "--add-opens=java.base/java.lang=ALL-UNNAMED",
@@ -72,8 +75,10 @@ public class ContinuousTestMojo extends AbstractMojo {
             "-XX:+UnlockExperimentalVMOptions", "-XX:hashCode=2");
     private static final String JAVA_DEBUG_OPTS =
             "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=localhost:5005";
-    private static final String RUNS_BASE_DIR = "target/opendst/runs";
-    private static final String FAILURE_BASE_DIR = "target/opendst/failures";
+    private static final String RUNS_BASE_DIR = "runs";
+    private static final String INSTRUMENTED_WARS_DIR = "instrumented-wars";
+    private static final String WARS_DIR = "target/wars";
+    private static final String FAILURE_BASE_DIR = "failures";
     private static final String RUN_DIR_FORMAT = "run-%d";
     private Orchestrator orchestrator;
 
@@ -111,26 +116,9 @@ public class ContinuousTestMojo extends AbstractMojo {
     @Parameter(property = "skipTests")
     private boolean skipTests;
 
+    private Path opendstBasePath;
     private Path basePath;
-
-    private static String getMethodRunnerPath() throws MojoFailureException {
-        var dir = new File("runner/" + MethodRunner.class.getPackageName().replace('.', '/'));
-        dir.mkdirs();
-        var classFile = "/" + MethodRunner.class.getName().replace('.', '/') + ".class";
-        try (var is = MethodRunner.class.getResourceAsStream(classFile)) {
-            if (is == null) {
-                throw new MojoFailureException("Could not find " + classFile);
-            }
-            var runnerClass = dir.toPath()
-                    .resolve(MethodRunner.class.getSimpleName() + ".class")
-                    .toFile();
-            runnerClass.deleteOnExit();
-            copy(is, runnerClass.toPath(), REPLACE_EXISTING);
-            return Path.of("runner").toFile().getAbsolutePath();
-        } catch (IOException e) {
-            throw new MojoFailureException("Failed to extract opendst-simulator.jar", e);
-        }
-    }
+    private Path instrumentedWarsDir;
 
     private boolean isDebug() {
         return debug != null && !"false".equalsIgnoreCase(debug);
@@ -147,7 +135,7 @@ public class ContinuousTestMojo extends AbstractMojo {
     private String agentJarPath;
 
     private static String getAgentJarPath() throws MojoFailureException {
-        try (var is = ContinuousTestMojo.class.getResourceAsStream("/META-INF/agents/opendst-simulator.jar")) {
+        try (var is = OpenDstMojo.class.getResourceAsStream("/META-INF/agents/opendst-simulator.jar")) {
             if (is == null) {
                 throw new MojoFailureException("Could not find embedded opendst-simulator.jar");
             }
@@ -166,12 +154,21 @@ public class ContinuousTestMojo extends AbstractMojo {
             getLog().info("Skipping opendst-maven-plugin execution because -DskipTests is enabled.");
             return;
         }
-        agentJarPath = getAgentJarPath();
         try {
             basePath = project.getBasedir().toPath().toRealPath();
+            opendstBasePath = basePath.resolve("target").resolve("opendst");
         } catch (IOException e) {
             throw new MojoExecutionException(e);
         }
+        agentJarPath = getAgentJarPath();
+        var warsDir = project.getBasedir().toPath().resolve(WARS_DIR);
+        instrumentedWarsDir = opendstBasePath.resolve(INSTRUMENTED_WARS_DIR);
+        try {
+            deleteDir(instrumentedWarsDir);
+        } catch (IOException e) {
+            throw new MojoFailureException(e);
+        }
+        new Instrumentation(basePath, warsDir, instrumentedWarsDir, getLog()).instrumentWars();
 
         // Allow command line -Dopendst.parallelism to override pom.xml configuration
         // unless debug is enabled, which forces it to 1
@@ -185,18 +182,17 @@ public class ContinuousTestMojo extends AbstractMojo {
         }
 
         if (isReplay()) {
-            getLog().info("OpenDST replays test %s#%s with plan %s".formatted(testClass, testMethod, planFile));
+            getLog().info("OpenDST replays %s#%s with plan %s"
+                    .formatted(testClass, testMethod, basePath.relativize(planFile.toPath())));
             orchestrator = new ReplayOrchestrator(getLog(), new ObjectMapper().readValue(planFile, Plan.class));
         } else {
-            getLog().info("OpenDST tests %s#%s with parallelism set to %d"
+            getLog().info("OpenDST runs %s#%s with parallelism set to %d"
                     .formatted(testClass, testMethod, this.parallelism));
             orchestrator = new RandomOrchestrator(
-                    getLog(), new File(project.getBasedir(), FAILURE_BASE_DIR), duration, replayProbability);
+                    getLog(), opendstBasePath.resolve(FAILURE_BASE_DIR), duration, replayProbability);
         }
         try (var executor = newFixedThreadPool(this.parallelism)) {
-            var classpathElements = new ArrayList<>(project.getTestClasspathElements());
-            classpathElements.add(getMethodRunnerPath());
-            var classpath = join(pathSeparator, classpathElements);
+            var classpath = getClasspath();
             var simulators = new ArrayList<Future<Void>>();
             for (int i = 0; i < this.parallelism; i++) {
                 int count = i;
@@ -212,6 +208,48 @@ public class ContinuousTestMojo extends AbstractMojo {
             throw new MojoExecutionException("Interrupted while waiting for test execution", e);
         } catch (ExecutionException e) {
             throw new MojoExecutionException("A test execution has failed unexpectedly", e);
+        }
+    }
+
+    private String getClasspath() throws DependencyResolutionRequiredException, MojoFailureException {
+        var classpathElements = new ArrayList<>(project.getTestClasspathElements());
+        var testClassesDir = basePath.resolve("target/test-classes").toAbsolutePath();
+        for (int i = 0; i < classpathElements.size(); i++) {
+            if (testClassesDir.equals(Path.of(classpathElements.get(i)).toAbsolutePath())) {
+                classpathElements.set(
+                        i,
+                        instrumentedWarsDir
+                                .resolve("test-classes.jar")
+                                .toAbsolutePath()
+                                .toString());
+            }
+        }
+        classpathElements.remove(
+                basePath.resolve("target/classes").toAbsolutePath().toString());
+        classpathElements.add(getMethodRunnerPath());
+        return join(pathSeparator, classpathElements);
+    }
+
+    private String getMethodRunnerPath() throws MojoFailureException {
+        var classFile = "/" + MethodRunner.class.getName().replace('.', '/') + ".class";
+        try {
+            var dir = basePath.resolve("target").resolve("opendst");
+            var jar = dir.resolve("runner.jar");
+            createDirectories(dir);
+            try (var is = MethodRunner.class.getResourceAsStream(classFile);
+                    var jos = new JarOutputStream(newOutputStream(jar))) {
+                if (is == null) {
+                    throw new MojoFailureException("Could not find " + classFile);
+                }
+                jos.putNextEntry(
+                        new JarEntry(MethodRunner.class.getPackageName().replace('.', '/') + "/"
+                                + MethodRunner.class.getSimpleName() + ".class"));
+                is.transferTo(jos);
+                jos.closeEntry();
+                return jar.toAbsolutePath().toString();
+            }
+        } catch (IOException e) {
+            throw new MojoFailureException("Failed to extract opendst-simulator.jar", e);
         }
     }
 
@@ -240,7 +278,7 @@ public class ContinuousTestMojo extends AbstractMojo {
         new ObjectMapper().writeValue(proc.outputWriter(), plan);
         var mapper = JsonMapper.builder()
                 .enable(INCLUDE_SOURCE_IN_LOCATION)
-                .disable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                .disable(FAIL_ON_TRAILING_TOKENS)
                 .disable(AUTO_CLOSE_SOURCE)
                 .build();
         try (var b = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
@@ -282,9 +320,7 @@ public class ContinuousTestMojo extends AbstractMojo {
         command.addAll(List.of(
                 "-javaagent:%s".formatted(agentJarPath),
                 "-Djava.io.tmpdir=%s".formatted(runTmpDir),
-                "-Dopendst.wars-dir=%s"
-                        .formatted(
-                                project.getBasedir().toPath().resolve("target").resolve("wars"))));
+                "-Dopendst.wars-dir=%s".formatted(instrumentedWarsDir)));
         if (jvmArguments != null && !jvmArguments.isBlank()) {
             command.addAll(asList(jvmArguments.split("\\s+")));
         }
@@ -298,21 +334,22 @@ public class ContinuousTestMojo extends AbstractMojo {
     }
 
     private Path createRunBaseDir(int count) throws IOException {
-        var runBaseDir = basePath.resolve(RUNS_BASE_DIR)
+        var runBaseDir = opendstBasePath
+                .resolve(RUNS_BASE_DIR)
                 .resolve(RUN_DIR_FORMAT.formatted(count))
                 .toAbsolutePath();
-        deleteRunBaseDir(runBaseDir);
+        deleteDir(runBaseDir);
         if (!runBaseDir.toFile().mkdirs()) {
             getLog().error("The run base dir '%s' is unexpectedly already present".formatted(runBaseDir));
         }
         return runBaseDir;
     }
 
-    private void deleteRunBaseDir(Path runBaseDir) throws IOException {
+    private void deleteDir(Path runBaseDir) throws IOException {
         if (!exists(runBaseDir)) {
             return;
         } else if (!runBaseDir.toRealPath().startsWith(basePath)) {
-            getLog().error("The run-base-dir '%s' is not starting with '%s'".formatted(runBaseDir, basePath));
+            getLog().error("Directory '%s' will not be deleted as it is outside '%s'".formatted(runBaseDir, basePath));
             exit(1);
         }
         walkFileTree(runBaseDir, new SimpleFileVisitor<>() {
