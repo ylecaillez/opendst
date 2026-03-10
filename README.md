@@ -148,7 +148,7 @@ Available CLI options:
 | `--stagnation-limit` | 100 | Stop after N iterations without new coverage |
 | `--branch-probability` | 0.7 | Probability of branching to explore a new path |
 | `--replay-probability` | 0.05 | Probability of replaying a previous trace |
-| `--forkCount` | CPUs - 1 | Number of concurrent simulation forks |
+| `--forkCount` | max(1, CPUs - 1) | Number of concurrent simulation forks |
 | `--working-dir` | (JAR name sans `.jar`) | Persistent working directory for deployment, runs, and reports |
 | `--fail-fast` | false | Stop on first assertion failure |
 | `--jvm-args` | (from POM) | JVM arguments for child processes |

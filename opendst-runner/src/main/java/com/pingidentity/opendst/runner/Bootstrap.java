@@ -51,7 +51,7 @@ public final class Bootstrap {
     public static void main(String[] args) {
         try {
             // 1. Locate the JAR we are running from
-            var jarPath = Path.of(Bootstrap.class.getProtectionDomain().getCodeSource().getLocation().getPath());
+            var jarPath = Path.of(Bootstrap.class.getProtectionDomain().getCodeSource().getLocation().toURI());
 
             // 2. Resolve working directory and strip --working-dir from args before forwarding
             var workingDir = resolveWorkingDir(args, jarPath);
