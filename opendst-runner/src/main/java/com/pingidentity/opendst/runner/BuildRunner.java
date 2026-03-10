@@ -19,7 +19,6 @@ import static com.pingidentity.opendst.runner.Assertion.SIMULATION_STARTED;
 import static com.pingidentity.opendst.runner.Assertion.SIMULATION_STOPPED_SUCCESSFULLY;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.OpenDstLogger.ofConsole;
-import static java.lang.System.err;
 import static java.lang.System.exit;
 import static java.nio.file.Files.createDirectories;
 
@@ -32,6 +31,12 @@ import com.pingidentity.opendst.runner.TestExecutor.RunConfig;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.concurrent.Callable;
+
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
+import picocli.CommandLine.Parameters;
 
 /**
  * Orchestrator entry point for the self-contained JAR.
@@ -47,104 +52,94 @@ import java.util.Set;
  *   <li>Uses {@link Orchestrator.GuidedOrchestrator} to drive exploration</li>
  * </ol>
  */
-public final class BuildRunner {
+@Command(name = "opendst", description = "Run OpenDST deterministic simulation tests")
+public final class BuildRunner implements Callable<Integer> {
+
+    @Parameters(index = "0", hidden = true, description = "Extraction directory (set by Bootstrap)")
+    private Path extractDir;
+
+    @Option(names = "--report-dir", description = "Directory to write reports to")
+    private Path reportOutputDir;
+
+    @Option(names = "--fail-fast", description = "Stop on first assertion failure")
+    private boolean failFast;
+
+    @Option(names = "--forkCount",
+            description = "Number of concurrent simulation forks (default: availableProcessors - 1)",
+            defaultValue = "-1")
+    private int forkCount;
+
     public static void main(String[] args) {
-        try {
-            // First argument is always the extraction directory (prepended by Bootstrap)
-            var extractDir = Path.of(args[0]);
-            var remainingArgs = new String[args.length - 1];
-            System.arraycopy(args, 1, remainingArgs, 0, remainingArgs.length);
-
-            // Parse command-line arguments
-            var reportOutputDir = parseReportDir(remainingArgs);
-            var failFast = parseFlag(remainingArgs, "--fail-fast");
-
-            // 1. Load assertions
-            var assertionsFile = extractDir.resolve("META-INF/opendst/assertions.json");
-            Set<Assertion> discoveredAssertions = JSON_MAPPER.readValue(
-                    assertionsFile.toFile(),
-                    JSON_MAPPER.getTypeFactory().constructCollectionType(Set.class, Assertion.class));
-
-            // Merge discovered assertions with built-in lifecycle assertions
-            var assertions = new LinkedHashSet<>(discoveredAssertions);
-            assertions.add(SIMULATION_STARTED);
-            assertions.add(SIMULATION_STOPPED_SUCCESSFULLY);
-
-            // 2. Load build config
-            var configFile = extractDir.resolve("build-config.json");
-            var config = JSON_MAPPER.readValue(configFile.toFile(), BuildConfig.class);
-
-            // 3. Build classpath for child JVMs
-            var classpath = buildChildClasspath(extractDir);
-
-            // 4. Set up orchestrator and run
-            var logger = ofConsole();
-            var faultsConfig = toFaultsConfig(config.faults());
-            var orchestrator = new GuidedOrchestrator(logger, config.duration(), config.branchProbability(), faultsConfig);
-
-            var instrumentedWarsDir = extractDir.resolve("apps");
-            var agentJarPath = extractDir.resolve("system/opendst-agent.jar").toAbsolutePath().toString();
-
-            var jvmConfig = new JvmConfig(
-                    instrumentedWarsDir, agentJarPath, config.jvmArguments(), null, null,
-                    DeploymentRunner.class.getName());
-            var runConfig = new RunConfig(
-                    config.replayProbability(), false, config.stagnationLimit(), config.parallelism(), failFast);
-
-            // Use user-specified report dir or fall back to temp dir
-            var reportBasePath = reportOutputDir != null ? reportOutputDir : extractDir.resolve("report");
-            createDirectories(reportBasePath);
-
-            // TestExecutor uses testClass/testMethod as child JVM args.
-            // For DeploymentRunner, we pass the extraction dir path so the child knows where to find deployment.yaml.
-            var reportGenerator = new ReportGenerator(assertions);
-            new TestExecutor(
-                    reportBasePath,
-                    extractDir.toAbsolutePath().toString(), // passed as "testClass" arg to child JVM
-                    "run",                                  // passed as "testMethod" arg (unused but required)
-                    classpath,
-                    jvmConfig,
-                    logger,
-                    orchestrator,
-                    runConfig)
-                    .execute(reportGenerator);
-
-            // Always write a final report — even if no run was "interesting", we still
-            // want a summary of whatever happened during the simulation.
-            var reportFile = reportBasePath.resolve("report.json");
-            reportGenerator.generate(reportFile);
-
-            logger.raw().info("Simulation complete. Report written to: " + reportFile);
-
-            if (failFast && reportGenerator.hasFailures()) {
-                exit(1);
-            }
-
-        } catch (Exception e) {
-            err.println("OpenDST build runner failed:");
-            e.printStackTrace(err);
-            exit(1);
-        }
+        exit(new CommandLine(new BuildRunner()).execute(args));
     }
 
-    /** Parses the {@code --report-dir <path>} argument from the command line. */
-    private static Path parseReportDir(String[] args) {
-        for (int i = 0; i < args.length - 1; i++) {
-            if ("--report-dir".equals(args[i])) {
-                return Path.of(args[i + 1]);
-            }
+    @Override
+    public Integer call() throws Exception {
+        if (forkCount <= 0) {
+            forkCount = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
         }
-        return null;
-    }
 
-    /** Returns {@code true} if the given flag is present in the argument array. */
-    private static boolean parseFlag(String[] args, String flag) {
-        for (var arg : args) {
-            if (flag.equals(arg)) {
-                return true;
-            }
+        // 1. Load assertions
+        var assertionsFile = extractDir.resolve("META-INF/opendst/assertions.json");
+        Set<Assertion> discoveredAssertions = JSON_MAPPER.readValue(
+                assertionsFile.toFile(),
+                JSON_MAPPER.getTypeFactory().constructCollectionType(Set.class, Assertion.class));
+
+        // Merge discovered assertions with built-in lifecycle assertions
+        var assertions = new LinkedHashSet<>(discoveredAssertions);
+        assertions.add(SIMULATION_STARTED);
+        assertions.add(SIMULATION_STOPPED_SUCCESSFULLY);
+
+        // 2. Load build config
+        var configFile = extractDir.resolve("build-config.json");
+        var config = JSON_MAPPER.readValue(configFile.toFile(), BuildConfig.class);
+
+        // 3. Build classpath for child JVMs
+        var classpath = buildChildClasspath(extractDir);
+
+        // 4. Set up orchestrator and run
+        var logger = ofConsole();
+        var faultsConfig = toFaultsConfig(config.faults());
+        var orchestrator = new GuidedOrchestrator(logger, config.duration(), config.branchProbability(), faultsConfig);
+
+        var instrumentedWarsDir = extractDir.resolve("apps");
+        var agentJarPath = extractDir.resolve("system/opendst-agent.jar").toAbsolutePath().toString();
+
+        var jvmConfig = new JvmConfig(
+                instrumentedWarsDir, agentJarPath, config.jvmArguments(), null, null,
+                DeploymentRunner.class.getName());
+        var runConfig = new RunConfig(
+                config.replayProbability(), false, config.stagnationLimit(), forkCount, failFast);
+
+        // Use user-specified report dir or fall back to temp dir
+        var reportBasePath = reportOutputDir != null ? reportOutputDir : extractDir.resolve("report");
+        createDirectories(reportBasePath);
+
+        // TestExecutor uses testClass/testMethod as child JVM args.
+        // For DeploymentRunner, we pass the extraction dir path so the child knows where to find deployment.yaml.
+        var reportGenerator = new ReportGenerator(assertions);
+        new TestExecutor(
+                reportBasePath,
+                extractDir.toAbsolutePath().toString(), // passed as "testClass" arg to child JVM
+                "run",                                  // passed as "testMethod" arg (unused but required)
+                classpath,
+                jvmConfig,
+                logger,
+                orchestrator,
+                runConfig)
+                .execute(reportGenerator);
+
+        // Always write a final report — even if no run was "interesting", we still
+        // want a summary of whatever happened during the simulation.
+        var reportFile = reportBasePath.resolve("report.json");
+        reportGenerator.generate(reportFile);
+
+        logger.raw().info("Simulation complete. Report written to: " + reportFile);
+
+        if (failFast && reportGenerator.hasFailures()) {
+            return 1;
         }
-        return false;
+        return 0;
     }
 
     /**
@@ -188,7 +183,7 @@ public final class BuildRunner {
 
     /** Orchestration configuration baked into the self-contained JAR. */
     public record BuildConfig(long duration, double branchProbability, double replayProbability,
-                               int stagnationLimit, int parallelism, String jvmArguments,
+                               int stagnationLimit, String jvmArguments,
                                FaultsConfig faults) {
 
         /** Serializable faults configuration using string-based durations. */

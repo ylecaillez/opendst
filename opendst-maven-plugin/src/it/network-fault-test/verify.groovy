@@ -96,7 +96,6 @@ try {
     def buildConfigJson = jar.getInputStream(buildConfigEntry).text
     def buildConfig = new JsonSlurper().parseText(buildConfigJson)
     check(buildConfig.faults.network.enabled == true, "Network faults should be enabled", logFile)
-    check(buildConfig.parallelism == 4, "Parallelism should be 4, got: " + buildConfig.parallelism, logFile)
     check(buildConfig.stagnationLimit == 200, "StagnationLimit should be 200, got: " + buildConfig.stagnationLimit, logFile)
 } finally {
     jar.close()

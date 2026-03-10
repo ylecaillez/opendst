@@ -27,7 +27,7 @@ The plugin packages everything into a **self-contained executable JAR**: instrum
 
 ### Simulation Loop
 
-When the JAR is executed, the runner starts the orchestrator which enters a loop running up to `parallelism` simulations concurrently. Each iteration:
+When the JAR is executed, the runner starts the orchestrator which enters a loop running concurrent simulations. The number of concurrent forks defaults to `availableProcessors - 1` and can be overridden with the `--forkCount` CLI argument. Each iteration:
 
 1. The orchestrator generates a **Plan** — either a fresh random walk, a branch from a known signal, or a replay of a past plan for determinism verification.
 2. A child JVM is forked with the instrumented classpath and the simulator agent. The plan is sent via stdin.

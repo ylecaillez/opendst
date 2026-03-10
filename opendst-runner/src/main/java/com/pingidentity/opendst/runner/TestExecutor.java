@@ -63,7 +63,7 @@ final class TestExecutor {
     }
 
     /** Execution loop control parameters. */
-    record RunConfig(double replayProbability, boolean isDebugOrReplay, int stagnationLimit, int parallelism,
+    record RunConfig(double replayProbability, boolean isDebugOrReplay, int stagnationLimit, int forkCount,
                      boolean failFast) {}
 
     private final Path testBasePath;
@@ -97,7 +97,7 @@ final class TestExecutor {
     /** Runs the full simulation lifecycle: parallel run loops, property verification, and report generation. */
     void execute(ReportGenerator reportGenerator) throws ExecutionException, InterruptedException {
         var futures = new ArrayList<Future<Void>>();
-        for (int i = 0; i < runConfig.parallelism(); i++) {
+        for (int i = 0; i < runConfig.forkCount(); i++) {
             int count = i;
             var future = new FutureTask<>(() -> runLoop(count, reportGenerator));
             ofVirtual().name("opendst-executor-" + i).start(future);

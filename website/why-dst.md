@@ -209,7 +209,6 @@ Each service gets its own virtual IP address. All TCP traffic between them goes 
                     <goals><goal>build</goal></goals>
                     <configuration>
                         <descriptor>${project.basedir}/deployment.yaml</descriptor>
-                        <parallelism>8</parallelism>
                         <stagnationLimit>200</stagnationLimit>
                     </configuration>
                 </execution>
@@ -376,7 +375,7 @@ Pure random exploration — like pressing random buttons in a video game — rar
 
 3. **Deeper** — Each branch can discover new signals, triggering more branches. The orchestrator builds a tree of increasingly targeted exploration around the most interesting parts of your state space.
 
-The `stagnationLimit` parameter controls when to stop: if no new signals are discovered after 200 consecutive runs, the session ends. The `parallelism` parameter controls how many simulations run concurrently.
+The `stagnationLimit` parameter controls when to stop: if no new signals are discovered after 200 consecutive runs, the session ends. The `--forkCount` CLI argument controls how many simulations run concurrently (defaults to `availableProcessors - 1`).
 
 ---
 

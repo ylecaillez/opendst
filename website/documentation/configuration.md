@@ -31,7 +31,6 @@ These parameters control the simulation session. They are set at build time in t
 | `branchProbability` | `opendst.branchProbability` | `0.7` | Probability of branching from a known signal vs. starting a fresh random walk. |
 | `replayProbability` | `opendst.replayProbability` | `0.05` | Probability of replaying a past plan for determinism verification. |
 | `stagnationLimit` | `opendst.stagnation-limit` | `100` | Stop the session after N consecutive runs with no new signal discoveries. |
-| `parallelism` | `opendst.parallelism` | `1` | Number of concurrent simulation JVMs. |
 | `jvmArguments` | `opendst.jvmArguments` | — | Extra JVM arguments passed to child simulation processes. |
 
 ---
@@ -48,7 +47,6 @@ These parameters control the simulation session. They are set at build time in t
             <goals><goal>build</goal></goals>
             <configuration>
                 <descriptor>${project.basedir}/deployment.yaml</descriptor>
-                <parallelism>8</parallelism>
                 <stagnationLimit>200</stagnationLimit>
                 <replayProbability>0.05</replayProbability>
                 <jvmArguments>-XX:TieredStopAtLevel=1 -Xms64m -Xmx64m</jvmArguments>
@@ -76,4 +74,7 @@ java -jar target/my-app-1.0-opendst.jar --report-dir ./reports
 
 # Exit immediately on first failure
 java -jar target/my-app-1.0-opendst.jar --fail-fast
+
+# Run with a specific number of concurrent simulation forks
+java -jar target/my-app-1.0-opendst.jar --forkCount 8
 ```

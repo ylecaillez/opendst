@@ -30,7 +30,6 @@
                         <configuration>
                             <descriptor>${project.basedir}/deployment.yaml</descriptor>
                             <stagnationLimit>200</stagnationLimit>
-                            <parallelism>4</parallelism>
                             <jvmArguments>-XX:TieredStopAtLevel=1 -Xms64m -Xmx64m</jvmArguments>
                         </configuration>
                     </execution>

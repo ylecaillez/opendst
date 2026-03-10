@@ -30,7 +30,6 @@
                         <configuration>
                             <descriptor>${project.basedir}/deployment.yaml</descriptor>
                             <stagnationLimit>1</stagnationLimit>
-                            <parallelism>1</parallelism>
                             <duration>5000</duration>
                         </configuration>
                     </execution>

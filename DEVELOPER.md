@@ -112,7 +112,6 @@ Add the `opendst-sdk` for signaling and the `opendst-maven-plugin` to instrument
             <goals><goal>build</goal></goals>
             <configuration>
                 <descriptor>${project.basedir}/deployment.yaml</descriptor>
-                <parallelism>8</parallelism>
                 <stagnationLimit>200</stagnationLimit>
             </configuration>
         </execution>

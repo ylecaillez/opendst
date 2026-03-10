@@ -123,7 +123,6 @@ Configure the Maven plugin with the `build` goal:
             <goals><goal>build</goal></goals>
             <configuration>
                 <descriptor>${project.basedir}/deployment.yaml</descriptor>
-                <parallelism>4</parallelism>
                 <stagnationLimit>100</stagnationLimit>
             </configuration>
         </execution>

@@ -30,7 +30,6 @@
                         <goals><goal>build</goal></goals>
                         <configuration>
                             <descriptor>${project.basedir}/deployment.yaml</descriptor>
-                            <parallelism>1</parallelism>
                             <stagnationLimit>10</stagnationLimit>
                             <duration>1000</duration>
                         </configuration>

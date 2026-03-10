@@ -177,8 +177,8 @@ public final class DeploymentRunner {
      *
      * <p>The descriptor defines the deployment topology using a docker-compose-like format:
      * services (as a named map) and an optional trace auditor. Each service carries its own
-     * source and class declaration. Orchestration concerns (faults, duration, parallelism)
-     * are configured separately in {@link BuildRunner.BuildConfig}.
+ * source and class declaration. Orchestration concerns (faults, duration, fork count)
+ * are configured separately in {@link BuildRunner.BuildConfig} and via CLI arguments.
      *
      * <p>Example YAML:
      * <pre>{@code

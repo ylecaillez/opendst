@@ -126,9 +126,6 @@ public class BuildMojo extends AbstractMojo {
     @Parameter(property = "opendst.stagnation-limit", defaultValue = "100")
     private int stagnationLimit;
 
-    @Parameter(property = "opendst.parallelism", defaultValue = "1")
-    private int parallelism;
-
     @Parameter(property = "opendst.jvmArguments")
     private String jvmArguments;
 
@@ -488,7 +485,7 @@ public class BuildMojo extends AbstractMojo {
 
             // 6. build-config.json — orchestration defaults
             var buildConfig = new BuildConfig(
-                    duration, branchProbability, replayProbability, stagnationLimit, parallelism, jvmArguments,
+                    duration, branchProbability, replayProbability, stagnationLimit, jvmArguments,
                     defaultFaultsConfig());
             addEntry(jos, "build-config.json", JSON_MAPPER.writeValueAsBytes(buildConfig));
         }
@@ -568,7 +565,8 @@ public class BuildMojo extends AbstractMojo {
         return groupId.startsWith("tools.jackson")
                 || groupId.startsWith("com.fasterxml.jackson")
                 || groupId.startsWith("org.snakeyaml")
-                || "com.pingidentity.opendst".equals(groupId);
+                || "com.pingidentity.opendst".equals(groupId)
+                || "info.picocli".equals(groupId);
     }
 
     /** Adapts Maven's {@link org.apache.maven.plugin.logging.Log} to {@link OpenDstLogger.Sink}. */
