@@ -61,16 +61,11 @@ import net.bytebuddy.implementation.Implementation.Context.Disabled.Factory;
 public final class SimulatorAgent {
     public static final String AGENT_PROPERTY = "com.pingidentity.opendst.simulator.agent";
     private static final ClassDesc THREADS_CLASS = ClassDesc.of("com.pingidentity.opendst.Threads");
-    private static final ClassDesc FILESYSTEM_CLASS = ClassDesc.of("com.pingidentity.opendst.FileSystem");
     private static final ClassDesc SIGNALS_IMPL_CLASS = ClassDesc.of("com.pingidentity.opendst.SignalsImpl");
     private static final ClassDesc ASSERT_IMPL_CLASS = ClassDesc.of("com.pingidentity.opendst.AssertImpl");
 
     static final Map<String, ClassDesc> REDIRECT_MAP = Map.ofEntries(
             entry("java/lang/Thread", THREADS_CLASS),
-            entry("java/io/FileInputStream", FILESYSTEM_CLASS),
-            entry("java/io/FileOutputStream", FILESYSTEM_CLASS),
-            entry("java/io/RandomAccessFile", FILESYSTEM_CLASS),
-            entry("java/nio/file/Files", FILESYSTEM_CLASS),
             entry("com/pingidentity/opendst/api/Signals", SIGNALS_IMPL_CLASS),
             entry("com/pingidentity/opendst/api/Assert", ASSERT_IMPL_CLASS));
 
@@ -95,7 +90,6 @@ public final class SimulatorAgent {
         agent = Time.instrument(agent);
         agent = SystemInterceptors.instrument(agent);
         agent = Randomness.instrument(agent);
-        agent = FileSystem.instrument(agent);
         agent = Threads.instrument(agent);
         agent = Network.instrument(agent);
 

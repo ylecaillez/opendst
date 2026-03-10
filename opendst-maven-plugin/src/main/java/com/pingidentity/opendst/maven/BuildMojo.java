@@ -436,9 +436,8 @@ public class BuildMojo extends AbstractMojo {
      * apps/
      *   &lt;appDir&gt;/                       # Instrumented application content
      *     WEB-INF/
-     *       classes.jar
-     *       lib/
-     *       fs/
+      *       classes.jar
+      *       lib/
      * deployment.yaml                   # Enriched descriptor (all services have dir set)
      * build-config.json                 # Build-time defaults (JVM args, faults)
      * </pre>
@@ -488,11 +487,10 @@ public class BuildMojo extends AbstractMojo {
         return yamlMapper.writeValueAsBytes(descriptor);
     }
 
-    /** Returns the default faults configuration with both network and filesystem faults enabled. */
+    /** Returns the default faults configuration with network faults enabled. */
     private static BuildConfig.FaultsConfig defaultFaultsConfig() {
         return new BuildConfig.FaultsConfig(
-                new BuildConfig.NetworkFaultsConfig(true, "100us", "800us", "100ms", 0.01, "100ms"),
-                new BuildConfig.FileSystemFaultsConfig(true, 0.005));
+                new BuildConfig.NetworkFaultsConfig(true, "100us", "800us", "100ms", 0.01, "100ms"));
     }
 
     /**

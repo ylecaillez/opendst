@@ -18,7 +18,7 @@
  * Core simulation engine for OpenDST deterministic simulation testing.
  *
  * <p>This package contains the simulator runtime, bytecode rewriting agent, and all
- * system interceptors (threads, network, filesystem, time) that enable deterministic
+ * system interceptors (threads, network, time) that enable deterministic
  * execution of Java applications under simulated conditions.
  */
 package com.pingidentity.opendst;

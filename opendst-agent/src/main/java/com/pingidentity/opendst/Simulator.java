@@ -26,10 +26,6 @@ import static java.lang.Runtime.getRuntime;
 import static java.lang.String.format;
 import static java.lang.Thread.currentThread;
 import static java.lang.Thread.sleep;
-import static java.nio.file.Files.copy;
-import static java.nio.file.Files.createDirectories;
-import static java.nio.file.Files.isDirectory;
-import static java.nio.file.Files.walk;
 import static java.util.Arrays.stream;
 import static java.util.Objects.requireNonNull;
 
@@ -41,8 +37,6 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
-import java.nio.file.NoSuchFileException;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -107,13 +101,9 @@ public final class Simulator {
 
     // Visible for testing
     static final Set<String> REDIRECT_CONSTRUCTORS_OF = Set.of(
-            "java/lang/Thread",
-            "java/io/FileInputStream",
-            "java/io/FileOutputStream",
-            "java/io/RandomAccessFile");
+            "java/lang/Thread");
 
     static final Set<String> REDIRECT_STATIC_METHODS_OF = Set.of(
-            "java/nio/file/Files",
             "com/pingidentity/opendst/api/Signals",
             "com/pingidentity/opendst/api/Assert");
 
@@ -278,10 +268,6 @@ public final class Simulator {
         new Node(current.context, getSystemClassLoader(), hostName, ipAddress).startNode(bootstrap);
     }
 
-    public static Path workingDirectory() {
-        return currentNodeOrThrow().workingDirectory();
-    }
-
     /**
      * Creates and starts a deployment of services within the simulation.
      *
@@ -310,7 +296,6 @@ public final class Simulator {
             String hostName,
             InetAddress ipAddress,
             ClassLoader classLoader,
-            Path filesystemSourceDir,
             Method main,
             String[] args) {
         requireNonNull(hostName);
@@ -322,9 +307,6 @@ public final class Simulator {
         var current = currentNodeOrThrow();
         try {
             var node = new Node(current.context, classLoader, hostName, ipAddress.getHostAddress());
-            if (filesystemSourceDir != null) {
-                initFileSystem(filesystemSourceDir, node.workingDirectory());
-            }
             node.startNode(() -> {
                 try {
                     main.invoke(null, (Object) args);
@@ -340,27 +322,6 @@ public final class Simulator {
             });
         } catch (Throwable e) {
             throw new IllegalArgumentException("Unable to start node " + hostName, e);
-        }
-    }
-
-    private static void initFileSystem(Path source, Path target) throws IOException {
-        requireNonNull(source);
-        requireNonNull(target);
-        try (var stream = walk(source)) {
-            var paths = stream.toList();
-            for (var path : paths) {
-                var relative = source.relativize(path);
-                var destination = target.resolve(relative);
-                if (isDirectory(path)) {
-                    createDirectories(destination);
-                } else {
-                    copy(path, destination);
-                }
-            }
-        } catch (IOException e) {
-            if (!(e instanceof NoSuchFileException)) {
-                throw e;
-            }
         }
     }
 

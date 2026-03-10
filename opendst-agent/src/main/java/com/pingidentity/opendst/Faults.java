@@ -26,7 +26,6 @@ import static java.util.Map.entry;
 import static java.util.concurrent.ThreadLocalRandom.current;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
-import java.io.IOException;
 import java.net.BindException;
 import java.net.InetAddress;
 import java.time.Duration;
@@ -44,10 +43,10 @@ public final class Faults {
     /**
      * Configuration for fault injection.
      */
-    public record Config(NetworkConfig network, FileSystemConfig fileSystem) {
+    public record Config(NetworkConfig network) {
 
         public Config() {
-            this(new NetworkConfig(), new FileSystemConfig());
+            this(new NetworkConfig());
         }
 
         public record NetworkConfig(
@@ -71,13 +70,6 @@ public final class Faults {
                      // Clogging
                      0.5,
                      ofMillis(100));
-            }
-        }
-
-        public record FileSystemConfig(boolean enabled, double ioErrorProbability) {
-
-            public FileSystemConfig() {
-                this(false, 0.0);
             }
         }
     }
@@ -166,20 +158,6 @@ public final class Faults {
                                    / (2 * precision));
         }
 
-        /**
-         * Hook called before a filesystem operation.
-         *
-         * @throws IOException if a filesystem fault occurs
-         */
-        void onFileSystemOp() throws IOException {
-            var config = faults.fileSystem();
-            if (simulator.isReady()
-                    && config.enabled()
-                    && config.ioErrorProbability() > 0
-                    && current().nextDouble() < config.ioErrorProbability()) {
-                throw new IOException("OpenDST: filesystem-fault");
-            }
-        }
     }
 
     private Faults() {

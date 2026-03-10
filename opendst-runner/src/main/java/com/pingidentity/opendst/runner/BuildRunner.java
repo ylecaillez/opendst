@@ -214,17 +214,14 @@ public final class BuildRunner implements Callable<Integer> {
                         faults.network().cloggingProbability(),
                         DurationUtils.parse(faults.network().cloggingLatencyMaximum()))
                 : new Faults.Config.NetworkConfig();
-        var fs = faults.fileSystem() != null && faults.fileSystem().enabled()
-                ? new Faults.Config.FileSystemConfig(true, faults.fileSystem().ioErrorProbability())
-                : new Faults.Config.FileSystemConfig();
-        return new Faults.Config(net, fs);
+        return new Faults.Config(net);
     }
 
     /** Build-time configuration baked into the self-contained JAR. */
     public record BuildConfig(String jvmArguments, FaultsConfig faults) {
 
         /** Serializable faults configuration using string-based durations. */
-        public record FaultsConfig(NetworkFaultsConfig network, FileSystemFaultsConfig fileSystem) {}
+        public record FaultsConfig(NetworkFaultsConfig network) {}
 
         public record NetworkFaultsConfig(
                 boolean enabled,
@@ -233,7 +230,5 @@ public final class BuildRunner implements Callable<Integer> {
                 String latencySlow,
                 double cloggingProbability,
                 String cloggingLatencyMaximum) {}
-
-        public record FileSystemFaultsConfig(boolean enabled, double ioErrorProbability) {}
     }
 }

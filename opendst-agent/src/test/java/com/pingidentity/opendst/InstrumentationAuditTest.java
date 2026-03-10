@@ -136,7 +136,6 @@ class InstrumentationAuditTest {
 
     private void auditDiscoveredAdvice() throws Exception {
         var simulatedClasses = List.of(
-                FileSystem.class,
                 Network.class,
                 Randomness.class,
                 SystemInterceptors.class,

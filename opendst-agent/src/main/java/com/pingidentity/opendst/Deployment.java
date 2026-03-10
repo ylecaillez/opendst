@@ -39,8 +39,6 @@ import java.util.Map;
  * A deployment describes a set of services to run, each service running in its own class loader.
  * <p>
  * Each service is associated with an image that describes the war directory and the main class to run.
- * The war directory is expected to have a WEB-INF/fs directory that will be copied to the deployment
- * directory for the service.
  */
 public final class Deployment {
     private static final Path WARS_DIR = Path.of(getProperty("opendst.wars-dir", "wars"));
@@ -78,7 +76,7 @@ public final class Deployment {
     }
 
     /**
-     * Starts all services in the deployment by initializing their file systems and launching their main classes.
+     * Starts all services in the deployment by launching their main classes.
      *
      * @throws Exception if an error occurs during service startup
      */
@@ -91,7 +89,6 @@ public final class Deployment {
                     service.name(),
                     service.ip(),
                     serviceClassLoader,
-                    WARS_DIR.resolve(image.warDir()).resolve("WEB-INF/fs"),
                     mainMethod,
                     service.args());
         }

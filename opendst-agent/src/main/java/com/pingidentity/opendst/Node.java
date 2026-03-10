@@ -36,8 +36,6 @@ import java.net.InetAddress;
 import java.net.NoRouteToHostException;
 import java.net.SocketImpl;
 import java.net.UnknownHostException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -59,11 +57,9 @@ import java.util.stream.Stream;
  */
 public final class Node {
     static final ThreadLocal<Node> CURRENT = new ThreadLocal<>();
-    private static final Path MACHINE_FS_DIR = Path.of("fs");
 
     public final SimulationContext context;
     public final String hostName;
-    final Path workingDirectory;
     final ClassLoader classLoader;
     final PrintStream console;
     final List<Thread> virtualThreads = new ArrayList<>();
@@ -90,8 +86,6 @@ public final class Node {
         assert localIpAddress != null;
 
         this.hostName = hostName.toLowerCase();
-        this.workingDirectory = MACHINE_FS_DIR.resolve(hostName).toAbsolutePath();
-        Files.createDirectories(workingDirectory);
         this.salt32l = context.random().nextLong() & 0xFFFF_FFFFL;
         this.reverse = (salt32l & 1) == 0;
         this.console = new PrintStream(context.logger().newLogWriter(hostName), true);
@@ -334,10 +328,6 @@ public final class Node {
 
     public void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
         context.simulator().uncaughtExceptionHandler(this, thread, throwable);
-    }
-
-    public Path workingDirectory() {
-        return workingDirectory;
     }
 
     @SuppressWarnings({"deprecation", "removal"})
