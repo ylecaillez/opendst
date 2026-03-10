@@ -19,9 +19,11 @@ Three weeks later, a customer reports that money has disappeared.
 
 You spend two days on the RCA. The root cause: a network timeout during a credit operation. The debit went through, but the credit didn't. The money vanished. Your retry logic — designed to handle exactly this — made things worse by double-crediting when the original request actually did succeed on the server.
 
-Your integration tests never caught this because they run on `localhost`, where the network doesn't fail. Your chaos tests didn't catch it either — they would have needed to inject a timeout at the exact moment between the debit response and the credit request, with a retry that arrives after the original succeeds. The odds of randomly hitting that window are negligible.
+Your integration tests never caught this because they run on `localhost`, where the network doesn't fail.
 
-This isn't a contrived example. This is the class of bug that takes down real distributed systems. And we're going to find it in under a second.
+What about chaos testing? It *could* find this bug — in theory. In practice, it means setting up a fault injection proxy (Toxiproxy, Chaos Monkey, Istio fault rules), configuring it to target the right connection at the right time, waiting through real-time timeouts (a 2-second socket timeout means 2 real seconds per attempt), and running enough iterations to stumble into the right sequence. When it finally triggers the bug, reproducing it is its own adventure — you need the exact same fault timing, the exact same request ordering, on the exact same infrastructure.
+
+This isn't a contrived example. This is the class of bug that takes down real distributed systems. And we're going to find it in under a second, reproducibly.
 
 ---
 
@@ -36,14 +38,14 @@ Consider the state space of our transfer system. Each transfer involves:
 
 A single transfer has thousands of possible execution paths. Twenty transfers have more paths than atoms in the universe. Your test suite, no matter how thorough, covers a handful.
 
-| Test type | State space covered | Finds our bug? |
+| Test type | What it covers | Finds our bug? |
 |---|---|---|
 | Unit tests | Single function, mocked dependencies | No — the bug is in the interaction |
 | Integration tests | Happy path, localhost network | No — network always succeeds |
-| Chaos testing | Random failures, real-time waits | Unlikely — needs precise timing |
-| **DST** | **All of the above, thousands of paths/second** | **Yes** |
+| Chaos testing | Real failures on real infrastructure | Maybe — but complex setup, real-time waits, and hard to reproduce |
+| **DST** | **All of the above, thousands of paths/second** | **Yes — and 100% reproducible** |
 
-Deterministic Simulation Testing replaces the real environment — time, network, filesystem, threads, randomness — with controlled, deterministic versions. A 30-second timeout takes nanoseconds. A network partition is injected at exactly the right moment. And when a bug is found, the exact execution can be replayed, step by step, to debug it.
+Deterministic Simulation Testing replaces the real environment — time, network, filesystem, threads, randomness — with controlled, deterministic versions. A 2-second socket timeout takes nanoseconds. A network partition is injected at exactly the right moment. And when a bug is found, the exact execution can be replayed, step by step, to debug it. No infrastructure to set up — just `java -jar`.
 
 ---
 
