@@ -9,7 +9,7 @@ OpenDST runs as **two cooperating JVM processes**. Understanding this split is k
 
 ## The Orchestrator (Control Plane)
 
-Runs inside the Maven process. It manages the **test session**: generates execution plans, forks child JVMs to run them, monitors their stdout for structured JSON signals, and uses the signal feedback to guide the next plan.
+Runs inside the self-contained `-opendst.jar` when you execute `java -jar`. It manages the **test session**: generates execution plans, forks child JVMs to run them, monitors their stdout for structured JSON signals, and uses the signal feedback to guide the next plan.
 
 The orchestrator never executes your application code. It only observes and decides.
 
@@ -29,7 +29,7 @@ The orchestrator sends a **Plan** (JSON) to the simulator via **stdin**. The sim
 
 ```
 ┌──────────────────────────────────────────────┐
-│         Maven JVM (Control Plane)            │
+│       Runner JVM (Control Plane)              │
 │                                              │
 │  ┌────────────────────────────────────────┐  │
 │  │            Orchestrator                │  │

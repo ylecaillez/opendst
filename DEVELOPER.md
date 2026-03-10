@@ -177,7 +177,7 @@ The following exercises are designed to validate that an AI agent or developer h
     *   *Validation*: Run in OpenDST. The total wall-clock time of the test must be < 2 seconds, but the log timestamps must be exactly 1 year apart.
 2.  **The Partition Invariant**:
     *   *Task*: Implement a 2-node "Heartbeat" system. Node A logs "Healthy" if it hears from Node B. 
-    *   *Validation*: Configure `partitionProbability: 1.0`. Verify that the Log Processor catches the absence of "Healthy" logs and that the state is 100% reproducible across different runs with the same seed.
+    *   *Validation*: Configure `partitionProbability: 1.0`. Verify that the Trace Auditor catches the absence of "Healthy" logs and that the state is 100% reproducible across different runs with the same seed.
 3.  **The Determinism Leak Hunt**:
     *   *Task*: Use `System.out.println(System.identityHashCode(new Object()))`. 
     *   *Validation*: If this value changes across two runs with the same seed, the AI must identify that `identityHashCode` is a source of non-determinism not fully masked by the current sandbox.

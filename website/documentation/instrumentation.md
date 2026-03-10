@@ -3,7 +3,7 @@ title: Instrumentation
 description: How OpenDST replaces all sources of non-determinism with controlled, simulated alternatives.
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+# Instrumentation
 
 OpenDST uses a **hybrid instrumentation** approach to replace all sources of non-determinism with controlled, simulated alternatives.
 
@@ -11,18 +11,17 @@ OpenDST uses a **hybrid instrumentation** approach to replace all sources of non
 
 ## Two Tiers
 
-<CardGrid>
-  <Card title="Offline (Maven Plugin)">
-    Application and test classes are transformed **before** any simulation runs, using the JDK [ClassFile API](https://openjdk.org/jeps/457) (JEP 457).
+### Offline (Maven Plugin)
 
-    **Call-site replacement:** Patterns like `new Socket()` or `Files.read()` are rewritten to call the simulator's deterministic factory methods instead.
-  </Card>
-  <Card title="Runtime (Java Agent)">
-    JDK internal classes cannot be transformed offline. The `opendst-agent.jar` agent uses **ByteBuddy advice** to intercept JDK methods at class-load time.
+Application and test classes are transformed **before** any simulation runs, using the JDK [ClassFile API](https://openjdk.org/jeps/457) (JEP 457).
 
-    This covers things like `System.currentTimeMillis()`, `Random.next()`, and virtual thread construction that happen deep inside the JDK.
-  </Card>
-</CardGrid>
+**Call-site replacement:** Patterns like `new Socket()` or `Files.read()` are rewritten to call the simulator's deterministic factory methods instead.
+
+### Runtime (Java Agent)
+
+JDK internal classes cannot be transformed offline. The `opendst-agent.jar` agent uses **ByteBuddy advice** to intercept JDK methods at class-load time.
+
+This covers things like `System.currentTimeMillis()`, `Random.next()`, and virtual thread construction that happen deep inside the JDK.
 
 ---
 
@@ -43,7 +42,7 @@ OpenDST uses a **hybrid instrumentation** approach to replace all sources of non
 
 ## JVM Options
 
-The plugin automatically adds these JVM options to child processes:
+The runner automatically adds these JVM options to child simulation processes:
 
 ```
 --enable-native-access=ALL-UNNAMED

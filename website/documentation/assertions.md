@@ -15,7 +15,7 @@ Call this after initialization is complete (sockets bound, config loaded). Fault
 
 ## The Assert API
 
-All assertions are in `com.pingidentity.opendst.api.Assert`. The API module is a compile-time dependency with empty method bodies. At runtime, the simulator agent rewrites all call-sites to the actual implementation.
+All assertions are in `com.pingidentity.opendst.api.Assert`. The SDK module is a compile-time dependency with empty method bodies. During the build, the plugin rewrites all call-sites to the actual simulation implementation.
 
 ### Safety Assertions — "Something bad never happens"
 
@@ -34,7 +34,7 @@ All assertions are in `com.pingidentity.opendst.api.Assert`. The API module is a
 
 ### Comparative Assertions
 
-These work like `always` or `sometimes`, but compare two numeric values and include both in the signal guidance, giving the orchestrator richer data about near-misses. The orchestrator uses the distance between `left` and `right` to focus exploration toward violations — see [Distance-Guided Exploration](/opendst/documentation/exploration/#distance-guided-exploration).
+These work like `always` or `sometimes`, but compare two numeric values and include both in the signal guidance, giving the orchestrator richer data about near-misses. The orchestrator uses the distance between `left` and `right` to focus exploration toward violations — see [Distance-Guided Exploration](/documentation/exploration#distance-guided-exploration).
 
 | Method | Condition |
 |--------|-----------|
@@ -60,7 +60,7 @@ Check multiple conditions as a group. Each individual condition is tracked separ
 
 ## Example: Assertions in Production Code
 
-```java title="src/main/java/com/example/LeaderElection.java"
+```java
 import com.pingidentity.opendst.api.Assert;
 
 public class LeaderElection {
@@ -91,18 +91,18 @@ public class LeaderElection {
 
 ## Important Rules
 
-:::caution[Assertion messages must be string literals]
+:::warning Assertion messages must be string literals
 The plugin validates this during instrumentation via static bytecode analysis. Dynamic messages like `"count-" + n` will fail the build.
 :::
 
-:::tip[Assertions belong in production code]
+:::tip Assertions belong in production code
 They act as runtime invariant checks that are always active during simulation. This catches violations at the exact point where they occur.
 :::
 
-:::note[The `details` parameter]
+:::info The `details` parameter
 Accepts `Map<String, Object>` for attaching context (values, state snapshots) to the signal. Pass `null` if not needed.
 :::
 
-:::note[In production]
+:::info In production
 The API methods are empty stubs with no runtime cost.
 :::

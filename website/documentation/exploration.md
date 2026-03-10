@@ -11,7 +11,7 @@ Pure random exploration (fuzzing) is not enough to find deep bugs. The orchestra
 
 An execution plan is a sequence of **segments**. Each segment is a `(seed, iteration)` pair that tells the simulator: "at this iteration, reseed the PRNG with this seed." A fresh random walk has a single segment. A branched plan has two or more segments — the prefix replays an exact history, and the final segment explores a new random path.
 
-```json title="Plan structure"
+```json
 {
   "segments": [
     { "seed": 7298345029345, "iteration": 0 },      // replay prefix
@@ -81,7 +81,7 @@ Comparative assertions like `alwaysGreaterThan(left, right, ...)` carry richer i
 
 Every comparative assertion emits a **guidance** payload alongside its pass/fail result:
 
-```json title="Signal emitted by alwaysGreaterThan(balance, 0, ...)"
+```json
 {
   "type": "assert",
   "kind": "always",
@@ -155,7 +155,7 @@ All comparative assertions emit guidance. Boolean assertions (`always`, `sometim
 | `alwaysLessThanOrEqualTo(left, right, ...)` | `\|left - right\|` — how far `left` is from being `> right` |
 | `sometimesGreaterThan(left, right, ...)` | Same distance, but guides toward *satisfying* the condition |
 
-:::tip[Use comparative assertions for numeric invariants]
+:::tip Use comparative assertions for numeric invariants
 Instead of `Assert.always(balance > 0, "positive-balance", ...)`, prefer `Assert.alwaysGreaterThan(balance, 0, "positive-balance", ...)`. Both express the same property, but the comparative form gives the orchestrator a gradient to follow instead of a flat boolean landscape. This can dramatically reduce the number of runs needed to find a violation.
 :::
 
@@ -221,11 +221,6 @@ The `branchProbability` parameter (default 0.7) controls the mix: 70% of runs br
 
 ## Replaying Failures
 
-When a bug is found, the exact plan (all segments + fault config) is saved to `target/opendst/<Test>/failures/failure-N.json`. Replay it with:
-
-```bash
-mvn verify -Dopendst.test=com.example.MyDST \
-    -Dopendst.plan=target/opendst/MyDST/failures/failure-0.json
-```
+When a bug is found, the exact plan (all segments + fault config) is saved to `report/failures/failure-N.json`. Replay it by re-running the JAR (replay support is built into the runner).
 
 This replays the exact same sequence of random choices, the same fault injections, and the same thread interleavings. Set breakpoints and debug with full reproducibility.

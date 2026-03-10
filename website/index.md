@@ -1,45 +1,26 @@
 ---
+layout: home
 title: OpenDST
-description: Deterministic Simulation Testing for Java
-template: splash
 hero:
-  title: |
-    Your distributed system has bugs.
-    <strong>Find them before production does.</strong>
+  name: OpenDST
+  text: Your distributed system has bugs. Find them before production does.
   tagline: OpenDST is a Deterministic Simulation Testing framework for Java. It runs your entire distributed system inside a controlled simulator where time is virtual, faults are injected automatically, and every bug is 100% reproducible.
   actions:
-    - text: Why DST?
-      link: /opendst/why-dst/
-      variant: primary
-    - text: Get Started
-      link: /opendst/documentation/getting-started/
----
-
-import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
-
-<CardGrid>
-  <Card title="Virtual Time" icon="seti:clock">
-    Accelerate tests by simulating hours of sleep in milliseconds.
-    `Thread.sleep()` advances the virtual clock instantly.
-  </Card>
-  <Card title="Total Determinism" icon="random">
-    Every interaction — from thread scheduling to network packets — is controlled
-    by a single seed. No more flakiness.
-  </Card>
-  <Card title="No Code Changes" icon="puzzle">
-    Leverages a Java Agent and the JDK 25 ClassFile API to instrument your
-    application at the bytecode level. Write tests against your production jars.
-  </Card>
-  <Card title="Guided Exploration" icon="rocket">
-    The orchestrator uses assertions from your code to build a heatmap of explored
-    states, branching to prioritize untested paths.
-  </Card>
-</CardGrid>
-
-```
-$ mvn opendst:test
-```
-
+    - theme: brand
+      text: Why DST?
+      link: /why-dst
+    - theme: alt
+      text: Get Started
+      link: /documentation/getting-started
+features:
+  - title: Virtual Time
+    details: Accelerate tests by simulating hours of sleep in milliseconds. Thread.sleep() advances the virtual clock instantly.
+  - title: Total Determinism
+    details: Every interaction — from thread scheduling to network packets — is controlled by a single seed. No more flakiness.
+  - title: No Code Changes
+    details: Leverages a Java Agent and the JDK 25 ClassFile API to instrument your application at the bytecode level. Write tests against your production jars.
+  - title: Guided Exploration
+    details: The orchestrator uses assertions from your code to build a heatmap of explored states, branching to prioritize untested paths.
 ---
 
 ## How It Works
@@ -56,7 +37,7 @@ OpenDST acts as a puppet master for the JVM. When your code calls a non-determin
 
 ```
 ┌─────────────────────────────────────┐
-│     Orchestrator (Maven JVM)        │
+│     Orchestrator (Runner JVM)        │
 │  Plan generation, signal tracking   │
 └──────────────┬──────────────────────┘
                │ stdin: Plan (JSON)
@@ -107,21 +88,21 @@ OpenDST isn't just a wrapper. It's a low-level engineering feat that leverages t
 
 ## Current Limitations
 
-:::caution[Experimental: Evolving rapidly. Expect breaking changes.]
+:::warning Experimental: Evolving rapidly. Expect breaking changes.
 :::
 
-:::caution[No `Thread` Inheritance]
+:::warning No `Thread` Inheritance
 Classes extending `Thread` are not supported. Use `Runnable` or Virtual Threads instead.
 :::
 
-:::caution[Blocking JNI]
+:::warning Blocking JNI
 Carrier threads are pinned during JNI calls. Blocking JNI methods will halt the simulator until they return.
 :::
 
-:::caution[Java 25+ Required]
+:::warning Java 25+ Required
 Requires the latest JVM features (ClassFile API, JEP 491) for instrumentation and scheduling.
 :::
 
-:::caution[Strict Node Isolation]
+:::warning Strict Node Isolation
 All workload logic must run within virtual nodes defined via the Deployment API to be correctly intercepted.
 :::

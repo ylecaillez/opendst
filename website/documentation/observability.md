@@ -20,7 +20,7 @@ At the end of each test session, the runner generates a report as `report.json`.
 
 Every event in the simulation is emitted as a minified, single-line JSON object on stdout. The orchestrator parses these in real time.
 
-```json title="Log envelope"
+```json
 {
   "lid": 42,              // Log sequence ID for this run
   "source": "simulator",  // "simulator" (framework) or "vhost" (workload)

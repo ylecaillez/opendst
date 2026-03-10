@@ -28,7 +28,7 @@ my-project/
 
 `deployment.yaml` defines the services that make up your distributed system. Each service maps to a Java class with a `public static void main(String[])` method.
 
-```yaml title="deployment.yaml"
+```yaml
 services:
   server:
     class: com.example.Server
@@ -67,7 +67,7 @@ Each service resolves its classpath from one of three sources (mutually exclusiv
 
 Each service is a standalone Java class with a `main` method. Use the `opendst-sdk` for assertions and lifecycle signals:
 
-```java title="src/main/java/com/example/EchoApp.java"
+```java
 import com.pingidentity.opendst.api.Assert;
 import com.pingidentity.opendst.api.Signals;
 import java.io.*;
@@ -115,7 +115,7 @@ Each service runs in its own classloader-isolated node with a virtual IP. All so
 
 Implement the `TraceAuditor` interface to observe log output from all simulated nodes in real time. The trace auditor runs **outside** the simulation context to protect determinism.
 
-```java title="src/main/java/com/example/MyTraceAuditor.java"
+```java
 import com.pingidentity.opendst.api.TraceAuditor;
 
 public class MyTraceAuditor implements TraceAuditor {
@@ -137,7 +137,7 @@ traceAuditor:
 
 The `Log` record contains: `host` (node name), `time` (simulated instant), `iteration` (PRNG step count), and `message` (the log line).
 
-:::caution
+:::warning
 `TraceAuditor.process()` runs outside the simulation. Throwing an exception stops the simulation and marks it as a failure. Do not share mutable state with service code.
 :::
 
@@ -147,7 +147,7 @@ The `Log` record contains: `host` (node name), `time` (simulated instant), `iter
 
 For projects where the application under test lives in a separate Maven module, use the `artifact` property to reference it by GAV coordinate, or `dir` to point to its exploded WAR directory:
 
-```yaml title="deployment.yaml"
+```yaml
 services:
   alice:
     class: com.example.bank.AccountServer

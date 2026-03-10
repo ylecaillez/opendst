@@ -9,7 +9,7 @@ A minimal, runnable example in 3 steps. Requires **JDK 25+** and **Maven**.
 
 ## Step 1: Add the Maven plugin and dependencies
 
-```xml title="pom.xml"
+```xml
 <!-- Dependencies -->
 <dependency>
     <groupId>com.pingidentity.opendst</groupId>
@@ -35,7 +35,7 @@ A minimal, runnable example in 3 steps. Requires **JDK 25+** and **Maven**.
 </plugin>
 ```
 
-`opendst-sdk` provides the Assert, Signals, and TraceAuditor API. The simulation engine is injected automatically at runtime by the plugin.
+`opendst-sdk` provides the Assert, Signals, and TraceAuditor API. The SDK methods are empty stubs at compile time; the plugin rewrites all call-sites to the actual simulation implementation during the build.
 
 ---
 
@@ -43,7 +43,7 @@ A minimal, runnable example in 3 steps. Requires **JDK 25+** and **Maven**.
 
 Each service is a class with a `public static void main(String[])` method. Use `opendst-sdk` for assertions and lifecycle signals:
 
-```java title="src/main/java/com/example/EchoApp.java"
+```java
 import com.pingidentity.opendst.api.Assert;
 import com.pingidentity.opendst.api.Signals;
 import java.io.*;
@@ -85,7 +85,7 @@ public class EchoApp {
 
 Then describe the deployment topology in `deployment.yaml`:
 
-```yaml title="deployment.yaml"
+```yaml
 services:
   server:
     class: com.example.EchoApp$Server
@@ -105,7 +105,7 @@ Each service runs in its own classloader-isolated node with a virtual IP. All so
 
 ## Step 3: Build and run the simulation
 
-```bash title="Terminal"
+```bash
 # Build the self-contained simulation JAR
 $ mvn package
 
@@ -113,4 +113,4 @@ $ mvn package
 $ java -jar target/<your-project>-<version>-opendst.jar
 ```
 
-The plugin instruments your bytecode, discovers assertions, and produces a self-contained JAR. The simulation runner explores different execution schedules in parallel until the stagnation limit is reached (no new signals discovered). Failures are saved with their exact plan for instant replay.
+The plugin instruments your bytecode, discovers assertions, and packages everything — including the orchestrator, the simulator agent, and your applications with their dependencies — into a self-contained JAR. When executed, the JAR's runner explores different execution schedules in parallel until the stagnation limit is reached (no new signals discovered). Failures are saved with their exact plan for instant replay.

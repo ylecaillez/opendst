@@ -3,7 +3,7 @@ title: Why Deterministic Simulation Testing?
 description: A guide for Java developers who are happy with JUnit and wondering why they should care.
 ---
 
-import { Card, CardGrid, LinkButton } from '@astrojs/starlight/components';
+# Why Deterministic Simulation Testing?
 
 *A guide for Java developers who are happy with JUnit and wondering why they should care.*
 
@@ -71,7 +71,7 @@ You can't enumerate every possible input. The state space is too large. You need
 
 This idea comes from [John Hughes](https://en.wikipedia.org/wiki/QuickCheck), co-creator of QuickCheck and a pioneer of property-based testing. The core insight:
 
-:::tip[The core insight]
+:::tip The core insight
 Don't write tests. Write a **generator** that creates tests at runtime.
 :::
 
@@ -81,18 +81,17 @@ With a test generator, every run is different. Each execution creates new tests 
 
 This isn't a new idea. **Fuzzing** — generating random inputs to break software — dates back to Barton Miller at the University of Wisconsin in 1988. It found Shellshock, Heartbleed, and Stagefright. Google runs 30,000 VMs 24/7 on ClusterFuzz for exactly this purpose.
 
-<CardGrid>
-  <Card title="Fuzzing">
-    Throw random bytes at a program and see if it crashes.
+### Fuzzing
 
-    Great for parsers, protocols, file formats. Less useful for business logic — the probability of randomly generating a valid HTTP request is essentially zero.
-  </Card>
-  <Card title="Property-Based Testing">
-    Use randomness to generate **structured** inputs and action sequences.
+Throw random bytes at a program and see if it crashes.
 
-    Instead of random bytes, generate `Login, Order, Logout, Payment, Login...` sequences. Far more effective at exploring real application behavior.
-  </Card>
-</CardGrid>
+Great for parsers, protocols, file formats. Less useful for business logic — the probability of randomly generating a valid HTTP request is essentially zero.
+
+### Property-Based Testing
+
+Use randomness to generate **structured** inputs and action sequences.
+
+Instead of random bytes, generate `Login, Order, Logout, Payment, Login...` sequences. Far more effective at exploring real application behavior.
 
 ---
 
@@ -104,44 +103,45 @@ The simplest property: *"no matter what input I give this system, it must not cr
 
 But there are much more powerful patterns:
 
-<CardGrid>
-  <Card title="Symmetry">
-    Serialize then deserialize. Compress then decompress. Encrypt then decrypt. You must get back the original.
+### Symmetry
 
-    ```
-    generate(randomPojo)
-      → serialize → deserialize
-      → assertEqual(original)
-    ```
-  </Card>
-  <Card title="Idempotence">
-    Applying an operation twice must have the same effect as applying it once.
+Serialize then deserialize. Compress then decompress. Encrypt then decrypt. You must get back the original.
 
-    ```
-    close(file); close(file);
-    addToSet(x); addToSet(x);
-      → no side effects
-    ```
-  </Card>
-  <Card title="Differential / Oracle">
-    Compare your system against a simpler reference implementation. A distributed key-value store must behave like a `HashMap`.
+```
+generate(randomPojo)
+  → serialize → deserialize
+  → assertEqual(original)
+```
 
-    ```
-    generate(put, get, delete...)
-      → apply to system AND HashMap
-      → assertEqual(states)
-    ```
-  </Card>
-  <Card title="Metamorphic">
-    Compare v1 against v2 of the same system. A refactoring must not change observable behavior.
+### Idempotence
 
-    ```
-    generate(actions)
-      → apply to v1 AND v2
-      → assertEqual(results)
-    ```
-  </Card>
-</CardGrid>
+Applying an operation twice must have the same effect as applying it once.
+
+```
+close(file); close(file);
+addToSet(x); addToSet(x);
+  → no side effects
+```
+
+### Differential / Oracle
+
+Compare your system against a simpler reference implementation. A distributed key-value store must behave like a `HashMap`.
+
+```
+generate(put, get, delete...)
+  → apply to system AND HashMap
+  → assertEqual(states)
+```
+
+### Metamorphic
+
+Compare v1 against v2 of the same system. A refactoring must not change observable behavior.
+
+```
+generate(actions)
+  → apply to v1 AND v2
+  → assertEqual(results)
+```
 
 ---
 
@@ -212,14 +212,9 @@ OpenDST is a Java implementation of DST. It uses a Java Agent and the JDK 25 Cla
 
 ## The Mindset Shift
 
-<CardGrid>
-  <Card title="Example-Based Testing">
-    "I verify that the 10 cases I thought of work. If they pass, my system works."
-  </Card>
-  <Card title="Generative Testing + DST">
-    "How do I explore the state space as fast as possible to find the bugs I haven't thought of?"
-  </Card>
-</CardGrid>
+**Example-Based Testing:** "I verify that the 10 cases I thought of work. If they pass, my system works."
+
+**Generative Testing + DST:** "How do I explore the state space as fast as possible to find the bugs I haven't thought of?"
 
 All our software has bugs. All of it, all the time. We just don't know where yet, or how severe they are. The question is no longer "does my system have bugs?" but "how fast can I find them before my users do?"
 
@@ -229,7 +224,4 @@ All our software has bugs. All of it, all the time. We just don't know where yet
 
 OpenDST is open source, Apache 2.0 licensed, and requires JDK 25+.
 
-<div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-  <LinkButton href="/opendst/documentation/getting-started/" variant="primary">Get Started</LinkButton>
-  <LinkButton href="https://github.com/pingidentity/opendst" variant="secondary">View on GitHub</LinkButton>
-</div>
+[Get Started](/documentation/getting-started) | [View on GitHub](https://github.com/pingidentity/opendst)

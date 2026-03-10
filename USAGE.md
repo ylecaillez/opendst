@@ -35,7 +35,7 @@ OpenDST runs as a specialized environment that wraps your application.
 
 ```mermaid
 graph TD
-    subgraph Maven Process
+    subgraph JAR Process
         Orchestrator -->|New Plan| SimulatorProcess
         SimulatorProcess -->|Structured Logs / Signals| Orchestrator
     end

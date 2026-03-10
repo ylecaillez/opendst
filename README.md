@@ -29,7 +29,7 @@ By intercepting non-deterministic operations (like time, threading, and randomne
 
 ## How It Works
 
-OpenDST uses a Java Agent (`SimulatorAgent`) to instrument bytecode at runtime. It replaces calls to non-deterministic APIs with calls to the `Simulator`. Application code is instrumented **offline** by the Maven plugin using the JDK 25 ClassFile API (JEP 457). JDK internals are handled at **runtime** by a lightweight Java Agent.
+OpenDST uses two instrumentation strategies. Application code is instrumented **offline** by the Maven plugin using the JDK 25 ClassFile API (JEP 457), which rewrites SDK stub call-sites at build time. JDK internals are handled at **runtime** by a lightweight Java Agent (`SimulatorAgent`) that intercepts non-deterministic APIs and redirects them to the Simulator.
 
 When running inside a simulation:
 *   **Time:** `System.currentTimeMillis()` and `System.nanoTime()` return a simulated time that advances only when the simulator decides.
@@ -44,19 +44,18 @@ When running inside a simulation:
 *   Java 25 or later (Preview features enabled).
 *   Maven.
 
-### Running Tests
+### Running Simulations
 
-Because OpenDST relies on a Java Agent to instrument the JDK, you must run your tests with the agent attached. The project is configured to build the agent jar and attach it automatically during the `integration-test` phase.
-
-To run the tests:
+The Maven plugin's `build` goal (bound to the `package` phase) instruments your code offline and packages everything into a self-contained `-opendst.jar`. To run a simulation, execute the JAR directly:
 
 ```bash
-mvn clean install
+mvn clean package
+java -jar target/*-opendst.jar
 ```
 
 ### Writing a Deterministic Test
 
-Create a WAR-packaged application. Each service is a class with a `public static void main(String[])` method. Use the `opendst-sdk` for assertions and lifecycle signals:
+Each service is a class with a `public static void main(String[])` entry point. Use the `opendst-sdk` for assertions and lifecycle signals:
 
 ```java
 import com.pingidentity.opendst.api.Assert;
