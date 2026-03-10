@@ -70,17 +70,16 @@ public final class Time {
     static final class Scheduler {
         private static final int MAX_TASKS = 10_000;
 
-        private SimulationContext context;
+        private final Simulator simulator;
+        private final ConsoleCapture logger;
         private final PriorityQueue<ScheduledTask> tasks = new PriorityQueue<>();
         private Instant now;
         private long taskId;
 
-        Scheduler(Instant startTime) {
+        Scheduler(Instant startTime, Simulator simulator, ConsoleCapture logger) {
             this.now = startTime;
-        }
-
-        void setContext(SimulationContext context) {
-            this.context = context;
+            this.simulator = simulator;
+            this.logger = logger;
         }
 
         Instant now() {
@@ -97,8 +96,7 @@ public final class Time {
             assert task.node != null;
 
             if (task.runAt.isBefore(now)) {
-                context.simulator()
-                        .exitSimulation(INTERNAL_ERROR, new SimulationError("Simulator has gone backward in time"));
+                simulator.exitSimulation(INTERNAL_ERROR, new SimulationError("Simulator has gone backward in time"));
             } else if (!task.skip) {
                 now = task.runAt;
                 executeTask(task);
@@ -111,7 +109,7 @@ public final class Time {
             currentThread().setContextClassLoader(task.node.classLoader);
             setOut(task.node.console);
             setErr(task.node.console);
-            context.simulator().hash(now, task.node.hostName, task.taskId);
+            simulator.hash(now, task.node.hostName, task.taskId);
             try {
                 task.run();
                 task.node.purgeAndUnblockVirtualThreads();
@@ -123,18 +121,18 @@ public final class Time {
         private void postTaskCleanup(ScheduledTask task) {
             if (!SUCCESS.equals(task.state())) {
                 var throwable = task.exceptionNow();
-                context.simulator().exitSimulation(INTERNAL_ERROR, new SimulationError("Task failed", throwable));
+                simulator.exitSimulation(INTERNAL_ERROR, new SimulationError("Task failed", throwable));
             }
             if (task.taskId % 100 == 0) {
-                context.simulator().flushLogs();
-                context.logger().flush();
+                simulator.flushLogs();
+                logger.flush();
             }
             try {
-                context.logger().processLogs();
+                logger.processLogs();
             } catch (Throwable e) {
-                context.simulator().exitSimulation(PLAN_FAILED, e);
+                simulator.exitSimulation(PLAN_FAILED, e);
             }
-            context.simulator().checkNodesWaitingList(task.node);
+            simulator.checkNodesWaitingList(task.node);
         }
 
         Future<?> scheduleAfterDelay(Node node, Runnable task, long delay, TimeUnit unit) {
@@ -144,12 +142,10 @@ public final class Time {
         Future<?> scheduleExactlyAt(Node node, Runnable task, Instant at) {
             var current = currentNodeOrThrow();
             if (at.isBefore(now)) {
-                context.simulator()
-                        .exitSimulation(INTERNAL_ERROR, new SimulationError("Cannot schedule a task in the past"));
+                simulator.exitSimulation(INTERNAL_ERROR, new SimulationError("Cannot schedule a task in the past"));
             }
             if (tasks.size() >= MAX_TASKS) {
-                context.simulator()
-                        .exitSimulation(INTERNAL_ERROR, new SimulationError("Maximum task queue size reached"));
+                simulator.exitSimulation(INTERNAL_ERROR, new SimulationError("Maximum task queue size reached"));
             }
             var queuedTask = new ScheduledTask(node, at, task, taskId++);
             tasks.add(queuedTask);

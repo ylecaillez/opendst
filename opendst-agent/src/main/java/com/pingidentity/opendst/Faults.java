@@ -108,7 +108,8 @@ public final class Faults {
      */
     static final class Injector {
         public static final String FAULT_INJECTION = "fault injection";
-        private final SimulationContext context;
+        private final Simulator simulator;
+        private final Faults.Config faults;
         private final Map<InetAddress, Instant> clogSendUntil = new HashMap<>();
         private final Map<InetAddress, Instant> clogReceiveUntil = new HashMap<>();
         private final Map<Entry<InetAddress, InetAddress>, Instant> clogPairUntil = new HashMap<>();
@@ -118,8 +119,9 @@ public final class Faults {
 
         private int faultIdSeq;
 
-        Injector(SimulationContext context) {
-            this.context = context;
+        Injector(Simulator simulator, Faults.Config faults) {
+            this.simulator = simulator;
+            this.faults = faults;
         }
 
         /**
@@ -129,9 +131,9 @@ public final class Faults {
          */
         void onNetworkBind(boolean reuseAddress) throws BindException {
             if (!reuseAddress
-                    && context.simulator().isReady()
-                    && context.faults().network().enabled()
-                    && context.random().nextInt(1000) == 0) {
+                    && simulator.isReady()
+                    && faults.network().enabled()
+                    && current().nextInt(1000) == 0) {
                 throw new BindException("OpenDST network-address-reuse");
             }
         }
@@ -174,7 +176,7 @@ public final class Faults {
         }
 
         private Duration halfLatency() {
-            var config = context.faults().network();
+            var config = faults.network();
             long precision = SECONDS.toNanos(1);
             long a = current().nextLong(precision);
             long probabilityFastNanos = (long) (0.999 * precision);
@@ -195,11 +197,11 @@ public final class Faults {
          * @throws IOException if a filesystem fault occurs
          */
         void onFileSystemOp() throws IOException {
-            var config = context.faults().fileSystem();
-            if (context.simulator().isReady()
+            var config = faults.fileSystem();
+            if (simulator.isReady()
                     && config.enabled()
                     && config.ioErrorProbability() > 0
-                    && context.random().nextDouble() < config.ioErrorProbability()) {
+                    && current().nextDouble() < config.ioErrorProbability()) {
                 throw new IOException("OpenDST: filesystem-fault");
             }
         }

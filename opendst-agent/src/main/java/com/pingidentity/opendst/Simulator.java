@@ -127,27 +127,19 @@ public final class Simulator {
 
     private Simulator(Plan plan, TraceAuditor traceAuditor) {
         this.plan = requireNonNull(plan);
+
+        // Build all components — each takes only its direct dependencies
         var random = new Randomness.Source(this, plan.segments());
-        var scheduler = new Time.Scheduler(START_TIME);
         var faults = plan.faults() != null ? plan.faults() : new Faults.Config();
-
-        // Step 1: Create basic context
-        this.context = new SimulationContext(this, scheduler, random, faults);
-
-        // Step 2: Initialize components that need the context
-        var network = new Network(context);
-        var faultInjector = new Faults.Injector(context);
+        var hasher = new StateHasher();
         var logger = new ConsoleCapture(this, traceAuditor, System.out);
+        var network = new Network(this);
+        var faultInjector = new Faults.Injector(this, faults);
         var lock = new ReentrantLock();
+        var scheduler = new Time.Scheduler(START_TIME, this, logger);
 
-        // Step 3: Wire everything back into the context
-        context.setNetwork(network);
-        context.setFaultInjector(faultInjector);
-        context.setLogger(logger);
-        context.setLock(lock);
-
-        // Step 4: Final scheduler setup
-        scheduler.setContext(context);
+        // Assemble the immutable context last — passed only to Node
+        this.context = new SimulationContext(this, scheduler, random, faults, hasher, network, faultInjector, logger, lock);
 
         logger.logLifecycle("started", START_TIME, 0).log();
     }

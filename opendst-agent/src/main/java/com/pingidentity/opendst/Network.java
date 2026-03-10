@@ -62,14 +62,14 @@ public final class Network {
     private static final int MAX_NODES = 100;
     private static final int MAX_ADDRESSES = 256;
 
-    private final SimulationContext context;
+    private final Simulator simulator;
     private final Map<InetAddress, String> addressToName = new HashMap<>();
     private final Map<String, Node> nameToNode = new HashMap<>();
     private final Map<String, Set<String>> partitions = new HashMap<>();
     private long baseLatencyMs = 0;
 
-    Network(SimulationContext context) {
-        this.context = requireNonNull(context);
+    Network(Simulator simulator) {
+        this.simulator = requireNonNull(simulator);
     }
 
     List<InetAddress> allAddresses() {
@@ -81,19 +81,17 @@ public final class Network {
     void registerDns(String hostName, Node host) {
         var lowerCaseHostName = hostName.toLowerCase(ROOT);
         if (nameToNode.size() >= MAX_NODES && !nameToNode.containsKey(lowerCaseHostName)) {
-            context.simulator()
-                    .exitSimulation(
-                            Simulator.ExitReason.INTERNAL_ERROR,
-                            new Simulator.SimulationError("Maximum number of nodes reached"));
+            simulator.exitSimulation(
+                    Simulator.ExitReason.INTERNAL_ERROR,
+                    new Simulator.SimulationError("Maximum number of nodes reached"));
         }
         if (nameToNode.putIfAbsent(lowerCaseHostName, host) == null) {
             host.inetAddresses().forEach(address -> {
                 if (!address.isLoopbackAddress()) {
                     if (addressToName.size() >= MAX_ADDRESSES && !addressToName.containsKey(address)) {
-                        context.simulator()
-                                .exitSimulation(
-                                        Simulator.ExitReason.INTERNAL_ERROR,
-                                        new Simulator.SimulationError("Maximum number of addresses reached"));
+                        simulator.exitSimulation(
+                                Simulator.ExitReason.INTERNAL_ERROR,
+                                new Simulator.SimulationError("Maximum number of addresses reached"));
                     }
                     addressToName.put(address, lowerCaseHostName);
                 }
@@ -191,7 +189,7 @@ public final class Network {
 
     public long currentLatencyMs() {
         if (baseLatencyMs == 0) return 0;
-        return baseLatencyMs + context.random().nextLong(0, Math.max(1, baseLatencyMs / 10));
+        return baseLatencyMs + java.util.concurrent.ThreadLocalRandom.current().nextLong(0, Math.max(1, baseLatencyMs / 10));
     }
 
     Map<String, Node> nodes() {
