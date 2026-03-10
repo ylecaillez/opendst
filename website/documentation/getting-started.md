@@ -1,23 +1,25 @@
 ---
-title: Getting Started
-description: A minimal, runnable example in 3 steps. Requires JDK 25+ and Maven.
+title: Quick Start
+description: A minimal echo server/client in 3 steps. Requires JDK 25+ and Maven.
 ---
 
-A minimal, runnable example in 3 steps. Requires **JDK 25+** and **Maven**.
+# Quick Start
+
+A minimal echo server/client in 3 steps. Requires **JDK 25+** and **Maven**.
+
+For a guided walkthrough that explains the concepts, see the [Tutorial](/why-dst).
 
 ---
 
-## Step 1: Add the Maven plugin and dependencies
+## 1. Add the plugin and SDK
 
 ```xml
-<!-- Dependencies -->
 <dependency>
     <groupId>com.pingidentity.opendst</groupId>
     <artifactId>opendst-sdk</artifactId>
     <version>0.0.1-SNAPSHOT</version>
 </dependency>
 
-<!-- Plugin -->
 <plugin>
     <groupId>com.pingidentity.opendst</groupId>
     <artifactId>opendst-maven-plugin</artifactId>
@@ -27,21 +29,17 @@ A minimal, runnable example in 3 steps. Requires **JDK 25+** and **Maven**.
             <goals><goal>build</goal></goals>
             <configuration>
                 <descriptor>${project.basedir}/deployment.yaml</descriptor>
-                <parallelism>4</parallelism>
-                <stagnationLimit>100</stagnationLimit>
             </configuration>
         </execution>
     </executions>
 </plugin>
 ```
 
-`opendst-sdk` provides the Assert, Signals, and TraceAuditor API. The SDK methods are empty stubs at compile time; the plugin rewrites all call-sites to the actual simulation implementation during the build.
+The `build` goal is bound to the `package` phase. It instruments your bytecode, discovers assertions, and packages everything into a self-contained `-opendst.jar`.
 
----
+## 2. Write your application
 
-## Step 2: Write your application
-
-Each service is a class with a `public static void main(String[])` method. Use `opendst-sdk` for assertions and lifecycle signals:
+Each service is a class with a `public static void main(String[])` entry point:
 
 ```java
 import com.pingidentity.opendst.api.Assert;
@@ -58,7 +56,7 @@ public class EchoApp {
                  var socket = ss.accept();
                  var in = new DataInputStream(socket.getInputStream());
                  var out = new DataOutputStream(socket.getOutputStream())) {
-                Signals.ready();              // Ready for fault injection
+                Signals.ready();
                 int value = in.readInt();
                 Assert.reachable("server-received", null);
                 out.writeInt(value + 1);
@@ -83,7 +81,7 @@ public class EchoApp {
 }
 ```
 
-Then describe the deployment topology in `deployment.yaml`:
+Describe the deployment topology in `deployment.yaml`:
 
 ```yaml
 services:
@@ -97,20 +95,30 @@ services:
     args: ["10.0.0.1", "8080"]
 ```
 
-Each service runs in its own classloader-isolated node with a virtual IP. All socket, thread, and time operations are intercepted deterministically.
+## 3. Build and run
 
-`Signals.ready()` tells the simulator the node is initialized — fault injection begins after this call.
+```bash
+mvn package
+java -jar target/<your-project>-<version>-opendst.jar
+```
+
+The JAR contains everything — your application, the orchestrator, the simulator agent, and all dependencies. When executed, it explores different execution schedules and fault scenarios until the stagnation limit is reached (no new signals discovered). Failures are saved with their exact plan for deterministic replay.
 
 ---
 
-## Step 3: Build and run the simulation
+## Key concepts
 
-```bash
-# Build the self-contained simulation JAR
-$ mvn package
+| Concept | Purpose |
+|---|---|
+| `Signals.ready()` | Tells the simulator the node is initialized. Fault injection begins after all nodes are ready. |
+| `Assert.always(cond, name, details)` | Invariant — must be true on every execution path. |
+| `Assert.reachable(name, details)` | Liveness — this code must be reached at least once across all runs. |
+| `deployment.yaml` | Declares the services, their virtual IPs, and startup arguments. |
+| `-opendst.jar` | Self-contained executable. Run with `java -jar`. |
 
-# Run the simulation
-$ java -jar target/<your-project>-<version>-opendst.jar
-```
+## What's next
 
-The plugin instruments your bytecode, discovers assertions, and packages everything — including the orchestrator, the simulator agent, and your applications with their dependencies — into a self-contained JAR. When executed, the JAR's runner explores different execution schedules in parallel until the stagnation limit is reached (no new signals discovered). Failures are saved with their exact plan for instant replay.
+- [Architecture](/documentation/architecture) — How the orchestrator, simulator, and agent fit together
+- [Assertions](/documentation/assertions) — Full assertion API reference
+- [Configuration](/documentation/configuration) — Build parameters and runtime defaults
+- [Fault Injection](/documentation/faults) — What faults are injected and how

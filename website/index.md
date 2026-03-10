@@ -7,10 +7,10 @@ hero:
   tagline: OpenDST is a Deterministic Simulation Testing framework for Java. It runs your entire distributed system inside a controlled simulator where time is virtual, faults are injected automatically, and every bug is 100% reproducible.
   actions:
     - theme: brand
-      text: Why DST?
+      text: Tutorial
       link: /why-dst
     - theme: alt
-      text: Get Started
+      text: Quick Start
       link: /documentation/getting-started
 features:
   - title: Virtual Time

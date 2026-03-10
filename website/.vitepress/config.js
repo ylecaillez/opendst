@@ -12,21 +12,21 @@ export default defineConfig({
 
   themeConfig: {
     nav: [
+      { text: 'Tutorial', link: '/why-dst' },
       { text: 'Documentation', link: '/documentation/getting-started' },
-      { text: 'Why DST?', link: '/why-dst' },
     ],
 
     sidebar: [
       {
         text: 'Introduction',
         items: [
-          { text: 'Why DST?', link: '/why-dst' },
+          { text: 'Tutorial', link: '/why-dst' },
         ],
       },
       {
         text: 'Documentation',
         items: [
-          { text: 'Getting Started', link: '/documentation/getting-started' },
+          { text: 'Quick Start', link: '/documentation/getting-started' },
           { text: 'Architecture', link: '/documentation/architecture' },
           { text: 'Test Session', link: '/documentation/test-session' },
           { text: 'Writing Tests', link: '/documentation/writing-tests' },

@@ -1,227 +1,389 @@
 ---
-title: Why Deterministic Simulation Testing?
-description: A guide for Java developers who are happy with JUnit and wondering why they should care.
+title: "Tutorial: Finding bugs your tests won't"
+description: Build a distributed bank transfer system and watch OpenDST find a real bug in under a second.
 ---
 
-# Why Deterministic Simulation Testing?
+# Tutorial: Finding bugs your tests won't
 
-*A guide for Java developers who are happy with JUnit and wondering why they should care.*
-
----
-
-## The Testing Pyramid Has a Hidden Layer
-
-We all know the testing pyramid. Unit tests at the bottom: fast, deterministic, plentiful. Integration tests in the middle. End-to-end tests at the top: slow, flaky, expensive.
-
-But there's a layer nobody draws. Below unit tests? No. **Above everything.**
-
-```
-┌──────────────────────────┐
-│       Production         │  <-- The real test
-├──────────────────────────┤
-│      E2E Tests           │
-├──────────────────────────┤
-│   Integration Tests      │
-├──────────────────────────┤
-│      Unit Tests          │
-└──────────────────────────┘
-```
-
-Everything that isn't tested during development will be tested in production. The coverage there is excellent once you have enough users. The downside is that when a bug is found at this stage, it wakes you up at 3am. The client is unhappy. You restart two pods, change a setting, and it's running again — possibly in degraded mode, but running.
-
-The real joy comes the next day. The RCA. You study the logs, the metrics. You hold meetings with the client to understand what they were doing, with a level of detail that rarely goes beyond "I clicked the button and suddenly it stopped working." Meanwhile, people from support, engineering, management, and sales pile into the room. The cost of these meetings is astronomical. And you still don't know why it crashed, because of course you're missing *the one log* you never thought to add.
-
-Nobody wants to live through this. But you get through it with blood and sweat. You discover it was that commit on "the code that never changes," where you changed `42` to `43` and it turns out that causes an `IllegalStateException` which causes...
-
-That code — you'll never dare touch it again. You'll always find workarounds, alternative paths. And by doing that, you create technical debt which, guess what, will probably increase the number of bugs. When the project is completely paralyzed by debt and fear of breaking things, it's time for the great rewrite. And the cycle starts over.
+*Build a distributed bank transfer system and watch OpenDST find a real bug in under a second.*
 
 ---
 
-## Writing More Tests Is Not the Answer
+## The bug
 
-AI can generate tests now. Great. But more tests means more code, more maintenance. If AI generates 10x more code and 10x more tests, that's also 10x more maintenance. Have you actually gained anything?
+Two bank accounts, Alice and Bob, each start with $1,000. A coordinator transfers random amounts between them. After every transfer, it checks: does Alice + Bob still equal $2,000?
 
-Think about the system you want to test. The number of possible states it can be in is astronomical. You can always add 100 more tests, but will it really make a difference?
+The code is simple, the logic is obvious, and the tests pass. You deploy it.
 
-### The Restaurant Problem
+Three weeks later, a customer reports that money has disappeared.
 
-Imagine you're building a restaurant ordering system. You write a thorough test suite:
+You spend two days on the RCA. The root cause: a network timeout during a credit operation. The debit went through, but the credit didn't. The money vanished. Your retry logic — designed to handle exactly this — made things worse by double-crediting when the original request actually did succeed on the server.
 
-```
-testOrderOneBeer()       PASS
-testOrder9999Beers()     PASS
-testOrderXYZBeers()      PASS
-testOrderNegativeBeers() PASS
-testOrderACamel()        PASS
-```
+Your integration tests never caught this because they run on `localhost`, where the network doesn't fail. Your chaos tests didn't catch it either — they would have needed to inject a timeout at the exact moment between the debit response and the credit request, with a retry that arrives after the original succeeds. The odds of randomly hitting that window are negligible.
 
-All tests pass. You deploy to production with confidence.
-
-First customer walks in: **"Where are the restrooms?"**
-
-```
-StackOverflowException
-```
-
-You can't enumerate every possible input. The state space is too large. You need a different approach.
+This isn't a contrived example. This is the class of bug that takes down real distributed systems. And we're going to find it in under a second.
 
 ---
 
-## Stop Writing Tests. Write Generators.
+## Why traditional tests don't find this
 
-This idea comes from [John Hughes](https://en.wikipedia.org/wiki/QuickCheck), co-creator of QuickCheck and a pioneer of property-based testing. The core insight:
+Consider the state space of our transfer system. Each transfer involves:
+- Random direction (Alice to Bob, or Bob to Alice)
+- Random amount ($1–$100)
+- Network conditions (normal, slow, partitioned, reset)
+- Timing of each TCP segment (SYN, data, ACK, FIN)
+- Thread scheduling order between the coordinator, Alice's server, and Bob's server
 
-:::tip The core insight
-Don't write tests. Write a **generator** that creates tests at runtime.
-:::
+A single transfer has thousands of possible execution paths. Twenty transfers have more paths than atoms in the universe. Your test suite, no matter how thorough, covers a handful.
 
-Think about how example-based testing uses your computing resources. You make a non-trivial change, run the full test suite (which takes hours), get a mostly-green result with a couple of flaky tests. You run it again. The same tests execute in the same order, testing the same paths. You haven't tested your changes any more intensely by running the suite twice.
-
-With a test generator, every run is different. Each execution creates new tests that exercise new paths and potentially find bugs. You're exchanging expensive developer time for cheap machine time.
-
-This isn't a new idea. **Fuzzing** — generating random inputs to break software — dates back to Barton Miller at the University of Wisconsin in 1988. It found Shellshock, Heartbleed, and Stagefright. Google runs 30,000 VMs 24/7 on ClusterFuzz for exactly this purpose.
-
-### Fuzzing
-
-Throw random bytes at a program and see if it crashes.
-
-Great for parsers, protocols, file formats. Less useful for business logic — the probability of randomly generating a valid HTTP request is essentially zero.
-
-### Property-Based Testing
-
-Use randomness to generate **structured** inputs and action sequences.
-
-Instead of random bytes, generate `Login, Order, Logout, Payment, Login...` sequences. Far more effective at exploring real application behavior.
-
----
-
-## Properties, Not Assertions
-
-When you generate random inputs, what do you put in your `assertEquals`? You can't hardcode expected values because you don't control the inputs. Instead, you verify **properties** — things that must hold true regardless of what the inputs are.
-
-The simplest property: *"no matter what input I give this system, it must not crash."* That alone, combined with runtime assertions in production code, already goes a long way.
-
-But there are much more powerful patterns:
-
-### Symmetry
-
-Serialize then deserialize. Compress then decompress. Encrypt then decrypt. You must get back the original.
-
-```
-generate(randomPojo)
-  → serialize → deserialize
-  → assertEqual(original)
-```
-
-### Idempotence
-
-Applying an operation twice must have the same effect as applying it once.
-
-```
-close(file); close(file);
-addToSet(x); addToSet(x);
-  → no side effects
-```
-
-### Differential / Oracle
-
-Compare your system against a simpler reference implementation. A distributed key-value store must behave like a `HashMap`.
-
-```
-generate(put, get, delete...)
-  → apply to system AND HashMap
-  → assertEqual(states)
-```
-
-### Metamorphic
-
-Compare v1 against v2 of the same system. A refactoring must not change observable behavior.
-
-```
-generate(actions)
-  → apply to v1 AND v2
-  → assertEqual(results)
-```
-
----
-
-## The Missing Piece: The Environment
-
-Property-based testing lets you simulate diverse users attacking your system. But your system doesn't exist in a vacuum.
-
-In production, it's deployed on misconfigured machines with unreliable disks and flaky networks. The **environment** is also trying to break your system. And nothing you've done so far prepares for that.
-
-You could use chaos testing — but testing a 30-second timeout requires waiting 30 real seconds. When you need to explore a near-infinite state space, that latency is unacceptable.
-
-| | | |
+| Test type | State space covered | Finds our bug? |
 |---|---|---|
-| **Users** | **Your System** | **Environment** |
-| Diverse action sequences generated by PBT | The distributed software under test | Network partitions, disk errors, clock skew |
-| COVERED | COVERED | NOT COVERED |
+| Unit tests | Single function, mocked dependencies | No — the bug is in the interaction |
+| Integration tests | Happy path, localhost network | No — network always succeeds |
+| Chaos testing | Random failures, real-time waits | Unlikely — needs precise timing |
+| **DST** | **All of the above, thousands of paths/second** | **Yes** |
+
+Deterministic Simulation Testing replaces the real environment — time, network, filesystem, threads, randomness — with controlled, deterministic versions. A 30-second timeout takes nanoseconds. A network partition is injected at exactly the right moment. And when a bug is found, the exact execution can be replayed, step by step, to debug it.
 
 ---
 
-## Enter Deterministic Simulation Testing
+## Let's build it
 
-What if you didn't deploy your system in a physical environment, but in a **simulated** one?
+You'll need **JDK 25+** and **Maven**. The full source is in the [`opendst-examples/example-bank-transfer`](https://github.com/pingidentity/opendst/tree/main/opendst-examples/example-bank-transfer) directory.
 
-An environment where time, the network, the filesystem, threads, and random number generators are all replaced by deterministic versions that you control. Versions that can simulate the worst conditions your system is supposed to handle.
+### The account server
 
-If you control the users (via generated action sequences), the system under test, **and** the environment — you control the entirety of the execution. No external event can disturb what happens. You're back in a perfectly isolated, deterministic world.
+Each account is a TCP server that processes DEBIT, CREDIT, and BALANCE commands:
 
-| Seed | 0ms | Deep |
-|------|-----|------|
-| A single number drives the entire execution. Same seed = same bugs, 100% of the time. | A 30-second timeout takes nanoseconds. Virtual time jumps to the next event instantly. | Explore thousands of execution paths per second instead of a handful per hour. |
+```java
+public final class AccountServer {
+
+    public static final int CMD_BALANCE = 1, CMD_DEBIT = 2, CMD_CREDIT = 3;
+    public static final int STATUS_OK = 0, STATUS_INSUFFICIENT_FUNDS = 1;
+
+    private int balance;
+
+    public static void main(String[] args) throws IOException {
+        var port = Integer.parseInt(args[0]);
+        var initialBalance = Integer.parseInt(args[1]);
+        var server = new AccountServer(initialBalance);
+        Signals.ready();                  // Tell the simulator: I'm initialized, start injecting faults
+        server.serve(port);
+    }
+
+    public void serve(int port) throws IOException {
+        try (var ss = new ServerSocket()) {
+            ss.setReuseAddress(true);
+            ss.bind(new InetSocketAddress(port));
+            while (true) {
+                try (var socket = ss.accept();
+                     var in = new DataInputStream(socket.getInputStream());
+                     var out = new DataOutputStream(socket.getOutputStream())) {
+                    int command = in.readInt();
+                    int amount = in.readInt();
+                    handleCommand(command, amount, out);
+                }
+            }
+        }
+    }
+    // ... handleCommand debits, credits, or returns balance
+}
+```
+
+Notice `Signals.ready()`. This is the only OpenDST-specific call in the server. It tells the simulator: "I'm done initializing — you can start injecting faults now." Without it, the simulator might inject a network partition before the server has opened its socket.
+
+### The transfer service (where the bug lives)
+
+```java
+public final class TransferService {
+
+    public boolean transfer(int amount) {
+        // Step 1: Debit the source
+        int debitStatus = sendCommand(sourceHost, sourcePort, CMD_DEBIT, amount);
+        if (debitStatus != STATUS_OK) return false;
+
+        // Step 2: Credit the destination
+        // BUG: If this fails, the money is gone. No rollback.
+        // BUG: If this times out but the server processes it, the retry double-credits.
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                int creditStatus = sendCommand(destHost, destPort, CMD_CREDIT, amount);
+                if (creditStatus == STATUS_OK) return true;
+            } catch (IOException e) {
+                // Retry...
+            }
+        }
+        return false; // All retries failed. Money has been destroyed.
+    }
+}
+```
+
+This is production-quality-looking code. It has retries. It handles errors. But it doesn't handle the case where a debit succeeds and all credit attempts fail. There's no compensation, no two-phase commit, no idempotency key. In a real codebase, this might survive for months before someone notices the balance drift.
+
+### The coordinator (with assertions)
+
+The coordinator performs random transfers and checks the invariant after each one:
+
+```java
+public final class Coordinator {
+
+    private static final int EXPECTED_TOTAL = 2000;  // alice(1000) + bob(1000)
+
+    public static void main(String[] args) throws InterruptedException {
+        // ... parse args, sleep to let servers start
+        Signals.ready();
+
+        var random = new Random();
+        for (int i = 0; i < numTransfers; i++) {
+            boolean aliceToBob = random.nextBoolean();
+            int amount = random.nextInt(1, 101);
+            new TransferService(fromHost, fromPort, toHost, toPort).transfer(amount);
+            checkInvariant(aliceHost, alicePort, bobHost, bobPort);
+        }
+    }
+
+    private static void checkInvariant(String aliceHost, int alicePort,
+                                        String bobHost, int bobPort) {
+        int alice = queryBalance(aliceHost, alicePort);
+        int bob   = queryBalance(bobHost, bobPort);
+        int total = alice + bob;
+
+        Assert.always(
+            total == EXPECTED_TOTAL,
+            "total balance conserved",
+            Map.of("alice", alice, "bob", bob, "total", total, "expected", EXPECTED_TOTAL));
+
+        Assert.always(
+            alice >= 0 && bob >= 0,
+            "no negative balance",
+            Map.of("alice", alice, "bob", bob));
+    }
+}
+```
+
+`Assert.always(condition, name, details)` is the key construct. It tells the orchestrator: "this condition must hold true on every execution path, in every simulation run." If it ever fails — on any seed, any schedule, any fault injection scenario — the orchestrator saves the exact plan that triggered the failure so you can replay it.
+
+The `details` map is attached to the report when the assertion fires. When it fails, you'll see exactly which balances caused the invariant violation.
+
+### The deployment descriptor
+
+```yaml
+services:
+  alice:
+    class: com.pingidentity.opendst.example.bank.AccountServer
+    ip: 10.0.0.1
+    args: ["8001", "1000"]
+  bob:
+    class: com.pingidentity.opendst.example.bank.AccountServer
+    ip: 10.0.0.2
+    args: ["8002", "1000"]
+  coordinator:
+    class: com.pingidentity.opendst.example.bank.Coordinator
+    ip: 10.0.0.3
+    args: ["10.0.0.1", "8001", "10.0.0.2", "8002", "20"]
+```
+
+Each service gets its own virtual IP address. All TCP traffic between them goes through the simulator's virtual network, where latency, partitions, and connection resets are injected automatically.
+
+### The Maven plugin
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>com.pingidentity.opendst</groupId>
+        <artifactId>opendst-sdk</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </dependency>
+</dependencies>
+
+<build>
+    <plugins>
+        <plugin>
+            <groupId>com.pingidentity.opendst</groupId>
+            <artifactId>opendst-maven-plugin</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+            <executions>
+                <execution>
+                    <goals><goal>build</goal></goals>
+                    <configuration>
+                        <descriptor>${project.basedir}/deployment.yaml</descriptor>
+                        <parallelism>8</parallelism>
+                        <stagnationLimit>200</stagnationLimit>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+```
+
+The `build` goal (bound to the `package` phase) does three things:
+
+1. **Instruments** your bytecode — rewrites `Assert.*` and `Signals.*` stub calls to the actual simulation implementation.
+2. **Discovers** all assertions via static analysis — `"total balance conserved"`, `"no negative balance"`, plus the built-in lifecycle assertions.
+3. **Packages** everything into a self-contained `-opendst.jar` — your application, the simulator, the orchestrator, and all dependencies.
+
+The output is a single executable JAR. The plugin does not run simulations.
 
 ---
 
-## The Guidance Problem
+## Run it
 
-Pure randomness isn't enough to explore interesting states. Imagine trying to beat Super Mario by pressing random buttons. You could run millions of attempts and never get past the first Goomba.
+```bash
+mvn package
+java -jar target/example-bank-transfer-0.0.1-SNAPSHOT-opendst.jar
+```
 
-Traditional fuzzers use code coverage as guidance: if an input reaches new code, keep it and mutate from there. This works well for small codebases but breaks down for large systems — you can cover most of Mario's code without ever reaching World 2.
+The orchestrator starts exploring. Each run uses a different seed, producing a different execution path: different transfer directions, different amounts, different network fault timings. Hundreds of paths are explored per second.
 
-The solution is **application-specific signals**. In Mario, you might use the player's X position: further right is better. In a distributed system, you use **assertions embedded in your code**.
+Within moments, the orchestrator finds a seed where:
 
-### How OpenDST Guides Exploration
+1. The coordinator debits Alice $73.
+2. The simulator injects a network partition between the coordinator and Bob.
+3. The credit to Bob fails.
+4. The retry also fails.
+5. The coordinator checks the invariant: Alice has $927, Bob has $1,000. Total: $1,927.
+6. `Assert.always("total balance conserved")` fires with `pass: false`.
 
-1. **Run with seed 42** — The simulator executes your system. During the run, your code hits a `Assert.reachable("rare-path")` signal that has never been seen before.
+The orchestrator saves the exact plan — the seed, the fault injection decisions, the scheduling order — to a file. You can replay it:
 
-2. **Fork the execution** — The orchestrator creates two new runs from seed 42: one that changes the seed **before** the signal (explore the past differently), and one that changes it **after** (explore the future differently).
+```bash
+java -jar target/example-bank-transfer-0.0.1-SNAPSHOT-opendst.jar --fail-fast
+```
 
-3. **Deeper and deeper** — Each fork can discover new signals, triggering more forks. The orchestrator builds a tree of increasingly targeted exploration around the most interesting parts of your state space.
+Same seed, same faults, same bug, same assertion failure. 100% reproducible. Set a breakpoint in your IDE on the `transfer()` method, run it again, and step through the exact execution that caused the failure.
 
-When a bug is found, you download the seed, run it locally, set breakpoints, and reproduce the bug 100% of the time. No more "works on my machine." No more "can't reproduce."
+The report (`report.json`) summarizes what was found:
+
+```json
+{
+  "count": 847,
+  "duration": "00:00:03",
+  "assertions": [
+    {
+      "name": "total balance conserved",
+      "pass": "fail",
+      "examples": {
+        "passCount": 12650,
+        "passExamples": [ ... ],
+        "failCount": 42,
+        "failExamples": [
+          {
+            "planFile": "plans/plan-0017.json",
+            "iteration": 3,
+            "details": { "alice": 927, "bob": 1000, "total": 1927, "expected": 2000 }
+          }
+        ]
+      }
+    },
+    {
+      "name": "no negative balance",
+      "pass": "pass",
+      "examples": { "passCount": 12692, "failCount": 0, ... }
+    }
+  ]
+}
+```
+
+847 simulation runs in 3 seconds. The `"total balance conserved"` assertion failed 42 times. The first failure is at iteration 3, plan `plan-0017.json`, and the details tell you exactly what happened: Alice has $927, Bob has $1,000, total is $1,927 instead of $2,000.
 
 ---
 
-## What OpenDST Actually Does
+## How it works under the hood
 
-OpenDST is a Java implementation of DST. It uses a Java Agent and the JDK 25 ClassFile API to intercept non-deterministic operations at the bytecode level. **You don't change your production code.**
+When you call `java -jar`, the JAR's runner starts the orchestrator, which spawns child JVMs with the `SimulatorAgent` attached. Each child JVM runs one simulation.
 
-| Your code calls | OpenDST replaces with |
-|---|---|
-| `System.currentTimeMillis()` | Virtual clock (advances only on events) |
-| `Thread.sleep(30_000)` | Jumps virtual time forward instantly |
-| `new Thread()` / `startVirtualThread()` | Deterministic scheduler (single-threaded) |
-| `new Socket()` / `ServerSocket.accept()` | Simulated network with fault injection |
-| `SecureRandom` / `ThreadLocalRandom` | Deterministic PRNG seeded from plan |
-| `Files.read()` / `Files.write()` | Isolated virtual filesystem per node |
+### Virtual time
+
+`System.currentTimeMillis()`, `System.nanoTime()`, `Thread.sleep()`, and `Instant.now()` are all redirected to the simulator's virtual clock. The clock only advances when the simulator decides — typically to the next scheduled event. A `Thread.sleep(Duration.ofHours(1))` completes in nanoseconds of wall-clock time.
+
+### Deterministic scheduling
+
+All threads — including Virtual Threads — are managed by the simulator's single-threaded event loop. The scheduler picks which thread runs next based on the seed. This means thread interleavings that would take hours to reproduce by hand are explored systematically.
+
+### Simulated network
+
+Each node gets a virtual IP. TCP connections go through the simulator's network stack, which injects:
+- **Latency**: 100μs to 800μs per packet (configurable)
+- **Clogging**: 1% chance of adding up to 100ms additional delay
+- **Connection resets**: triggered by partition events
+
+No real sockets are opened. The entire network exists inside the JVM.
+
+### Fault injection
+
+Faults are injected *after* all nodes have called `Signals.ready()`. This ensures deterministic startup before the chaos begins. The simulator controls exactly when and where faults occur, guided by the seed.
+
+### Seed-based replay
+
+Every decision the simulator makes — scheduling order, fault timing, random values — is derived from a single seed. Same seed = same execution = same bug. This is what makes DST fundamentally different from chaos testing: bugs don't slip away when you try to reproduce them.
 
 ---
 
-## The Mindset Shift
+## The assertion model
 
-**Example-Based Testing:** "I verify that the 10 cases I thought of work. If they pass, my system works."
+OpenDST uses **properties**, not expected values. You don't write `assertEquals(2000, total)` — you write `Assert.always(total == 2000, "conserved", ...)`. The difference matters:
 
-**Generative Testing + DST:** "How do I explore the state space as fast as possible to find the bugs I haven't thought of?"
+### Invariants (must always hold)
 
-All our software has bugs. All of it, all the time. We just don't know where yet, or how severe they are. The question is no longer "does my system have bugs?" but "how fast can I find them before my users do?"
+```java
+Assert.always(condition, "name", details);
+```
+Fails the simulation if the condition is ever false. Must be reached at least once across all runs.
+
+```java
+Assert.alwaysOrUnreachable(condition, "name", details);
+```
+Same, but it's OK if the assertion is never reached (dead code path).
+
+```java
+Assert.unreachable("name", details);
+```
+Fails if this code is ever executed.
+
+### Liveness (must eventually hold)
+
+```java
+Assert.sometimes(condition, "name", details);
+```
+Across all runs in the session, this condition must be true at least once. Used to verify that the exploration is actually reaching interesting states.
+
+```java
+Assert.reachable("name", details);
+```
+This code path must be reached at least once across all runs.
+
+### Signals
+
+```java
+Signals.ready();
+```
+Tells the simulator the node is initialized. Fault injection begins after all nodes are ready.
+
+These are empty stubs in `opendst-sdk`. The Maven plugin rewrites all call-sites to the actual simulation implementation during the build. Your production code compiles and runs normally without OpenDST — the SDK dependency has zero runtime cost.
 
 ---
 
-## Ready to try it?
+## Guided exploration
 
-OpenDST is open source, Apache 2.0 licensed, and requires JDK 25+.
+Pure random exploration — like pressing random buttons in a video game — rarely reaches interesting states. The orchestrator uses your assertions to guide the search.
 
-[Get Started](/documentation/getting-started) | [View on GitHub](https://github.com/pingidentity/opendst)
+1. **Run with seed 42** — The simulator executes your system. The coordinator hits `Assert.always("total balance conserved")` and it passes. But it also hits `Assert.reachable("server-received")` for the first time.
+
+2. **Branch** — The orchestrator creates new runs from seed 42: one that changes the seed *before* the new signal (explore the past differently), and one that changes it *after* (explore the future differently).
+
+3. **Deeper** — Each branch can discover new signals, triggering more branches. The orchestrator builds a tree of increasingly targeted exploration around the most interesting parts of your state space.
+
+The `stagnationLimit` parameter controls when to stop: if no new signals are discovered after 200 consecutive runs, the session ends. The `parallelism` parameter controls how many simulations run concurrently.
+
+---
+
+## Next steps
+
+You've seen how OpenDST finds a real distributed systems bug — money loss in a naive transfer service — that traditional tests miss. The fix? Add a two-phase commit, or idempotency keys, or a compensation log. Then run it again and let the simulator try to break your fix.
+
+- [Architecture](/documentation/architecture) — How the orchestrator, simulator, and agent fit together
+- [Writing Tests](/documentation/writing-tests) — Patterns for assertions, TraceAuditors, and deployment descriptors
+- [Exploration & Branching](/documentation/exploration) — Deep dive into the guided exploration algorithm
+- [Fault Injection](/documentation/faults) — What faults are injected and how
+- [Configuration](/documentation/configuration) — Build parameters and runtime defaults
