@@ -16,7 +16,6 @@
 package com.pingidentity.opendst.maven;
 
 import static com.pingidentity.opendst.SimulatorAgent.callSiteTransformMethod;
-import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType;
 import static java.lang.classfile.ClassHierarchyResolver.ofClassLoading;
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static java.nio.file.FileVisitResult.SKIP_SUBTREE;

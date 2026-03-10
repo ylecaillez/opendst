@@ -37,8 +37,6 @@ import java.net.UnknownHostException;
 import java.net.spi.InetAddressResolver;
 import java.net.spi.InetAddressResolverProvider;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -70,7 +68,6 @@ public final class Network {
     private final Map<InetAddress, String> addressToName = new HashMap<>();
     private final Map<String, Node> nameToNode = new HashMap<>();
     private final Map<String, Set<String>> partitions = new HashMap<>();
-    private long baseLatencyMs = 0;
 
     /**
      * Handle to {@code SocketImpl.createPlatformSocketImpl(boolean)} for creating real socket
@@ -106,10 +103,6 @@ public final class Network {
 
     Network(Simulator simulator) {
         this.simulator = requireNonNull(simulator);
-    }
-
-    List<InetAddress> allAddresses() {
-        return List.copyOf(addressToName.keySet());
     }
 
     // --- DNS and Registry ---
@@ -188,44 +181,6 @@ public final class Network {
         if (from.equals(to)) return true;
         var unreachable = partitions.get(from);
         return unreachable == null || !unreachable.contains(to);
-    }
-
-    public void partition(Set<String> sideA, Set<String> sideB) {
-        sideA.forEach(a -> partitions.computeIfAbsent(a, _ -> new HashSet<>()).addAll(sideB));
-        sideB.forEach(b -> partitions.computeIfAbsent(b, _ -> new HashSet<>()).addAll(sideA));
-    }
-
-    public void heal() {
-        partitions.clear();
-    }
-
-    public void heal(Set<String> sideA, Set<String> sideB) {
-        sideA.forEach(a -> {
-            var unreachable = partitions.get(a);
-            if (unreachable != null) {
-                unreachable.removeAll(sideB);
-            }
-        });
-        sideB.forEach(b -> {
-            var unreachable = partitions.get(b);
-            if (unreachable != null) {
-                unreachable.removeAll(sideA);
-            }
-        });
-    }
-
-    // --- Latency ---
-
-    public void setBaseLatency(long latencyMs) {
-        if (latencyMs < 0) {
-            throw new IllegalArgumentException("latencyMs must be >= 0");
-        }
-        this.baseLatencyMs = latencyMs;
-    }
-
-    public long currentLatencyMs() {
-        if (baseLatencyMs == 0) return 0;
-        return baseLatencyMs + java.util.concurrent.ThreadLocalRandom.current().nextLong(0, Math.max(1, baseLatencyMs / 10));
     }
 
     Map<String, Node> nodes() {

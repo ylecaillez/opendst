@@ -15,17 +15,6 @@
  */
 package com.pingidentity.opendst;
 
-import static java.lang.Long.parseLong;
-import static java.time.Duration.ofHours;
-import static java.time.Duration.ofMillis;
-import static java.time.Duration.ofMinutes;
-import static java.time.Duration.ofNanos;
-import static java.time.Duration.ofSeconds;
-
-import java.time.Duration;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 /**
  * Shared constants for the OpenDST Simulator.
  */

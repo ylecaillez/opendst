@@ -24,6 +24,7 @@
   </parent>
 
   <name>OpenDST Agent</name>
+  <description>Java agent and simulation engine for deterministic simulation testing</description>
   <artifactId>opendst-agent</artifactId>
 
   <properties>

@@ -24,25 +24,17 @@ import static java.time.Instant.now;
 import static java.util.Arrays.asList;
 import static java.util.Map.entry;
 import static java.util.concurrent.ThreadLocalRandom.current;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 import java.io.IOException;
 import java.net.BindException;
 import java.net.InetAddress;
-import java.net.SocketException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.StringJoiner;
-import java.util.WeakHashMap;
-import java.util.concurrent.TimeUnit;
-
-import net.bytebuddy.agent.builder.AgentBuilder;
 
 /**
  * Functional module for fault simulation and configuration.
@@ -53,19 +45,6 @@ public final class Faults {
      * Configuration for fault injection.
      */
     public record Config(NetworkConfig network, FileSystemConfig fileSystem) {
-
-        public String summary() {
-            var summary = new StringJoiner(", ");
-            if (network.enabled()) {
-                var net = new StringJoiner("/", "net:", "");
-                if (network.cloggingProbability() > 0) net.add("clogging");
-                summary.add(net.toString());
-            }
-            if (fileSystem.enabled()) {
-                if (fileSystem.ioErrorProbability() > 0) summary.add("fs:io-error");
-            }
-            return summary.length() > 0 ? summary.toString() : "none";
-        }
 
         public Config() {
             this(new NetworkConfig(), new FileSystemConfig());
@@ -107,7 +86,6 @@ public final class Faults {
      * Handles modular fault injection during simulation.
      */
     static final class Injector {
-        public static final String FAULT_INJECTION = "fault injection";
         private final Simulator simulator;
         private final Faults.Config faults;
         private final Map<InetAddress, Instant> clogSendUntil = new HashMap<>();
@@ -115,9 +93,6 @@ public final class Faults {
         private final Map<Entry<InetAddress, InetAddress>, Instant> clogPairUntil = new HashMap<>();
         private final Map<Entry<InetAddress, InetAddress>, Duration> clogPairLatency = new HashMap<>();
         private final Map<Entry<InetAddress, InetAddress>, Instant> disconnectPairUntil = new HashMap<>();
-        private final Map<Thread, Entry<Instant, Duration>> slowThreadUntil = new WeakHashMap<>();
-
-        private int faultIdSeq;
 
         Injector(Simulator simulator, Faults.Config faults) {
             this.simulator = simulator;
@@ -205,10 +180,6 @@ public final class Faults {
                 throw new IOException("OpenDST: filesystem-fault");
             }
         }
-    }
-
-    static AgentBuilder instrument(AgentBuilder agent) {
-        return agent;
     }
 
     private Faults() {
