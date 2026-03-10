@@ -139,7 +139,11 @@ public final class Bootstrap {
             var entries = jar.entries();
             while (entries.hasMoreElements()) {
                 var entry = entries.nextElement();
-                var target = targetDir.resolve(entry.getName());
+                var target = targetDir.resolve(entry.getName()).normalize();
+                if (!target.startsWith(targetDir.normalize())) {
+                    throw new IOException("Zip-Slip: entry '" + entry.getName()
+                            + "' resolves outside target directory");
+                }
                 if (entry.isDirectory()) {
                     createDirectories(target);
                 } else {
