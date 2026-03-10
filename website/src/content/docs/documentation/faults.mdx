@@ -15,7 +15,7 @@ OpenDST injects faults **deterministically** based on the simulation seed. You c
   <Card title="Network Faults">
     - **Latency:** Random delay (configurable min/max) injected before network writes.
     - **Partitions:** Nodes are randomly split into two sides. All cross-partition traffic fails with `SocketException`. The partition heals after a random duration.
-    - **Packet loss:** Individual writes are dropped, throwing `SocketException`.
+    - **Connection Reset:** Individual TCP connections are forcefully terminated. Both endpoints are closed and all subsequent operations on the connection fail with `SocketException`. This models TCP RST behavior — the connection becomes unusable for both sides.
   </Card>
   <Card title="Filesystem Faults">
     - **I/O Errors:** `IOException` thrown before any `Files.*`, `FileInputStream`, `FileOutputStream`, or `RandomAccessFile` operation.
@@ -36,7 +36,7 @@ OpenDST injects faults **deterministically** based on the simulation seed. You c
         <partitionProbability>0.001</partitionProbability>
         <minPartitionDurationMs>1000</minPartitionDurationMs>
         <maxPartitionDurationMs>10000</maxPartitionDurationMs>
-        <packetLossProbability>0.0</packetLossProbability>
+        <connectionResetProbability>0.0</connectionResetProbability>
     </networkFaults>
     <fileSystemFaults>
         <enabled>true</enabled>

@@ -112,7 +112,7 @@ public final class SecretSequenceApp {
                 err.println("Usage: Client <host> <port>");
                 exit(1);
             }
-            new Client().run(args[0], Integer.parseInt(args[1]));
+            new Client().run(args[0], parseInt(args[1]));
         }
 
         public void run(String host, int port) throws Exception {

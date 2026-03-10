@@ -1,0 +1,13 @@
+services:
+  always-never-hit:
+    class: com.pingidentity.opendst.it.AlwaysNeverHitApp
+    ip: 10.0.0.1
+  comparative:
+    class: com.pingidentity.opendst.it.ComparativeAssertionApp
+    ip: 10.0.0.2
+  liveness-violation:
+    class: com.pingidentity.opendst.it.LivenessViolationApp
+    ip: 10.0.0.3
+  sometimes-satisfied:
+    class: com.pingidentity.opendst.it.SometimesSatisfiedApp
+    ip: 10.0.0.4

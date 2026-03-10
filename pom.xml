@@ -206,8 +206,9 @@
   </profiles>
 
   <modules>
-    <module>opendst-core</module>
+    <module>opendst-agent</module>
+    <module>opendst-sdk</module>
+    <module>opendst-runner</module>
     <module>opendst-maven-plugin</module>
-    <module>opendst-api</module>
   </modules>
 </project>

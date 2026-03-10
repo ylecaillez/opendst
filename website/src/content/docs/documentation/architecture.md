@@ -15,7 +15,7 @@ The orchestrator never executes your application code. It only observes and deci
 
 ## The Simulator (Data Plane)
 
-Runs in a **child JVM** with the `opendst-core` Java agent attached. It executes a single plan: a sequence of (seed, iteration) segments that deterministically control every random choice, every timer tick, and every thread interleaving.
+Runs in a **child JVM** with the `opendst-agent` Java agent attached. It executes a single plan: a sequence of (seed, iteration) segments that deterministically control every random choice, every timer tick, and every thread interleaving.
 
 The simulator maintains a **discrete-event loop** where virtual time only advances when the internal scheduler runs a task. All nodes, threads, and network connections exist within this single-threaded loop.
 

@@ -16,7 +16,7 @@
 package com.pingidentity.opendst.maven;
 
 import static com.pingidentity.opendst.SimulatorAgent.callSiteTransformMethod;
-import static com.pingidentity.opendst.maven.Signal.AssertSignal.AssertType;
+import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType;
 import static java.lang.classfile.ClassHierarchyResolver.ofClassLoading;
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static java.nio.file.FileVisitResult.SKIP_SUBTREE;
@@ -29,6 +29,9 @@ import static java.nio.file.Files.readAllBytes;
 import static java.nio.file.Files.walk;
 import static java.nio.file.Files.walkFileTree;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+
+import com.pingidentity.opendst.runner.Assertion;
+import com.pingidentity.opendst.runner.OpenDstLogger;
 
 import java.io.IOException;
 import java.lang.classfile.ClassFile;
@@ -44,6 +47,7 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -52,7 +56,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 import java.util.stream.Stream;
-import org.apache.maven.plugin.MojoFailureException;
 
 /**
  * Orchestrates the offline instrumentation of application bytecode.
@@ -63,13 +66,9 @@ import org.apache.maven.plugin.MojoFailureException;
  */
 final class Instrumentation {
     private final Path basePath;
-    private final Path warsDir;
     private final Path instrumentedWarsDir;
     private final ExecutorService executor;
     private final OpenDstLogger logger;
-
-    /** Represents a property found in the bytecode. */
-    record DiscoveredProperty(AssertType kind, String message, String origin, int line) {}
 
     /** Result of a class transformation task. */
     private record TransformationResult(String name, byte[] content) {}
@@ -82,60 +81,129 @@ final class Instrumentation {
         }
     }
 
-    Instrumentation(
-            Path basePath, Path warsDir, Path instrumentedWarsDir, ExecutorService executor, OpenDstLogger logger) {
+    Instrumentation(Path basePath, Path instrumentedWarsDir, ExecutorService executor, OpenDstLogger logger) {
         this.basePath = basePath;
-        this.warsDir = warsDir;
         this.instrumentedWarsDir = instrumentedWarsDir;
         this.executor = executor;
         this.logger = logger;
     }
 
+    /** Creates a new thread-safe set for collecting discovered assertions. */
+    static Set<Assertion> newAssertionSet() {
+        return ConcurrentHashMap.newKeySet();
+    }
+
     /**
-     * Instruments all classes in the project's test-classes folder and any WARs
-     * found in the configured wars directory.
+     * Instruments test classes from {@code target/test-classes/} and bundles them into
+     * {@code instrumentedWarsDir/test-classes.jar}.
      *
-     * @return A set of all OpenDST properties discovered during the instrumentation.
-     * @throws MojoFailureException if instrumentation or validation fails.
+     * <p>This method should be called once, before instrumenting application sources.
+     * Test classes are shared across all images.
+     *
+     * @return a set of all OpenDST assertions discovered in test classes
+     * @throws IOException if instrumentation fails due to I/O errors
+     * @throws AssertionValidationException if an assertion is invalid
      */
-    Set<DiscoveredProperty> instrumentWars() throws MojoFailureException {
-        logger.raw().info("Instrumenting wars in %s".formatted(basePath.relativize(warsDir)));
-        var discovered = ConcurrentHashMap.<DiscoveredProperty>newKeySet();
-        try {
-            createDirectories(instrumentedWarsDir);
-            var urls = getClasspathToInstrument();
-            try (var projectLoader = new URLClassLoader(urls, getClass().getClassLoader())) {
-                var classFile = ClassFile.of(ClassHierarchyResolverOption.of(ofClassLoading(projectLoader)
-                        .orElse(desc -> ClassHierarchyResolver.ClassHierarchyInfo.ofClass(
-                                ClassDesc.ofDescriptor("Ljava/lang/Object;")))));
-                // 1. Instrument test classes (where DST scenarios usually live)
-                instrumentClassesFolder(
-                        classFile,
-                        basePath.resolve("target/test-classes"),
-                        instrumentedWarsDir.resolve("test-classes.jar"),
-                        discovered);
-                // 2. Instrument application WARs/JARs
-                instrumentApplicationArtifacts(classFile, discovered);
-            }
-        } catch (AssertionValidationException e) {
-            throw new MojoFailureException(e.getMessage());
-        } catch (IOException e) {
-            throw new MojoFailureException("Failed to instrument wars", e);
+    Set<Assertion> instrumentTestClasses() throws IOException {
+        logger.raw().info("Instrumenting test classes");
+        var discovered = newAssertionSet();
+        createDirectories(instrumentedWarsDir);
+        var urls = collectClasspath(null);
+        try (var projectLoader = new URLClassLoader(urls, getClass().getClassLoader())) {
+            var classFile = newClassFile(projectLoader);
+            instrumentClassesFolder(
+                    classFile,
+                    basePath.resolve("target/test-classes"),
+                    instrumentedWarsDir.resolve("test-classes.jar"),
+                    discovered);
         }
         return discovered;
     }
 
-    private void instrumentApplicationArtifacts(ClassFile classFile, Set<DiscoveredProperty> discovered)
+    /**
+     * Instruments an exploded application directory (e.g., an unpacked WAR or artifact)
+     * and writes the instrumented output under {@code instrumentedWarsDir/<appName>/}.
+     *
+     * <p>The source directory is expected to contain a {@code WEB-INF/} layout with
+     * {@code classes/}, {@code lib/}, and optionally {@code fs/}.
+     *
+     * @param appName   the directory name under {@code apps/} in the output JAR
+     * @param sourceDir the exploded application directory to instrument
+     * @return a set of all OpenDST assertions discovered during instrumentation
+     * @throws IOException if instrumentation fails due to I/O errors
+     * @throws AssertionValidationException if an assertion is invalid
+     */
+    Set<Assertion> instrumentAppDir(String appName, Path sourceDir) throws IOException {
+        logger.raw().info("Instrumenting app directory '%s' from %s".formatted(appName, sourceDir));
+        var discovered = newAssertionSet();
+        createDirectories(instrumentedWarsDir);
+        var urls = collectClasspath(sourceDir);
+        try (var projectLoader = new URLClassLoader(urls, getClass().getClassLoader())) {
+            var classFile = newClassFile(projectLoader);
+            var outputDir = instrumentedWarsDir.resolve(appName);
+            instrumentApplicationDirectory(classFile, sourceDir, outputDir, discovered);
+        }
+        return discovered;
+    }
+
+    /**
+     * Instruments project classes from {@code target/classes/} and runtime dependency JARs,
+     * placing the output under {@code instrumentedWarsDir/<appName>/WEB-INF/}.
+     *
+     * <p>Used when the project does <em>not</em> use {@code maven-war-plugin}. The source
+     * directories ({@code target/classes/}, {@code target/test-classes/}) are read but never
+     * modified; instrumented output is written entirely to {@code instrumentedWarsDir}.
+     *
+     * @param appName        the application name (typically the Maven artifactId), used as
+     *                       the directory name under {@code apps/} in the output JAR
+     * @param dependencyJars the project's runtime dependency JARs to instrument and copy
+     * @return a set of all OpenDST assertions discovered during instrumentation
+     * @throws IOException if instrumentation fails due to I/O errors
+     * @throws AssertionValidationException if an assertion is invalid
+     */
+    Set<Assertion> instrumentClasses(String appName, List<Path> dependencyJars) throws IOException {
+        logger.raw().info("Instrumenting classes for %s".formatted(appName));
+        var discovered = newAssertionSet();
+        createDirectories(instrumentedWarsDir);
+        var urls = collectClasspath(null);
+        try (var projectLoader = new URLClassLoader(urls, getClass().getClassLoader())) {
+            var classFile = newClassFile(projectLoader);
+
+            // Instrument target/classes/ → <appName>/WEB-INF/classes.jar
+            var webInfDir = instrumentedWarsDir.resolve(appName).resolve("WEB-INF");
+            instrumentClassesFolder(
+                    classFile,
+                    basePath.resolve("target/classes"),
+                    webInfDir.resolve("classes.jar"),
+                    discovered);
+
+            // Instrument runtime dependency JARs → <appName>/WEB-INF/lib/
+            var libDir = webInfDir.resolve("lib");
+            for (var jarPath : dependencyJars) {
+                var targetJar = libDir.resolve(jarPath.getFileName().toString());
+                createDirectories(libDir);
+                instrumentJar(classFile, jarPath, targetJar, discovered);
+            }
+        }
+        return discovered;
+    }
+
+    /**
+     * Instruments an exploded application directory, walking its file tree to find
+     * {@code classes/} folders and JAR files.
+     */
+    private void instrumentApplicationDirectory(
+            ClassFile classFile, Path sourceDir, Path outputDir, Set<Assertion> discovered)
             throws IOException {
-        if (!exists(warsDir)) {
+        if (!exists(sourceDir)) {
             return;
         }
 
-        walkFileTree(warsDir, new SimpleFileVisitor<>() {
+        walkFileTree(sourceDir, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                if (dir.getFileName().toString().equals("classes") && !dir.equals(warsDir)) {
-                    var targetJar = instrumentedWarsDir.resolve(warsDir.relativize(dir) + ".jar");
+                if (dir.getFileName().toString().equals("classes") && !dir.equals(sourceDir)) {
+                    var targetJar = outputDir.resolve(sourceDir.relativize(dir) + ".jar");
                     instrumentClassesFolder(classFile, dir, targetJar, discovered);
                     return SKIP_SUBTREE;
                 }
@@ -144,7 +212,7 @@ final class Instrumentation {
 
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                var targetFile = instrumentedWarsDir.resolve(warsDir.relativize(file));
+                var targetFile = outputDir.resolve(sourceDir.relativize(file));
                 createDirectories(targetFile.getParent());
 
                 if (file.getFileName().toString().endsWith(".jar")) {
@@ -157,7 +225,19 @@ final class Instrumentation {
         });
     }
 
-    private URL[] getClasspathToInstrument() throws IOException {
+    /** Creates a {@link ClassFile} instance configured with the given classloader for hierarchy resolution. */
+    private static ClassFile newClassFile(URLClassLoader loader) {
+        return ClassFile.of(ClassHierarchyResolverOption.of(ofClassLoading(loader)
+                .orElse(desc -> ClassHierarchyResolver.ClassHierarchyInfo.ofClass(
+                        ClassDesc.ofDescriptor("Ljava/lang/Object;")))));
+    }
+
+    /**
+     * Builds a classpath for the {@link URLClassLoader} used during transformation.
+     *
+     * @param appDir an exploded application directory, or {@code null} for non-WAR projects
+     */
+    private URL[] collectClasspath(Path appDir) throws IOException {
         var urls = new ArrayList<URL>();
         var mainClassesDir = basePath.resolve("target/classes");
         if (exists(mainClassesDir)) {
@@ -167,8 +247,8 @@ final class Instrumentation {
         if (exists(testClassesDir)) {
             urls.add(testClassesDir.toUri().toURL());
         }
-        if (exists(warsDir)) {
-            try (var stream = walk(warsDir)) {
+        if (appDir != null && exists(appDir)) {
+            try (var stream = walk(appDir)) {
                 var paths = stream.filter(path -> (isDirectory(path)
                                         && path.getFileName().toString().equals("classes"))
                                 || path.getFileName().toString().endsWith(".jar"))
@@ -183,11 +263,12 @@ final class Instrumentation {
 
     /** Instruments a directory of class files and bundles them into a JAR. */
     private void instrumentClassesFolder(
-            ClassFile classFile, Path sourceDir, Path targetJar, Set<DiscoveredProperty> discovered)
+            ClassFile classFile, Path sourceDir, Path targetJar, Set<Assertion> discovered)
             throws IOException {
         if (!exists(sourceDir)) {
             return;
         }
+        createDirectories(targetJar.getParent());
         try (var jos = new JarOutputStream(newOutputStream(targetJar));
                 var stream = walk(sourceDir)) {
             instrumentEntries(classFile, jos, discovered, sourceDir, stream.filter(Files::isRegularFile));
@@ -195,7 +276,7 @@ final class Instrumentation {
     }
 
     /** Instruments a JAR file and writes the result to a target location. */
-    private void instrumentJar(ClassFile classFile, Path jarPath, Path targetJar, Set<DiscoveredProperty> discovered)
+    private void instrumentJar(ClassFile classFile, Path jarPath, Path targetJar, Set<Assertion> discovered)
             throws IOException {
         try (var fs = FileSystems.newFileSystem(jarPath, (ClassLoader) null);
                 var jos = new JarOutputStream(newOutputStream(targetJar))) {
@@ -210,7 +291,7 @@ final class Instrumentation {
     private void instrumentEntries(
             ClassFile classFile,
             JarOutputStream jos,
-            Set<DiscoveredProperty> discovered,
+            Set<Assertion> discovered,
             Path root,
             Stream<Path> entries)
             throws IOException {

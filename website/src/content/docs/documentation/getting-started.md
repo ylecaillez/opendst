@@ -13,7 +13,7 @@ A minimal, runnable example in 3 steps. Requires **JDK 25+** and **Maven**.
 <!-- Dependencies -->
 <dependency>
     <groupId>com.pingidentity.opendst</groupId>
-    <artifactId>opendst-api</artifactId>
+    <artifactId>opendst-sdk</artifactId>
     <version>0.0.1-SNAPSHOT</version>
 </dependency>
 
@@ -22,82 +22,111 @@ A minimal, runnable example in 3 steps. Requires **JDK 25+** and **Maven**.
     <groupId>com.pingidentity.opendst</groupId>
     <artifactId>opendst-maven-plugin</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <configuration>
-        <parallelism>4</parallelism>
-        <stagnationLimit>100</stagnationLimit>
-    </configuration>
     <executions>
         <execution>
-            <goals><goal>test</goal></goals>
+            <goals><goal>build</goal></goals>
+            <configuration>
+                <descriptor>${project.basedir}/deployment.yaml</descriptor>
+                <parallelism>4</parallelism>
+                <stagnationLimit>100</stagnationLimit>
+            </configuration>
         </execution>
     </executions>
 </plugin>
 ```
 
-`opendst-api` provides the Assert, Signals, and Simulator API. The simulation engine is injected automatically at runtime by the plugin.
+`opendst-sdk` provides the Assert, Signals, and LogMonitor API. The simulation engine is injected automatically at runtime by the plugin.
 
 ---
 
-## Step 2: Write a DST scenario
+## Step 2: Write your application
 
-```java title="src/test/java/com/example/MyFirstDST.java"
-import static com.pingidentity.opendst.api.Simulator.startNode;
+Each service is a class with a `public static void main(String[])` method. Use `opendst-sdk` for assertions and lifecycle signals:
 
+```java title="src/main/java/com/example/EchoApp.java"
 import com.pingidentity.opendst.api.Assert;
 import com.pingidentity.opendst.api.Signals;
-import java.net.*;
 import java.io.*;
+import java.net.*;
 
-public class MyFirstDST {
+public class EchoApp {
 
-    public void run() throws IOException {
-        startNode("server", "10.0.0.1", () -> server());
-        startNode("client", "10.0.0.2", () -> client());
+    public static class Server {
+        public static void main(String[] args) throws Exception {
+            var port = Integer.parseInt(args[0]);
+            try (var ss = new ServerSocket(port);
+                 var socket = ss.accept();
+                 var in = new DataInputStream(socket.getInputStream());
+                 var out = new DataOutputStream(socket.getOutputStream())) {
+                Signals.ready();              // Ready for fault injection
+                int value = in.readInt();
+                Assert.reachable("server-received", null);
+                out.writeInt(value + 1);
+            }
+        }
     }
 
-    private Void server() throws Exception {
-        var ss = new ServerSocket(8080);
-        Signals.ready();              // Ready for fault injection
-        var socket = ss.accept();
-        var msg = new String(socket.getInputStream().readAllBytes());
-        Assert.reachable("server-received", null);
-        Assert.always(msg.length() > 0, "non-empty-message", null);
-        return null;
-    }
-
-    private Void client() throws Exception {
-        Signals.ready();
-        var socket = new Socket("10.0.0.1", 8080);
-        socket.getOutputStream().write("ping".getBytes());
-        socket.close();
-        return null;
+    public static class Client {
+        public static void main(String[] args) throws Exception {
+            var host = args[0];
+            var port = Integer.parseInt(args[1]);
+            Signals.ready();
+            try (var socket = new Socket(host, port);
+                 var out = new DataOutputStream(socket.getOutputStream());
+                 var in = new DataInputStream(socket.getInputStream())) {
+                out.writeInt(42);
+                int response = in.readInt();
+                Assert.always(response == 43, "echo-correct", null);
+            }
+        }
     }
 }
 ```
 
-**No annotations needed.** DST classes are plain POJOs. The plugin discovers any class whose name ends with `DST` and runs every `public void` no-arg method.
+Then describe the deployment topology in `deployment.yaml`:
 
-`startNode(name, ip, callable)` spawns a simulated node with its own virtual IP. All socket and thread operations are intercepted deterministically.
+```yaml title="deployment.yaml"
+images:
+  - name: echo-server
+    artifact: com.example:my-app:war:1.0.0
+    warDir: my-app
+    mainClass: com.example.EchoApp$Server
+  - name: echo-client
+    artifact: com.example:my-app:war:1.0.0
+    warDir: my-app
+    mainClass: com.example.EchoApp$Client
+
+services:
+  - name: server
+    image: echo-server
+    hostname: server.local
+    ip: 10.0.0.1
+    args: ["8080"]
+  - name: client
+    image: echo-client
+    hostname: client.local
+    ip: 10.0.0.2
+    args: ["10.0.0.1", "8080"]
+
+faults:
+  network:
+    enabled: true
+```
+
+Each service runs in its own classloader-isolated node with a virtual IP. All socket, thread, and time operations are intercepted deterministically.
 
 `Signals.ready()` tells the simulator the node is initialized — fault injection begins after this call.
 
 ---
 
-## Step 3: Run the simulation
+## Step 3: Build and run the simulation
 
 ```bash title="Terminal"
-# Run all DST tests
-$ mvn verify
+# Build the self-contained simulation JAR
+$ mvn package
 
-# Run a specific test
-$ mvn verify -Dopendst.test=com.example.MyFirstDST
-
-# Run a specific method
-$ mvn verify -Dopendst.test=com.example.MyFirstDST#run
-
-# Replay a discovered failure (100% reproducible)
-$ mvn verify -Dopendst.test=com.example.MyFirstDST \
-    -Dopendst.plan=target/opendst/MyFirstDST/failures/failure-0.json
+# Run the simulation
+$ java -jar target/<your-project>-<version>-opendst.jar
 ```
 
-The plugin instruments your code, discovers tests, then runs simulations in parallel until the stagnation limit is reached (no new signals discovered). Failures are saved with their exact plan for instant replay.
+The plugin instruments your bytecode, discovers assertions, and produces a self-contained JAR. The simulation runner explores different execution schedules in parallel until the stagnation limit is reached (no new signals discovered). Failures are saved with their exact plan for instant replay.

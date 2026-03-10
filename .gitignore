@@ -46,6 +46,12 @@ com_crashlytics_export_strings.xml
 crashlytics.properties
 crashlytics-build.properties
 
+#--- Eclipse ignores ---
+.classpath
+.project
+.settings/
+bin/
+
 #--- Various ignores ---
 .gradle
 tmp/
@@ -72,3 +78,8 @@ nohup.out
 .gemini/
 build_debug.log
 build_warnings.log
+
+#--- P language ignores ---
+**/PCheckerOutput/
+**/PGenerated/
+**/output/CSharp/

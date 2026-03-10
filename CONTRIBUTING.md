@@ -33,8 +33,8 @@ The build uses `-Werror`, so all compiler warnings must be resolved.
 
 | Module | Description |
 |--------|-------------|
-| `opendst-api` | Public API stubs and types (the only compile dependency users need) |
-| `opendst-core` | Simulation engine and bytecode rewriting agent |
+| `opendst-sdk` | Public API stubs and types (the only compile dependency users need) |
+| `opendst-agent` | Simulation engine and bytecode rewriting agent |
 | `opendst-maven-plugin` | Maven plugin for running DST tests |
 | `opendst-examples` | Example applications demonstrating OpenDST |
 

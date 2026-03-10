@@ -9,7 +9,6 @@
     </parent>
 
     <artifactId>valid-assertion</artifactId>
-    <packaging>jar</packaging>
 
     <build>
         <plugins>
@@ -27,11 +26,12 @@
                 <version>@project.version@</version>
                 <executions>
                     <execution>
-                        <goals><goal>test</goal></goals>
+                        <goals><goal>build</goal></goals>
                         <configuration>
-                            <test>com.pingidentity.opendst.it.ValidAssertionDST</test>
-                            <stagnationLimit>20</stagnationLimit>
-                            <parallelism>4</parallelism>
+                            <descriptor>${project.basedir}/deployment.yaml</descriptor>
+                            <stagnationLimit>1</stagnationLimit>
+                            <parallelism>1</parallelism>
+                            <duration>5000</duration>
                         </configuration>
                     </execution>
                 </executions>
@@ -42,7 +42,7 @@
     <dependencies>
         <dependency>
             <groupId>com.pingidentity.opendst</groupId>
-            <artifactId>opendst-api</artifactId>
+            <artifactId>opendst-sdk</artifactId>
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
     </dependencies>

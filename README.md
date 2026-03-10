@@ -35,7 +35,7 @@ When running inside a simulation:
 *   **Time:** `System.currentTimeMillis()` and `System.nanoTime()` return a simulated time that advances only when the simulator decides.
 *   **Threads:** `new Thread()` and `startVirtualThread()` are intercepted to run as virtual threads managed by the simulator's scheduler.
 *   **Randomness:** `ThreadLocalRandom`, `SecureRandom`, and `Random` are seeded deterministically.
-*   **Network:** Network interactions are simulated with a virtual IP stack, supporting programmable latency, partitions, and packet loss.
+*   **Network:** Network interactions are simulated with a virtual IP stack, supporting programmable latency, partitions, and connection resets.
 
 ## Usage
 
@@ -56,32 +56,96 @@ mvn clean install
 
 ### Writing a Deterministic Test
 
-Create a class whose name ends with `DST`. Each `public void` zero-arg method is a test:
+Create a WAR-packaged application. Each service is a class with a `public static void main(String[])` method. Use the `opendst-sdk` for assertions and lifecycle signals:
 
 ```java
-import static com.pingidentity.opendst.api.Simulator.startNode;
-import static java.lang.System.currentTimeMillis;
-import static java.lang.Thread.sleep;
-
 import com.pingidentity.opendst.api.Assert;
 import com.pingidentity.opendst.api.Signals;
+import java.io.*;
+import java.net.*;
 
-public class MyFirstDST {
+public class EchoApp {
 
-    public void run() throws Exception {
-        startNode("node-1", "10.0.0.1", () -> {
+    public static class Server {
+        public static void main(String[] args) throws Exception {
+            var port = Integer.parseInt(args[0]);
+            try (var ss = new ServerSocket(port);
+                 var socket = ss.accept();
+                 var in = new DataInputStream(socket.getInputStream());
+                 var out = new DataOutputStream(socket.getOutputStream())) {
+                Signals.ready();
+                int value = in.readInt();
+                Assert.reachable("server-received", null);
+                out.writeInt(value + 1);
+            }
+        }
+    }
+
+    public static class Client {
+        public static void main(String[] args) throws Exception {
+            var host = args[0];
+            var port = Integer.parseInt(args[1]);
             Signals.ready();
-            long start = currentTimeMillis();
-
-            // This sleeps for 1 hour in simulation time, but returns instantly in real time
-            sleep(3_600_000);
-
-            long end = currentTimeMillis();
-            Assert.always(end - start == 3_600_000, "time-elapsed", null);
-            return null;
-        });
+            try (var socket = new Socket(host, port);
+                 var out = new DataOutputStream(socket.getOutputStream());
+                 var in = new DataInputStream(socket.getInputStream())) {
+                out.writeInt(42);
+                int response = in.readInt();
+                Assert.always(response == 43, "echo-correct", null);
+            }
+        }
     }
 }
+```
+
+Describe the deployment topology in a `deployment.yaml`:
+
+```yaml
+images:
+  - name: echo-server
+    artifact: com.example:my-app:war:1.0.0
+    warDir: my-app
+    mainClass: com.example.EchoApp$Server
+  - name: echo-client
+    artifact: com.example:my-app:war:1.0.0
+    warDir: my-app
+    mainClass: com.example.EchoApp$Client
+
+services:
+  - name: server
+    image: echo-server
+    hostname: server.local
+    ip: 10.0.0.1
+    args: ["8080"]
+  - name: client
+    image: echo-client
+    hostname: client.local
+    ip: 10.0.0.2
+    args: ["10.0.0.1", "8080"]
+
+faults:
+  network:
+    enabled: true
+```
+
+Configure the Maven plugin with the `build` goal:
+
+```xml
+<plugin>
+    <groupId>com.pingidentity.opendst</groupId>
+    <artifactId>opendst-maven-plugin</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <executions>
+        <execution>
+            <goals><goal>build</goal></goals>
+            <configuration>
+                <descriptor>${project.basedir}/deployment.yaml</descriptor>
+                <parallelism>4</parallelism>
+                <stagnationLimit>100</stagnationLimit>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
 ```
 
 ## Architecture

@@ -15,8 +15,10 @@
  */
 package com.pingidentity.opendst.maven;
 
-import static com.pingidentity.opendst.maven.Signal.AssertSignal.AssertType.ALWAYS;
-import static com.pingidentity.opendst.maven.Signal.AssertSignal.AssertType.SOMETIMES;
+import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.ALWAYS;
+import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.SOMETIMES;
+
+import com.pingidentity.opendst.runner.Assertion;
 
 import java.lang.classfile.ClassModel;
 import java.lang.classfile.Instruction;
@@ -56,7 +58,7 @@ final class PropertyDiscoverer {
      *
      * @throws Instrumentation.AssertionValidationException if an assertion uses a non-literal label
      */
-    static void discover(ClassModel model, Set<Instrumentation.DiscoveredProperty> discovered) {
+    static void discover(ClassModel model, Set<Assertion> discovered) {
         try {
             var className = model.thisClass().asInternalName().replace('/', '.');
             for (var method : model.methods()) {
@@ -76,7 +78,7 @@ final class PropertyDiscoverer {
             Iterable<? extends java.lang.classfile.CodeElement> code,
             String className,
             String methodName,
-            Set<Instrumentation.DiscoveredProperty> discovered) {
+            Set<Assertion> discovered) {
         // Symbolic stack tracking must be sequential per method to be correct.
         var stack = new ArrayList<String>();
         int currentLine = -1;
@@ -128,7 +130,7 @@ final class PropertyDiscoverer {
             String className,
             String methodName,
             int line,
-            Set<Instrumentation.DiscoveredProperty> discovered) {
+            Set<Assertion> discovered) {
         var name = inv.method().name().toString();
         var type = inv.typeSymbol();
         var params = type.parameterList();
@@ -151,7 +153,7 @@ final class PropertyDiscoverer {
                             .formatted(className, methodName, name, type.displayDescriptor()));
         }
         var kind = name.startsWith("sometimes") || name.equals("reachable") ? SOMETIMES : ALWAYS;
-        discovered.add(new Instrumentation.DiscoveredProperty(kind, message, className, line));
+        discovered.add(new Assertion(kind, message, className, line));
     }
 
     private static void updateStackForInvoke(InvokeInstruction inv, List<String> stack) {

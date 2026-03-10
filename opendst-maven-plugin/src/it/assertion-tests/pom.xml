@@ -10,7 +10,6 @@
 
     <artifactId>assertion-tests</artifactId>
     <name>OpenDST Assertion Integration Tests</name>
-    <packaging>jar</packaging>
 
     <build>
         <plugins>
@@ -26,12 +25,17 @@
                 <groupId>@project.groupId@</groupId>
                 <artifactId>@project.artifactId@</artifactId>
                 <version>@project.version@</version>
-                <configuration>
-                    <parallelism>1</parallelism>
-                    <stagnationLimit>10</stagnationLimit>
-                    <duration>1000</duration>
-                    <testFailureIgnore>true</testFailureIgnore>
-                </configuration>
+                <executions>
+                    <execution>
+                        <goals><goal>build</goal></goals>
+                        <configuration>
+                            <descriptor>${project.basedir}/deployment.yaml</descriptor>
+                            <parallelism>1</parallelism>
+                            <stagnationLimit>10</stagnationLimit>
+                            <duration>1000</duration>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
@@ -39,7 +43,7 @@
     <dependencies>
         <dependency>
             <groupId>com.pingidentity.opendst</groupId>
-            <artifactId>opendst-api</artifactId>
+            <artifactId>opendst-sdk</artifactId>
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
     </dependencies>

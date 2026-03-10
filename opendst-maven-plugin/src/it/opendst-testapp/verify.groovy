@@ -1,6 +1,7 @@
 import groovy.json.JsonSlurper
 
-// Check opendst can find the bug using signals
+// Verify the build mojo produced a self-contained JAR for the testapp,
+// then run the JAR and verify the simulation report.
 File logFile = new File(basedir, "build.log")
 assert logFile.exists() : "The build.log file was not found!"
 def logContent = logFile.text
@@ -9,58 +10,139 @@ def logContent = logFile.text
 def check(boolean condition, String message, File file) {
     if (!condition) {
         println "Verification failed: ${message}"
-        // Only dump last 100 lines to avoid too much noise
         def lines = file.readLines()
         def start = Math.max(0, lines.size() - 100)
         println "--- build.log tail ---"
         lines[start..-1].each { println it }
         println "----------------------"
-        println "--- Full build.log ---\n" + file.text; assert false : message
+        assert false : message
     }
 }
 
+// Check instrumentation ran
 check(logContent.contains("Instrumenting"), "OpenDST instrumentation was not found", logFile)
 
-// Check for runs in either build 1 or build 2
-check(logContent.contains("runs com.pingidentity.opendst.testapp.SecretSequenceDST#run"), "SecretSequenceDST has not been run", logFile)
-check(logContent.contains("runs com.pingidentity.opendst.testapp.FlakyDST#run"), "NonDeterministicDST has not been run", logFile)
-check(logContent.contains("runs com.pingidentity.opendst.testapp.FileSystemFaultInjectionDST#run"), "FileSystemFaultInjectionDST has not been run", logFile)
-check(logContent.contains("runs com.pingidentity.opendst.testapp.NetworkFaultInjectionDST#run"), "NetworkFaultInjectionDST has not been run", logFile)
-check(logContent.contains("runs com.pingidentity.opendst.testapp.InstrumentationDST#run"), "InstrumentationDST has not been run", logFile)
+// Check the build mojo ran successfully
+check(logContent.contains("Built self-contained JAR"), "Build mojo did not complete", logFile)
 
-check(logContent.contains("run type:random-walk"), "No random-walk run", logFile)
-check(logContent.contains("run type:explore"), "No explore run", logFile)
-check(logContent.contains("run type:check"), "No check run", logFile)
-check(logContent.contains("run type:verified"), "No verified run", logFile)
-check(logContent.contains("run type:flaky"), "No flaky run", logFile)
+// Check the JAR file was created
+def targetDir = new File(basedir, "target")
+def jarFiles = targetDir.listFiles({ dir, name -> name.endsWith("-opendst.jar") } as FilenameFilter)
+check(jarFiles != null && jarFiles.length == 1, "Expected exactly one *-opendst.jar in target/, found: ${jarFiles?.length ?: 0}", logFile)
+File jarFile = jarFiles[0]
+check(jarFile.length() > 0, "${jarFile.name} is empty", logFile)
 
-check(logContent.contains("signal type:found"), "No signal found", logFile)
+// Verify JAR contents
+import java.util.jar.JarFile
+def jar = new JarFile(jarFile)
+try {
+    // Check manifest
+    def manifest = jar.manifest
+    check(manifest != null, "JAR has no manifest", logFile)
+    def mainClass = manifest.mainAttributes.getValue("Main-Class")
+    check(mainClass == "com.pingidentity.opendst.runner.Bootstrap", "Main-Class is wrong: " + mainClass, logFile)
 
-check(!logContent.contains("Stagnation limit reached"), "Stagnation limit reached - this should not happen in tests", logFile)
+    // Check essential entries exist
+    check(jar.getEntry("META-INF/opendst/assertions.json") != null, "assertions.json missing", logFile)
+    check(jar.getEntry("system/opendst-agent.jar") != null, "opendst-agent.jar missing", logFile)
+    check(jar.getEntry("deployment.yaml") != null, "deployment.yaml missing", logFile)
+    check(jar.getEntry("build-config.json") != null, "build-config.json missing", logFile)
 
-// Check for specific success strings in the failure causes
-check(logContent.contains("OpenDST: filesystem-fault"), "OpenDST filesystem-fault was not found", logFile)
-check(logContent.contains("OpenDST: network-partition-fault"), "OpenDST network-partition-fault was not found", logFile)
-check(logContent.contains("OpenDST: bug-discovered"), "OpenDST bug-discovered was not found", logFile)
+    // Check apps/ has instrumented application content
+    def hasApps = jar.entries().any { it.name.startsWith("apps/") }
+    check(hasApps, "No application content in apps/", logFile)
 
-// Check for Replay
-// check(logContent.contains("OpenDST replays com.pingidentity.opendst.testapp.FlakyDST#run"), "Replay of FlakyDST was not found", logFile)
+    // Check that instrumented classes.jar exists
+    def hasClassesJar = jar.entries().any { it.name.contains("WEB-INF/classes.jar") }
+    check(hasClassesJar, "No WEB-INF/classes.jar in apps/", logFile)
 
-// Verify log spy
-File spyFile = new File(basedir, "target/opendst/com.pingidentity.opendst.testapp.NetworkFaultInjectionDST/runs/run-0/simulator.log")
-assert spyFile.exists() : "Log spy file was not found at ${spyFile.absolutePath}"
-assert spyFile.length() > 0 : "Log spy file is empty"
+    // Verify assertions.json contains the expected assertions from SecretSequenceApp
+    def assertionsEntry = jar.getEntry("META-INF/opendst/assertions.json")
+    def assertionsJson = jar.getInputStream(assertionsEntry).text
+    def assertions = new JsonSlurper().parseText(assertionsJson)
+    def labels = assertions.collect { it.message }
+    check(labels.contains("level-1"), "assertion 'level-1' not found in assertions.json: " + labels, logFile)
+    check(labels.contains("level-2"), "assertion 'level-2' not found in assertions.json: " + labels, logFile)
 
-// Verify JSON Report for SecretSequenceDST
-File ssReportFile = new File(basedir, "target/opendst/com.pingidentity.opendst.testapp.SecretSequenceDST/report.json")
-assert ssReportFile.exists() : "SecretSequenceDST JSON report not found"
-def ssReport = new JsonSlurper().parse(ssReportFile)
-// SecretSequenceDST throws AssertionError, so status should be FAIL
-assert ssReport.failed == true : "SecretSequenceDST should have failed"
+    // Verify build-config.json contains faults configuration with network enabled
+    def buildConfigEntry = jar.getEntry("build-config.json")
+    def buildConfigJson = jar.getInputStream(buildConfigEntry).text
+    def buildConfig = new JsonSlurper().parseText(buildConfigJson)
+    check(buildConfig.faults.network.enabled == true, "Network faults should be enabled", logFile)
+    check(buildConfig.parallelism == 4, "Parallelism should be 4, got: " + buildConfig.parallelism, logFile)
+    check(buildConfig.stagnationLimit == 200, "StagnationLimit should be 200, got: " + buildConfig.stagnationLimit, logFile)
+} finally {
+    jar.close()
+}
 
-// Verify JSON Report for NetworkFaultInjectionDST
-File netReportFile = new File(basedir, "target/opendst/com.pingidentity.opendst.testapp.NetworkFaultInjectionDST/report.json")
-assert netReportFile.exists() : "NetworkFaultInjectionDST JSON report not found"
-def netReport = new JsonSlurper().parse(netReportFile)
-assert netReport.failed == true : "NetworkFaultInjectionDST should have failed"
+// ---- Phase 2: Run the built JAR and verify the simulation report ----
 
+def reportDir = new File(basedir, "target/opendst-report")
+reportDir.mkdirs()
+
+def javaHome = System.getProperty("java.home")
+def javaBin = new File(javaHome, "bin/java").absolutePath
+
+println "Running: ${javaBin} -jar ${jarFile.absolutePath} --report-dir ${reportDir.absolutePath}"
+
+def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
+                                 "--report-dir", reportDir.absolutePath,
+                                 "--fail-fast")
+        .directory(basedir)
+        .redirectErrorStream(true)
+        .start()
+
+// Capture output for debugging
+def output = new StringBuilder()
+process.inputStream.eachLine { line ->
+    output.append(line).append("\n")
+    println "[JAR] ${line}"
+}
+
+def exitCode = process.waitFor()
+
+// --fail-fast: the TraceAuditor detects "Bug reached!" and throws, causing the simulation
+// to stop with reason=failure. This makes the "simulation stopped successfully" ALWAYS assertion
+// fail, so --fail-fast exits with code 1. That is the expected outcome.
+check(exitCode == 1, "Expected exit code 1 (--fail-fast with bug found), got: ${exitCode}", logFile)
+
+// Verify the report was produced
+def reportFile = new File(reportDir, "report.json")
+assert reportFile.exists() : "report.json was not created in ${reportDir.absolutePath}"
+assert reportFile.length() > 0 : "report.json is empty"
+
+def report = new JsonSlurper().parseText(reportFile.text)
+
+// Verify report structure
+assert report.count != null : "report.count is missing"
+assert report.count > 0 : "report.count should be > 0, got: ${report.count}"
+assert report.duration != null : "report.duration is missing"
+assert report.assertions != null : "report.assertions is missing"
+assert report.assertions instanceof List : "report.assertions is not a list"
+
+// Verify assertion results — both reachable assertions should pass
+def reportAssertions = report.assertions.collectEntries { [it.name, it.pass] }
+println "Report assertions: ${reportAssertions}"
+
+assert reportAssertions.containsKey("level-1") :
+    "assertion 'level-1' not found in report: ${reportAssertions.keySet()}"
+assert reportAssertions["level-1"] == "pass" :
+    "assertion 'level-1' should pass, got: ${reportAssertions['level-1']}"
+
+assert reportAssertions.containsKey("level-2") :
+    "assertion 'level-2' not found in report: ${reportAssertions.keySet()}"
+assert reportAssertions["level-2"] == "pass" :
+    "assertion 'level-2' should pass, got: ${reportAssertions['level-2']}"
+
+// Verify built-in lifecycle assertions
+assert reportAssertions.containsKey("simulation started") :
+    "built-in assertion 'simulation started' not found in report: ${reportAssertions.keySet()}"
+assert reportAssertions["simulation started"] == "pass" :
+    "assertion 'simulation started' should pass, got: ${reportAssertions['simulation started']}"
+
+assert reportAssertions.containsKey("simulation stopped successfully") :
+    "built-in assertion 'simulation stopped successfully' not found in report: ${reportAssertions.keySet()}"
+assert reportAssertions["simulation stopped successfully"] == "fail" :
+    "assertion 'simulation stopped successfully' should fail (TraceAuditor found the bug), got: ${reportAssertions['simulation stopped successfully']}"
+
+println "All verifications passed — testapp JAR correctly detects bug via TraceAuditor and reports failure."

@@ -18,7 +18,7 @@ OpenDST uses a **hybrid instrumentation** approach to replace all sources of non
     **Call-site replacement:** Patterns like `new Socket()` or `Files.read()` are rewritten to call the simulator's deterministic factory methods instead.
   </Card>
   <Card title="Runtime (Java Agent)">
-    JDK internal classes cannot be transformed offline. The `opendst-core.jar` agent uses **ByteBuddy advice** to intercept JDK methods at class-load time.
+    JDK internal classes cannot be transformed offline. The `opendst-agent.jar` agent uses **ByteBuddy advice** to intercept JDK methods at class-load time.
 
     This covers things like `System.currentTimeMillis()`, `Random.next()`, and virtual thread construction that happen deep inside the JDK.
   </Card>
