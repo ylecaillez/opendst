@@ -96,7 +96,6 @@ try {
     def buildConfigJson = jar.getInputStream(buildConfigEntry).text
     def buildConfig = new JsonSlurper().parseText(buildConfigJson)
     check(buildConfig.faults.network.enabled == true, "Network faults should be enabled", logFile)
-    check(buildConfig.stagnationLimit > 0, "StagnationLimit should be > 0, got: " + buildConfig.stagnationLimit, logFile)
 } finally {
     jar.close()
 }
@@ -111,8 +110,13 @@ def javaBin = new File(javaHome, "bin/java").absolutePath
 
 println "Running: ${javaBin} -jar ${jarFile.absolutePath} --report-dir ${reportDir.absolutePath}"
 
+// Stagnation limit: use invoker property if set (e.g., by deep profile), else default to 50
+def stagnationLimit = System.getProperty("opendst.it.stagnationLimit") ?: "50"
+println "Using stagnation limit: ${stagnationLimit}"
+
 def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
-                                 "--report-dir", reportDir.absolutePath)
+                                 "--report-dir", reportDir.absolutePath,
+                                 "--stagnation-limit", stagnationLimit)
         .directory(basedir)
         .redirectErrorStream(true)
         .start()

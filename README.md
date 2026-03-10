@@ -123,12 +123,35 @@ Configure the Maven plugin with the `build` goal:
             <goals><goal>build</goal></goals>
             <configuration>
                 <descriptor>${project.basedir}/deployment.yaml</descriptor>
-                <stagnationLimit>100</stagnationLimit>
             </configuration>
         </execution>
     </executions>
 </plugin>
 ```
+
+Run the simulation from the produced JAR. All orchestration parameters are CLI arguments:
+
+```bash
+java -jar target/*-opendst.jar \
+  --stagnation-limit 100 \
+  --duration 100000 \
+  --branch-probability 0.7 \
+  --replay-probability 0.05 \
+  --report-dir target/opendst-report
+```
+
+Available CLI options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--duration` | 100000 | Maximum simulation duration in milliseconds |
+| `--stagnation-limit` | 100 | Stop after N iterations without new coverage |
+| `--branch-probability` | 0.7 | Probability of branching to explore a new path |
+| `--replay-probability` | 0.05 | Probability of replaying a previous trace |
+| `--forkCount` | CPUs - 1 | Number of concurrent simulation forks |
+| `--report-dir` | (temp dir) | Directory to write `report.json` to |
+| `--fail-fast` | false | Stop on first assertion failure |
+| `--jvm-args` | (from POM) | JVM arguments for child processes |
 
 ## Architecture
 

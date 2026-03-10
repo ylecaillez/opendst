@@ -53,13 +53,12 @@ try {
     check(labels.contains("probabilistic-liveness"),
           "assertion 'probabilistic-liveness' not found in assertions.json: " + labels, logFile)
 
-    // Verify build-config.json
+    // Verify build-config.json (only jvmArguments and faults remain)
     def buildConfigEntry = jar.getEntry("build-config.json")
     check(buildConfigEntry != null, "build-config.json missing from JAR", logFile)
     def buildConfigJson = jar.getInputStream(buildConfigEntry).text
     def buildConfig = new JsonSlurper().parseText(buildConfigJson)
-    check(buildConfig.stagnationLimit == 5, "StagnationLimit should be 5, got: " + buildConfig.stagnationLimit, logFile)
-    check(buildConfig.duration == 1000, "Duration should be 1000, got: " + buildConfig.duration, logFile)
+    check(buildConfig.faults != null, "faults should be present in build-config.json", logFile)
 } finally {
     jar.close()
 }
@@ -75,7 +74,9 @@ def javaBin = new File(javaHome, "bin/java").absolutePath
 println "Running: ${javaBin} -jar ${jarFile.absolutePath} --report-dir ${reportDir.absolutePath}"
 
 def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
-                                 "--report-dir", reportDir.absolutePath)
+                                 "--report-dir", reportDir.absolutePath,
+                                 "--stagnation-limit", "5",
+                                 "--duration", "1000")
         .directory(basedir)
         .redirectErrorStream(true)
         .start()

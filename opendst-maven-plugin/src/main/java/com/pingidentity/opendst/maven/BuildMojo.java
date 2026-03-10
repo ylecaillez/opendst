@@ -114,18 +114,6 @@ public class BuildMojo extends AbstractMojo {
     @Parameter(property = "opendst.outputJar", defaultValue = "${project.build.directory}/${project.build.finalName}-opendst.jar")
     private File outputJar;
 
-    @Parameter(property = "opendst.duration", defaultValue = "100000")
-    private long duration;
-
-    @Parameter(property = "opendst.branchProbability", defaultValue = "0.7")
-    private double branchProbability;
-
-    @Parameter(property = "opendst.replayProbability", defaultValue = "0.05")
-    private double replayProbability;
-
-    @Parameter(property = "opendst.stagnation-limit", defaultValue = "100")
-    private int stagnationLimit;
-
     @Parameter(property = "opendst.jvmArguments")
     private String jvmArguments;
 
@@ -452,7 +440,7 @@ public class BuildMojo extends AbstractMojo {
      *       lib/
      *       fs/
      * deployment.yaml                   # Enriched descriptor (all services have dir set)
-     * build-config.json                 # Orchestration defaults
+     * build-config.json                 # Build-time defaults (JVM args, faults)
      * </pre>
      */
     private void buildJar(Path basePath, Path instrumentedWarsDir, Path agentJarPath,
@@ -483,10 +471,8 @@ public class BuildMojo extends AbstractMojo {
             // 5. deployment.yaml — enriched descriptor (serialized from object, not raw file)
             addEntry(jos, "deployment.yaml", serializeDescriptor(enrichedDescriptor));
 
-            // 6. build-config.json — orchestration defaults
-            var buildConfig = new BuildConfig(
-                    duration, branchProbability, replayProbability, stagnationLimit, jvmArguments,
-                    defaultFaultsConfig());
+            // 6. build-config.json — build-time defaults (runtime params are now CLI-only)
+            var buildConfig = new BuildConfig(jvmArguments, defaultFaultsConfig());
             addEntry(jos, "build-config.json", JSON_MAPPER.writeValueAsBytes(buildConfig));
         }
     }

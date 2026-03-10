@@ -93,7 +93,8 @@ def javaBin = new File(javaHome, "bin/java").absolutePath
 println "Running: ${javaBin} -jar ${jarFile.absolutePath} --report-dir ${reportDir.absolutePath}"
 
 def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
-                                 "--report-dir", reportDir.absolutePath)
+                                 "--report-dir", reportDir.absolutePath,
+                                 "--stagnation-limit", "20")
         .directory(basedir)
         .redirectErrorStream(true)
         .start()

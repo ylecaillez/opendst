@@ -29,8 +29,6 @@
                         <goals><goal>build</goal></goals>
                         <configuration>
                             <descriptor>${project.basedir}/deployment.yaml</descriptor>
-                            <stagnationLimit>1</stagnationLimit>
-                            <duration>5000</duration>
                         </configuration>
                     </execution>
                 </executions>

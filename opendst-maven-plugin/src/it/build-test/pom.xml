@@ -29,7 +29,6 @@
                         <goals><goal>build</goal></goals>
                         <configuration>
                             <descriptor>${project.basedir}/deployment.yaml</descriptor>
-                            <stagnationLimit>20</stagnationLimit>
                             <jvmArguments>-XX:TieredStopAtLevel=1 -Xms64m -Xmx64m</jvmArguments>
                         </configuration>
                     </execution>

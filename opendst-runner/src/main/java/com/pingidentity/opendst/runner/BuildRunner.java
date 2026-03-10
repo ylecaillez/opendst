@@ -69,6 +69,30 @@ public final class BuildRunner implements Callable<Integer> {
             defaultValue = "-1")
     private int forkCount;
 
+    @Option(names = "--duration",
+            description = "Maximum simulation duration in milliseconds",
+            defaultValue = "100000")
+    private long duration;
+
+    @Option(names = "--branch-probability",
+            description = "Probability of branching to explore a new path",
+            defaultValue = "0.7")
+    private double branchProbability;
+
+    @Option(names = "--replay-probability",
+            description = "Probability of replaying a previous trace",
+            defaultValue = "0.05")
+    private double replayProbability;
+
+    @Option(names = "--stagnation-limit",
+            description = "Stop after this many iterations without new coverage",
+            defaultValue = "100")
+    private int stagnationLimit;
+
+    @Option(names = "--jvm-args",
+            description = "JVM arguments for child processes (overrides build-time default)")
+    private String jvmArgs;
+
     public static void main(String[] args) {
         exit(new CommandLine(new BuildRunner()).execute(args));
     }
@@ -100,16 +124,19 @@ public final class BuildRunner implements Callable<Integer> {
         // 4. Set up orchestrator and run
         var logger = ofConsole();
         var faultsConfig = toFaultsConfig(config.faults());
-        var orchestrator = new GuidedOrchestrator(logger, config.duration(), config.branchProbability(), faultsConfig);
+        var orchestrator = new GuidedOrchestrator(logger, duration, branchProbability, faultsConfig);
 
         var instrumentedWarsDir = extractDir.resolve("apps");
         var agentJarPath = extractDir.resolve("system/opendst-agent.jar").toAbsolutePath().toString();
 
+        // Merge JVM arguments: CLI --jvm-args wins, else fall back to build-time default
+        var effectiveJvmArgs = jvmArgs != null ? jvmArgs : config.jvmArguments();
+
         var jvmConfig = new JvmConfig(
-                instrumentedWarsDir, agentJarPath, config.jvmArguments(), null, null,
+                instrumentedWarsDir, agentJarPath, effectiveJvmArgs, null, null,
                 DeploymentRunner.class.getName());
         var runConfig = new RunConfig(
-                config.replayProbability(), false, config.stagnationLimit(), forkCount, failFast);
+                replayProbability, false, stagnationLimit, forkCount, failFast);
 
         // Use user-specified report dir or fall back to temp dir
         var reportBasePath = reportOutputDir != null ? reportOutputDir : extractDir.resolve("report");
@@ -181,10 +208,8 @@ public final class BuildRunner implements Callable<Integer> {
         return new Faults.Config(net, fs);
     }
 
-    /** Orchestration configuration baked into the self-contained JAR. */
-    public record BuildConfig(long duration, double branchProbability, double replayProbability,
-                               int stagnationLimit, String jvmArguments,
-                               FaultsConfig faults) {
+    /** Build-time configuration baked into the self-contained JAR. */
+    public record BuildConfig(String jvmArguments, FaultsConfig faults) {
 
         /** Serializable faults configuration using string-based durations. */
         public record FaultsConfig(NetworkFaultsConfig network, FileSystemFaultsConfig fileSystem) {}

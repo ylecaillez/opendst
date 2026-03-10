@@ -69,7 +69,6 @@ try {
     def buildConfigJson = jar.getInputStream(buildConfigEntry).text
     def buildConfig = new JsonSlurper().parseText(buildConfigJson)
     check(buildConfig.faults.network.enabled == true, "Network faults should be enabled", logFile)
-    check(buildConfig.stagnationLimit == 200, "StagnationLimit should be 200, got: " + buildConfig.stagnationLimit, logFile)
 } finally {
     jar.close()
 }
@@ -86,6 +85,8 @@ println "Running: ${javaBin} -jar ${jarFile.absolutePath} --report-dir ${reportD
 
 def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
                                  "--report-dir", reportDir.absolutePath,
+                                 "--stagnation-limit", "200",
+                                 "--replay-probability", "0.2",
                                  "--fail-fast")
         .directory(basedir)
         .redirectErrorStream(true)
