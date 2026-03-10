@@ -110,4 +110,25 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Deeper exploration for tests that benefit from more iterations.
+             Activate with: mvn verify -pl opendst-maven-plugin -am -Pdeep -->
+        <profile>
+            <id>deep</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-invoker-plugin</artifactId>
+                        <configuration>
+                            <properties>
+                                <opendst.it.stagnationLimit>200</opendst.it.stagnationLimit>
+                            </properties>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

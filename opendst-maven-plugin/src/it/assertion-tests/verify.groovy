@@ -58,7 +58,7 @@ try {
     check(buildConfigEntry != null, "build-config.json missing from JAR", logFile)
     def buildConfigJson = jar.getInputStream(buildConfigEntry).text
     def buildConfig = new JsonSlurper().parseText(buildConfigJson)
-    check(buildConfig.stagnationLimit == 10, "StagnationLimit should be 10, got: " + buildConfig.stagnationLimit, logFile)
+    check(buildConfig.stagnationLimit == 5, "StagnationLimit should be 5, got: " + buildConfig.stagnationLimit, logFile)
     check(buildConfig.duration == 1000, "Duration should be 1000, got: " + buildConfig.duration, logFile)
 } finally {
     jar.close()

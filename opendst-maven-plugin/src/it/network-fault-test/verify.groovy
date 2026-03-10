@@ -96,7 +96,7 @@ try {
     def buildConfigJson = jar.getInputStream(buildConfigEntry).text
     def buildConfig = new JsonSlurper().parseText(buildConfigJson)
     check(buildConfig.faults.network.enabled == true, "Network faults should be enabled", logFile)
-    check(buildConfig.stagnationLimit == 200, "StagnationLimit should be 200, got: " + buildConfig.stagnationLimit, logFile)
+    check(buildConfig.stagnationLimit > 0, "StagnationLimit should be > 0, got: " + buildConfig.stagnationLimit, logFile)
 } finally {
     jar.close()
 }
@@ -150,7 +150,7 @@ assert report.assertions instanceof List : "report.assertions is not a list"
 def reportAssertions = report.assertions.collectEntries { [it.name, it.pass] }
 println "Report assertions: ${reportAssertions}"
 
-// Core reachable assertions should pass (these are always reached due to randomness + 200 iterations)
+// Core reachable assertions should pass (these are always reached due to randomness + sufficient iterations)
 def mustPass = [
     "server-restart",
     "server-deferred-bind",

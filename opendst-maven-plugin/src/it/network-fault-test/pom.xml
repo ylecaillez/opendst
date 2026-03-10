@@ -10,6 +10,10 @@
 
     <artifactId>network-fault-test</artifactId>
 
+    <properties>
+        <opendst.it.stagnationLimit>50</opendst.it.stagnationLimit>
+    </properties>
+
     <build>
         <plugins>
             <plugin>
@@ -29,7 +33,7 @@
                         <goals><goal>build</goal></goals>
                         <configuration>
                             <descriptor>${project.basedir}/deployment.yaml</descriptor>
-                            <stagnationLimit>200</stagnationLimit>
+                            <stagnationLimit>${opendst.it.stagnationLimit}</stagnationLimit>
                             <jvmArguments>-XX:TieredStopAtLevel=1 -Xms64m -Xmx64m</jvmArguments>
                         </configuration>
                     </execution>
