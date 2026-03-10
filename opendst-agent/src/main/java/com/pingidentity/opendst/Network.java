@@ -350,7 +350,8 @@ public final class Network {
                 ServerSocket.setSocketFactory(() -> currentNodeOrThrow().newSocketImpl(true));
                 factoryInstalled = true;
             } catch (Throwable e) {
-                // Ignore
+                throw new Simulator.SimulationError("Failed to install socket factories — "
+                        + "network isolation cannot be guaranteed", e);
             }
         }
 
