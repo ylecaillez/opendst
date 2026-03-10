@@ -67,7 +67,6 @@ public final class Commons {
             "-Dkeystore.pkcs12.iterationCount=1",
             "-Dkeystore.pkcs12.keyProtectionIterationCount=1");
 
-    static final String RUNS_BASE_DIR = "runs";
     public static final String INSTRUMENTED_WARS_DIR = "instrumented-wars";
     static final String RUN_DIR_FORMAT = "run-%d";
 

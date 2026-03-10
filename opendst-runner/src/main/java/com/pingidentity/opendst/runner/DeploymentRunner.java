@@ -51,9 +51,9 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
  * calls {@link com.pingidentity.opendst.Simulator#deploy(java.util.List, java.util.List)}
  * followed by {@link com.pingidentity.opendst.Simulator#runSimulation}.
  *
- * <p>Arguments: {@code <extractDir> <ignored>}
+ * <p>Arguments: {@code <deploymentDir> <ignored>}
  *
- * <p>The extract directory is expected to contain:
+ * <p>The deployment directory is expected to contain:
  * <ul>
  *   <li>{@code deployment.yaml} — the enriched deployment descriptor (all services have {@code dir} set)</li>
  *   <li>{@code apps/} — instrumented application artifacts</li>
@@ -62,13 +62,13 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
 public final class DeploymentRunner {
     public static void main(String[] args) {
         if (args.length < 1) {
-            err.println("Usage: java DeploymentRunner <extractDir>");
+            err.println("Usage: java DeploymentRunner <deploymentDir>");
             exit(1);
         }
 
         try {
-            var extractDir = Path.of(args[0]);
-            var descriptorFile = extractDir.resolve("deployment.yaml");
+            var deploymentDir = Path.of(args[0]);
+            var descriptorFile = deploymentDir.resolve("deployment.yaml");
 
             // Parse deployment descriptor
             var yamlMapper = YAMLMapper.builder()
@@ -82,7 +82,7 @@ public final class DeploymentRunner {
             // The opendst-agent JAR must be on each service's classpath so that the
             // URLClassLoader (parented to getPlatformClassLoader()) can resolve
             // AssertImpl and other opendst-agent classes referenced by instrumented code.
-            var coreJarUrl = extractDir.resolve("system/opendst-agent.jar").toUri().toURL();
+            var coreJarUrl = deploymentDir.resolve("system/opendst-agent.jar").toUri().toURL();
             var extraClasspath = new URL[] { coreJarUrl };
             var images = new ArrayList<Image>();
             var services = new ArrayList<Service>();
@@ -98,7 +98,7 @@ public final class DeploymentRunner {
 
             // Set the wars-dir property to point to the apps/ directory inside the extraction.
             // This must happen before Deployment class initialization reads the wars-dir property.
-            var appsDir = extractDir.resolve("apps");
+            var appsDir = deploymentDir.resolve("apps");
             setProperty("opendst.wars-dir", appsDir.toAbsolutePath().toString());
 
             // Resolve trace auditor if specified. The trace auditor is self-contained: its source

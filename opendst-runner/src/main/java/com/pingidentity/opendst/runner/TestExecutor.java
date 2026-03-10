@@ -20,7 +20,10 @@ import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.Commons.deleteRecursively;
 import static java.lang.Runtime.getRuntime;
 import static java.lang.Thread.ofVirtual;
+import static java.nio.file.Files.copy;
+import static java.nio.file.Files.exists;
 import static java.nio.file.Files.newOutputStream;
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.util.Arrays.asList;
 import static java.util.concurrent.ThreadLocalRandom.current;
@@ -66,7 +69,8 @@ final class TestExecutor {
     record RunConfig(double replayProbability, boolean isDebugOrReplay, int stagnationLimit, int forkCount,
                      boolean failFast) {}
 
-    private final Path testBasePath;
+    private final Path reportDir;
+    private final Path runsDir;
     private final String testClass;
     private final String testMethod;
     private final String classpath;
@@ -80,11 +84,12 @@ final class TestExecutor {
     private final Queue<Plan> pastPlans = new ArrayBlockingQueue<>(10);
     private volatile boolean failureDetected;
 
-    TestExecutor(Path testBasePath,
+    TestExecutor(Path reportDir, Path runsDir,
                  String testClass, String testMethod, String classpath, JvmConfig jvm,
                  OpenDstLogger logger,
                  Orchestrator orchestrator, RunConfig run) {
-        this.testBasePath = testBasePath;
+        this.reportDir = reportDir;
+        this.runsDir = runsDir;
         this.testClass = testClass;
         this.testMethod = testMethod;
         this.classpath = classpath;
@@ -116,8 +121,18 @@ final class TestExecutor {
             }
             var executionPlan = getNewExecutionPlanOrReplay();
             int runCount = runSequence.incrementAndGet();
-            var executionResult = runOnce(count, executionPlan);
+
+            var runBaseDir = createRunBaseDir(count);
+            ExecutionResult executionResult;
+            try {
+                executionResult = runOnce(runBaseDir, executionPlan);
+            } catch (IOException | InterruptedException e) {
+                deleteRecursively(runsDir, runBaseDir);
+                throw e;
+            }
+
             if (runConfig.isDebugOrReplay()) {
+                deleteRecursively(runsDir, runBaseDir);
                 return null;
             }
             if (executionResult.runFailed()) {
@@ -130,9 +145,22 @@ final class TestExecutor {
                 logger.run("flaky").error().withSeed(executionPlan.plan().segments().getLast().seed()).log();
             }
 
-            var planFile = testBasePath.resolve(HexFormat.of().toHexDigits(executionResult.runHash()) + ".json");
+            var hexHash = HexFormat.of().toHexDigits(executionResult.runHash());
+            var planFile = reportDir.resolve("plans").resolve(hexHash + ".plan.json");
             savePlan(executionPlan.plan().withHash(executionResult.runHash()), planFile);
             reportGenerator.addExecutionResult(executionResult, planFile);
+
+            // Capture simulator.log for interesting runs before deleting the run directory
+            if (executionResult.isInteresting()) {
+                var simulatorLog = runBaseDir.resolve("simulator.log");
+                if (exists(simulatorLog)) {
+                    var logDest = reportDir.resolve("plans").resolve(hexHash + ".log.json");
+                    copy(simulatorLog, logDest, REPLACE_EXISTING);
+                }
+            }
+
+            // Run directory is ephemeral — clean up after capturing any interesting artifacts
+            deleteRecursively(runsDir, runBaseDir);
 
             if (runConfig.failFast() && reportGenerator.hasFailures()) {
                 logger.raw().info("Assertion failure detected — stopping (--fail-fast)");
@@ -140,7 +168,7 @@ final class TestExecutor {
             }
 
             if (executionResult.isInteresting()) {
-                reportGenerator.generate(testBasePath.resolve("report.json"));
+                reportGenerator.generate(reportDir.resolve("report.json"));
                 int lastRun;
                 do {
                     lastRun = lastInterestingRun.get();
@@ -174,11 +202,10 @@ final class TestExecutor {
         return orchestrator.nextPlan();
     }
 
-    private ExecutionResult runOnce(int count, ExecutionPlan execution)
+    private ExecutionResult runOnce(Path runBaseDir, ExecutionPlan execution)
             throws IOException, InterruptedException {
         Process proc = null;
         Thread runKiller = null;
-        var runBaseDir = createRunBaseDir(testBasePath, count);
         try {
             proc = startProcess(runBaseDir);
             runKiller = new Thread(proc::destroyForcibly);
@@ -192,7 +219,6 @@ final class TestExecutor {
             if (runKiller != null) {
                 getRuntime().removeShutdownHook(runKiller);
             }
-            deleteRecursively(testBasePath, runBaseDir);
         }
     }
 
@@ -282,12 +308,11 @@ final class TestExecutor {
         return List.copyOf(command);
     }
 
-    private Path createRunBaseDir(Path testBasePath, int count) throws IOException {
-        var runBaseDir = testBasePath
-                .resolve(Commons.RUNS_BASE_DIR)
+    private Path createRunBaseDir(int count) throws IOException {
+        var runBaseDir = runsDir
                 .resolve(Commons.RUN_DIR_FORMAT.formatted(count))
                 .toAbsolutePath();
-        deleteRecursively(testBasePath, runBaseDir);
+        deleteRecursively(runsDir, runBaseDir);
         if (!runBaseDir.toFile().mkdirs()) {
             throw new IllegalStateException(
                     "The run base dir '%s' is unexpectedly already present".formatted(runBaseDir));

@@ -137,7 +137,7 @@ java -jar target/*-opendst.jar \
   --duration 100000 \
   --branch-probability 0.7 \
   --replay-probability 0.05 \
-  --report-dir target/opendst-report
+  --working-dir target/opendst-work
 ```
 
 Available CLI options:
@@ -149,9 +149,20 @@ Available CLI options:
 | `--branch-probability` | 0.7 | Probability of branching to explore a new path |
 | `--replay-probability` | 0.05 | Probability of replaying a previous trace |
 | `--forkCount` | CPUs - 1 | Number of concurrent simulation forks |
-| `--report-dir` | (temp dir) | Directory to write `report.json` to |
+| `--working-dir` | (JAR name sans `.jar`) | Persistent working directory for deployment, runs, and reports |
 | `--fail-fast` | false | Stop on first assertion failure |
 | `--jvm-args` | (from POM) | JVM arguments for child processes |
+
+The working directory has the following structure:
+
+```
+myapp-opendst/              # --working-dir (default: JAR path minus .jar)
+  deployment/               # extracted from JAR (skipped if already present)
+  runs/                     # ephemeral per-fork directories
+  report/                   # simulation output (persists across runs)
+    report.json
+    plans/                  # execution plans and simulator logs
+```
 
 ## Architecture
 

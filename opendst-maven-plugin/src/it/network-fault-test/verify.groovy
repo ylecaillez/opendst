@@ -102,20 +102,19 @@ try {
 
 // ---- Phase 2: Run the built JAR and verify the simulation report ----
 
-def reportDir = new File(basedir, "target/opendst-report")
-reportDir.mkdirs()
+def workingDir = new File(basedir, "target/opendst-work")
 
 def javaHome = System.getProperty("java.home")
 def javaBin = new File(javaHome, "bin/java").absolutePath
 
-println "Running: ${javaBin} -jar ${jarFile.absolutePath} --report-dir ${reportDir.absolutePath}"
+println "Running: ${javaBin} -jar ${jarFile.absolutePath} --working-dir ${workingDir.absolutePath}"
 
 // Stagnation limit: use invoker property if set (e.g., by deep profile), else default to 50
 def stagnationLimit = System.getProperty("opendst.it.stagnationLimit") ?: "50"
 println "Using stagnation limit: ${stagnationLimit}"
 
 def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
-                                 "--report-dir", reportDir.absolutePath,
+                                 "--working-dir", workingDir.absolutePath,
                                  "--stagnation-limit", stagnationLimit)
         .directory(basedir)
         .redirectErrorStream(true)
@@ -137,8 +136,8 @@ if (exitCode != 0) {
 }
 
 // Verify the report was produced
-def reportFile = new File(reportDir, "report.json")
-assert reportFile.exists() : "report.json was not created in ${reportDir.absolutePath}"
+def reportFile = new File(workingDir, "report/report.json")
+assert reportFile.exists() : "report.json was not created in ${reportFile.parentFile.absolutePath}"
 assert reportFile.length() > 0 : "report.json is empty"
 
 def report = new JsonSlurper().parseText(reportFile.text)
