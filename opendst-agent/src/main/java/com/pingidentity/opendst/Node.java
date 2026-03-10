@@ -82,8 +82,6 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.ToLongFunction;
 import java.util.stream.Stream;
-import javax.net.ServerSocketFactory;
-import javax.net.SocketFactory;
 
 /**
  * Represents an isolated execution environment (a node) within the simulation.
@@ -109,8 +107,6 @@ public final class Node {
 
     private final InetAddress localHost;
     private final NodeInterfaces netInterfaces;
-    private final NodeSocketFactory socketFactory = new NodeSocketFactory();
-    private final NodeServerSocketFactory serverSocketFactory = new NodeServerSocketFactory();
 
     private static final int MAX_VIRTUAL_THREADS = 1000;
 
@@ -189,14 +185,6 @@ public final class Node {
 
     Stream<InetAddress> inetAddresses() {
         return Stream.of(localHost);
-    }
-
-    public SocketFactory socketFactory() {
-        return socketFactory;
-    }
-
-    public ServerSocketFactory serverSocketFactory() {
-        return serverSocketFactory;
     }
 
     @SuppressWarnings({"deprecation", "removal"})
@@ -370,96 +358,6 @@ public final class Node {
         return workingDirectory;
     }
 
-    private void checkIsLocalAddress(InetAddress address) throws IOException {
-        if (!netInterfaces.isLocal(address)) {
-            throw new SocketException("Cannot assign requested address");
-        }
-    }
-
-    private final class NodeSocketFactory extends SocketFactory {
-        @Override
-        public Socket createSocket() throws IOException {
-            return new NetSocket();
-        }
-
-        @Override
-        public Socket createSocket(String host, int port) throws IOException {
-            return createSocket(host, port, InetAddress.getLocalHost(), 0);
-        }
-
-        @Override
-        public Socket createSocket(String host, int port, InetAddress localAddress, int localPort) throws IOException {
-            return createSocket(getByName(host), port, localAddress, localPort);
-        }
-
-        @Override
-        public Socket createSocket(InetAddress host, int port) throws IOException {
-            return createSocket(host, port, InetAddress.getLocalHost(), 0);
-        }
-
-        @Override
-        public Socket createSocket(InetAddress address, int port, InetAddress localAddress, int localPort)
-                throws IOException {
-            checkIsLocalAddress(localAddress);
-            var socket = new NetSocket();
-            socket.bind(new InetSocketAddress(localAddress, localPort));
-            socket.connect(new InetSocketAddress(address, port));
-            return socket;
-        }
-
-        @SuppressWarnings({"deprecation", "removal"})
-        private final class NetSocket extends Socket {
-            private NetSocket() throws SocketException {
-                super(new NodeSocketImpl(false));
-            }
-        }
-    }
-
-    private final class NodeServerSocketFactory extends ServerSocketFactory {
-        @Override
-        public ServerSocket createServerSocket() {
-            return new NetServerSocket();
-        }
-
-        @Override
-        public ServerSocket createServerSocket(int port) throws IOException {
-            return createServerSocket(port, 128);
-        }
-
-        @Override
-        public ServerSocket createServerSocket(int port, int backlog) throws IOException {
-            var serverSocket = new NetServerSocket();
-            serverSocket.bind(new InetSocketAddress((InetAddress) null, port), backlog);
-            return serverSocket;
-        }
-
-        @Override
-        public ServerSocket createServerSocket(int port, int backlog, InetAddress ifAddress) throws IOException {
-            checkIsLocalAddress(ifAddress);
-            var serverSocket = new NetServerSocket();
-            serverSocket.bind(new InetSocketAddress(ifAddress, port));
-            return serverSocket;
-        }
-
-        @SuppressWarnings({"deprecation", "removal"})
-        private final class NetServerSocket extends ServerSocket {
-            NetServerSocket() {
-                super(new NodeSocketImpl(true));
-            }
-
-            @Override
-            public Socket accept() throws IOException {
-                if (isClosed()) {
-                    throw new SocketException("Socket is closed");
-                } else if (!isBound()) {
-                    throw new SocketException("Socket is not bound yet");
-                }
-                var s = socketFactory.createSocket();
-                implAccept(s);
-                return s;
-            }
-        }
-    }
 
 
     @SuppressWarnings("serial")

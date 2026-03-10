@@ -108,8 +108,6 @@ public final class Simulator {
     // Visible for testing
     static final Set<String> REDIRECT_CONSTRUCTORS_OF = Set.of(
             "java/lang/Thread",
-            "java/net/Socket",
-            "java/net/ServerSocket",
             "java/io/FileInputStream",
             "java/io/FileOutputStream",
             "java/io/RandomAccessFile");

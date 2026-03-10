@@ -58,6 +58,7 @@ public final class Commons {
     static final List<String> JAVA_BASE_OPTIONS = List.of(
             "--enable-native-access=ALL-UNNAMED",
             "--add-opens=java.base/java.lang=ALL-UNNAMED",
+            "--add-opens=java.base/java.net=ALL-UNNAMED",
             "--add-opens=java.base/java.util=ALL-UNNAMED",
             "-Dnet.bytebuddy.safe=true",
             "-XX:+UnlockExperimentalVMOptions",

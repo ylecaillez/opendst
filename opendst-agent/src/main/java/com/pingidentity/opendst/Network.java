@@ -16,39 +16,32 @@
 package com.pingidentity.opendst;
 
 import static com.pingidentity.opendst.Node.currentNodeOrNull;
-import static com.pingidentity.opendst.Node.currentNodeOrThrow;
-import static java.util.Collections.unmodifiableCollection;
 import static java.util.Locale.ROOT;
 import static java.util.Objects.requireNonNull;
 import static net.bytebuddy.asm.Advice.to;
-import static net.bytebuddy.matcher.ElementMatchers.is;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.isStatic;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.returns;
 import static net.bytebuddy.matcher.ElementMatchers.takesNoArguments;
 
-import java.io.IOException;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.net.InetAddress;
 import java.net.NoRouteToHostException;
-import java.net.Proxy;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketImpl;
-import java.net.SocketImplFactory;
 import java.net.UnknownHostException;
 import java.net.spi.InetAddressResolver;
 import java.net.spi.InetAddressResolverProvider;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
-import javax.net.ServerSocketFactory;
-import javax.net.SocketFactory;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.asm.Advice;
 
@@ -57,6 +50,17 @@ import net.bytebuddy.asm.Advice;
  * <p>
  * This class manages host name to IP address mapping (DNS), routing,
  * and network partitions within the simulation.
+ * <p>
+ * Network interception uses two JVM-global hooks installed at agent startup:
+ * <ul>
+ *   <li>{@link Socket#setSocketImplFactory} / {@link ServerSocket#setSocketFactory} — intercepts
+ *       all {@code Socket} and {@code ServerSocket} construction (including JDK-internal calls such
+ *       as the SSLSocket super-constructor chain) and provides a simulated {@code SocketImpl} when
+ *       running inside a simulation node.</li>
+ *   <li>{@link ResolverProvider} — a {@link InetAddressResolverProvider} registered via
+ *       {@code ServiceLoader} that redirects DNS lookups to the simulated DNS registry when
+ *       running inside a simulation node.</li>
+ * </ul>
  */
 public final class Network {
     private static final int MAX_NODES = 100;
@@ -67,6 +71,38 @@ public final class Network {
     private final Map<String, Node> nameToNode = new HashMap<>();
     private final Map<String, Set<String>> partitions = new HashMap<>();
     private long baseLatencyMs = 0;
+
+    /**
+     * Handle to {@code SocketImpl.createPlatformSocketImpl(boolean)} for creating real socket
+     * implementations when a socket is constructed outside a simulation node (e.g. JDK-internal
+     * or JVM bootstrap code). Obtained reflectively because the method is package-private.
+     */
+    private static final MethodHandle CREATE_PLATFORM_SOCKET_IMPL;
+
+    static {
+        try {
+            var lookup = MethodHandles.privateLookupIn(SocketImpl.class, MethodHandles.lookup());
+            CREATE_PLATFORM_SOCKET_IMPL = lookup.findStatic(
+                    SocketImpl.class,
+                    "createPlatformSocketImpl",
+                    MethodType.methodType(SocketImpl.class, boolean.class));
+        } catch (ReflectiveOperationException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+
+    /**
+     * Creates a platform (real) {@link SocketImpl} for use outside simulation nodes.
+     * This is what the JDK would normally create if no factory were installed.
+     */
+    @SuppressWarnings("deprecation")
+    private static SocketImpl createPlatformSocketImpl(boolean server) {
+        try {
+            return (SocketImpl) CREATE_PLATFORM_SOCKET_IMPL.invokeExact(server);
+        } catch (Throwable e) {
+            throw new RuntimeException("Failed to create platform SocketImpl", e);
+        }
+    }
 
     Network(Simulator simulator) {
         this.simulator = requireNonNull(simulator);
@@ -231,78 +267,6 @@ public final class Network {
         }
     }
 
-    /**
-     * A socket implementation factory that produces Node-specific socket implementations.
-     */
-    @SuppressWarnings({"deprecation", "removal"})
-    public static final class NodeSocketImplFactory implements SocketImplFactory {
-        @Override
-        public SocketImpl createSocketImpl() {
-            var node = currentNodeOrNull();
-            if (node != null) {
-                return node.newSocketImpl(false);
-            }
-            return null;
-        }
-    }
-
-    private static boolean factoryInstalled = false;
-
-    public static Socket newSocket(String host, int port) throws IOException {
-        return currentNodeOrThrow().socketFactory().createSocket(host, port);
-    }
-
-    public static Socket newSocket(Proxy proxy) {
-        return new Socket(proxy);
-    }
-
-    public static Socket newSocket() throws IOException {
-        return currentNodeOrThrow().socketFactory().createSocket();
-    }
-
-    public static Socket newSocket(InetAddress host, int port) throws IOException {
-        return currentNodeOrThrow().socketFactory().createSocket(host, port);
-    }
-
-    public static Socket newSocket(InetAddress host, int port, boolean stream) throws IOException {
-        if (!stream) {
-            throw new UnsupportedOperationException("Datagram sockets are not supported");
-        }
-        return currentNodeOrThrow().socketFactory().createSocket(host, port);
-    }
-
-    public static Socket newSocket(String host, int port, boolean stream) throws IOException {
-        if (!stream) {
-            throw new UnsupportedOperationException("Datagram sockets are not supported");
-        }
-        return currentNodeOrThrow().socketFactory().createSocket(host, port);
-    }
-
-    public static Socket newSocket(InetAddress address, int port, InetAddress localAddr, int localPort)
-            throws IOException {
-        return currentNodeOrThrow().socketFactory().createSocket(address, port, localAddr, localPort);
-    }
-
-    public static Socket newSocket(String host, int port, InetAddress localAddr, int localPort) throws IOException {
-        return currentNodeOrThrow().socketFactory().createSocket(host, port, localAddr, localPort);
-    }
-
-    public static ServerSocket newServerSocket(int port) throws IOException {
-        return currentNodeOrThrow().serverSocketFactory().createServerSocket(port);
-    }
-
-    public static ServerSocket newServerSocket() throws IOException {
-        return currentNodeOrThrow().serverSocketFactory().createServerSocket();
-    }
-
-    public static ServerSocket newServerSocket(int port, int backlog) throws IOException {
-        return currentNodeOrThrow().serverSocketFactory().createServerSocket(port, backlog);
-    }
-
-    public static ServerSocket newServerSocket(int port, int backlog, InetAddress ifAddress) throws IOException {
-        return currentNodeOrThrow().serverSocketFactory().createServerSocket(port, backlog, ifAddress);
-    }
-
     @Intercepts("java.net.InetAddress#getLocalHost()")
     public static final class InetAddressGetLocalHost {
         @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
@@ -319,35 +283,28 @@ public final class Network {
             }
         }
     }
-/*
-    @Intercepts("javax.net.SocketFactory#getDefault()")
-    public static class GetDefaultSocketFactoryAdvice {
-        @Advice.OnMethodExit
-        public static void exit(@Advice.Return(readOnly = false) SocketFactory factory) {
-            var node = currentNodeOrNull();
-            if (node != null) {
-                factory = node.socketFactory();
-            }
-        }
-    }
 
-    @Intercepts("javax.net.ServerSocketFactory#getDefault()")
-    public static class GetDefaultServerSocketFactoryAdvice {
-        @Advice.OnMethodExit
-        public static void exit(@Advice.Return(readOnly = false) ServerSocketFactory factory) {
-            var node = currentNodeOrNull();
-            if (node != null) {
-                factory = node.serverSocketFactory();
-            }
-        }
-    }
-*/
+    private static boolean factoryInstalled = false;
+
+    /**
+     * Installs JVM-global socket factories and ByteBuddy advice for network interception.
+     * <p>
+     * The socket factories intercept all {@code Socket} and {@code ServerSocket} construction,
+     * returning a simulated {@code SocketImpl} when running inside a simulation node, or a
+     * platform socket implementation otherwise (for JDK-internal and bootstrap code).
+     */
     @SuppressWarnings({"deprecation", "removal"})
     static AgentBuilder instrument(AgentBuilder agent) {
         if (!factoryInstalled) {
             try {
-                Socket.setSocketImplFactory(() -> currentNodeOrThrow().newSocketImpl(false));
-                ServerSocket.setSocketFactory(() -> currentNodeOrThrow().newSocketImpl(true));
+                Socket.setSocketImplFactory(() -> {
+                    var node = currentNodeOrNull();
+                    return node != null ? node.newSocketImpl(false) : createPlatformSocketImpl(false);
+                });
+                ServerSocket.setSocketFactory(() -> {
+                    var node = currentNodeOrNull();
+                    return node != null ? node.newSocketImpl(true) : createPlatformSocketImpl(true);
+                });
                 factoryInstalled = true;
             } catch (Throwable e) {
                 throw new Simulator.SimulationError("Failed to install socket factories — "
@@ -363,11 +320,5 @@ public final class Network {
                                 .and(returns(InetAddress.class))
                                 .and(takesNoArguments()))))
                 .asTerminalTransformation();
-                // .type(is(SocketFactory.class))
-               /* .transform((builder, _, _, _, _) -> builder.visit(
-                        Advice.to(GetDefaultSocketFactoryAdvice.class).on(named("getDefault"))))
-                .type(is(ServerSocketFactory.class))
-                .transform((builder, _, _, _, _) -> builder.visit(
-                        Advice.to(GetDefaultServerSocketFactoryAdvice.class).on(named("getDefault")))); */
     }
 }
