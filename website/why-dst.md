@@ -74,11 +74,11 @@ public final class AccountServer {
     }
 
     public void serve(int port) throws IOException {
-        try (var ss = new ServerSocket()) {
-            ss.setReuseAddress(true);
-            ss.bind(new InetSocketAddress(port));
+        try (var serverSocket = new ServerSocket()) {
+            serverSocket.setReuseAddress(true);
+            serverSocket.bind(new InetSocketAddress(port));
             while (true) {
-                try (var socket = ss.accept();
+                try (var socket = serverSocket.accept();
                      var in = new DataInputStream(socket.getInputStream());
                      var out = new DataOutputStream(socket.getOutputStream())) {
                     int command = in.readInt();
@@ -92,7 +92,7 @@ public final class AccountServer {
 }
 ```
 
-Notice `Signals.ready()`. This is the only OpenDST-specific call in the server. It tells the simulator: "I'm done initializing — you can start injecting faults now." Without it, the simulator might inject a network partition before the server has opened its socket.
+Notice `Signals.ready()`. This is the only OpenDST-specific call in the server. It tells the simulator: "I'm done initializing — you can start injecting faults now." Without it, the simulator will not inject any fault at all — no network partitions, no latency spikes, no connection resets. The simulation runs, but only on the happy path.
 
 ### The transfer service (where the bug lives)
 
@@ -314,7 +314,7 @@ No real sockets are opened. The entire network exists inside the JVM.
 
 ### Fault injection
 
-Faults are injected *after* all nodes have called `Signals.ready()`. This ensures deterministic startup before the chaos begins. The simulator controls exactly when and where faults occur, guided by the seed.
+Faults are only injected after all nodes have called `Signals.ready()`. If a node never calls it, no faults are injected for the entire simulation — it runs on the happy path only. This is by design: it lets nodes complete initialization (bind sockets, load configuration) before the chaos begins.
 
 ### Seed-based replay
 
@@ -360,7 +360,7 @@ This code path must be reached at least once across all runs.
 ```java
 Signals.ready();
 ```
-Tells the simulator the node is initialized. Fault injection begins after all nodes are ready.
+Required for fault injection. The simulator will not inject any fault until all nodes have called `Signals.ready()`. Without it, the simulation runs but only exercises the happy path.
 
 These are empty stubs in `opendst-sdk`. The Maven plugin rewrites all call-sites to the actual simulation implementation during the build. Your production code compiles and runs normally without OpenDST — the SDK dependency has zero runtime cost.
 

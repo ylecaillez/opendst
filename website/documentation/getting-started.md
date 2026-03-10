@@ -52,8 +52,8 @@ public class EchoApp {
     public static class Server {
         public static void main(String[] args) throws Exception {
             var port = Integer.parseInt(args[0]);
-            try (var ss = new ServerSocket(port);
-                 var socket = ss.accept();
+            try (var serverSocket = new ServerSocket(port);
+                 var socket = serverSocket.accept();
                  var in = new DataInputStream(socket.getInputStream());
                  var out = new DataOutputStream(socket.getOutputStream())) {
                 Signals.ready();
@@ -110,7 +110,7 @@ The JAR contains everything — your application, the orchestrator, the simulato
 
 | Concept | Purpose |
 |---|---|
-| `Signals.ready()` | Tells the simulator the node is initialized. Fault injection begins after all nodes are ready. |
+| `Signals.ready()` | Required for fault injection. Without it, no faults are injected. Call it after initialization. |
 | `Assert.always(cond, name, details)` | Invariant — must be true on every execution path. |
 | `Assert.reachable(name, details)` | Liveness — this code must be reached at least once across all runs. |
 | `deployment.yaml` | Declares the services, their virtual IPs, and startup arguments. |
