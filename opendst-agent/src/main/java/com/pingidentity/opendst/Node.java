@@ -20,66 +20,35 @@ import static com.pingidentity.opendst.Threads.Internals.compareAndSetOnWaitingL
 import static com.pingidentity.opendst.Threads.Internals.getNext;
 import static com.pingidentity.opendst.Threads.Internals.isOnWaitingList;
 import static com.pingidentity.opendst.Threads.Internals.setThreadLocal;
-import static java.lang.Math.max;
-import static java.lang.Math.min;
-import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
-import static java.lang.System.arraycopy;
 import static java.lang.Thread.State.TERMINATED;
 import static java.lang.Thread.currentThread;
 import static java.lang.Thread.ofVirtual;
 import static java.lang.Thread.onSpinWait;
-import static java.lang.Thread.sleep;
-import static java.lang.Thread.startVirtualThread;
-import static java.net.InetAddress.getByName;
 import static java.net.InetAddress.getLoopbackAddress;
-import static java.time.Duration.ofNanos;
 import static java.time.temporal.ChronoUnit.NANOS;
-import static java.util.Objects.checkFromIndexSize;
 import static java.util.Objects.requireNonNull;
-import static java.util.concurrent.ThreadLocalRandom.current;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
-import java.io.Closeable;
-import java.io.FileDescriptor;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InterruptedIOException;
-import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.BindException;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.NoRouteToHostException;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketAddress;
-import java.net.SocketException;
 import java.net.SocketImpl;
-import java.net.SocketOption;
-import java.net.SocketTimeoutException;
-import java.net.StandardSocketOptions;
 import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.ToLongFunction;
 import java.util.stream.Stream;
 
@@ -183,13 +152,26 @@ public final class Node {
         return context.network();
     }
 
+    Faults.Config faults() {
+        return context.faults();
+    }
+
+    Simulator simulator() {
+        return context.simulator();
+    }
+
     Stream<InetAddress> inetAddresses() {
         return Stream.of(localHost);
     }
 
     @SuppressWarnings({"deprecation", "removal"})
     public SocketImpl newSocketImpl(boolean isServer) {
-        return new NodeSocketImpl(isServer);
+        return new NodeSocketImpl(this, isServer);
+    }
+
+    @SuppressWarnings({"deprecation", "removal"})
+    Binding bindSocket(InetAddress address, int port, SocketImpl socket, boolean reuseAddress) throws BindException {
+        return netInterfaces.bind(address, port, socket, reuseAddress);
     }
 
     /**
@@ -358,589 +340,12 @@ public final class Node {
         return workingDirectory;
     }
 
-
-
-    @SuppressWarnings("serial")
-    private static final class AsyncVar extends ReentrantLock {
-        private final Condition condition = newCondition();
-        private long changeCount;
-        private long value;
-
-        void await() throws InterruptedIOException {
-            lock();
-            try {
-                long change = changeCount;
-                while (change == changeCount) {
-                    condition.await();
-                }
-            } catch (InterruptedException e) {
-                throw new InterruptedIOException();
-            } finally {
-                unlock();
-            }
-        }
-
-        boolean await(long nanos) throws InterruptedIOException {
-            if (nanos == 0) {
-                await();
-                return true;
-            }
-            lock();
-            try {
-                long change = changeCount;
-                while (nanos > 0 && change == changeCount) {
-                    nanos = condition.awaitNanos(nanos);
-                }
-                return change != changeCount;
-            } catch (InterruptedException e) {
-                throw new InterruptedIOException();
-            } finally {
-                unlock();
-            }
-        }
-
-        void add(long value) {
-            set(this.value + value);
-        }
-
-        void set(long value) {
-            if (value != this.value) {
-                this.value = value;
-                signal();
-            }
-        }
-
-        void signal() {
-            lock();
-            try {
-                changeCount++;
-                condition.signalAll();
-            } finally {
-                unlock();
-            }
-        }
-
-        long get() {
-            return value;
-        }
-    }
-
-    @SuppressWarnings({"deprecation", "removal"})
-    public final class NodeSocketImpl extends SocketImpl implements Closeable {
-        private static final class NetBuffer {
-            private static final int CHUNK_SIZE = 4096;
-            private final ArrayDeque<byte[]> buffer = new ArrayDeque<>();
-            private int writePos = CHUNK_SIZE;
-            private int readPos;
-
-            void append(byte[] b, int offset, int len) {
-                for (int written; len > 0; len -= written, offset += written, writePos += written) {
-                    addBufferIfFull();
-                    written = min(CHUNK_SIZE - writePos, len);
-                    arraycopy(b, offset, buffer.getLast(), writePos, written);
-                }
-            }
-
-            private void addBufferIfFull() {
-                if (writePos == CHUNK_SIZE) {
-                    buffer.add(new byte[CHUNK_SIZE]);
-                    writePos = 0;
-                }
-            }
-
-            private int size() {
-                return buffer.size() * CHUNK_SIZE - readPos;
-            }
-
-            void read(byte[] b, int offset, int len) {
-                for (int read; len > 0 && !buffer.isEmpty(); len -= read, offset += read, readPos += read) {
-                    read = min(len, buffer.size() == 1 ? writePos - readPos : CHUNK_SIZE - readPos);
-                    arraycopy(buffer.getFirst(), readPos, b, offset, read);
-                    removeBufferIfEmpty();
-                }
-            }
-
-            private void removeBufferIfEmpty() {
-                if (readPos == CHUNK_SIZE) {
-                    buffer.removeFirst();
-                    readPos = 0;
-                }
-            }
-        }
-
-        private SynchronousQueue<NodeSocketImpl> connected;
-        private NetBuffer receiveBuffer;
-        /** Bytes already pulled from buffer (location of the beginning of recvBuf) */
-        private final AsyncVar readBytes = new AsyncVar();
-
-        private final AsyncVar receivedBytes = new AsyncVar();
-        private final AsyncVar sentBytes = new AsyncVar();
-        private final AsyncVar writtenBytes = new AsyncVar();
-        private boolean tcpFINSent;
-        private boolean tcpFINReceived;
-        private int sendBufferSize;
-        private boolean isServer;
-        private ArrayBlockingQueue<NodeSocketImpl> backlog;
-
-        private Binding binding;
-        private boolean stableConnection;
-        private NodeSocketImpl peer;
-        private boolean soReuseAddr;
-        private boolean isOutputShutdown;
-        private boolean isInputShutdown;
-        private int soTimeout;
-
-        private Object soLinger;
-        private boolean closed;
-
-        public NodeSocketImpl(boolean isServer) {
-            this.isServer = isServer;
-            this.connected = isServer ? null : new SynchronousQueue<>();
-            this.backlog = isServer ? new ArrayBlockingQueue<>(128) : null;
-        }
-
-        private Node node() {
-            return Node.this;
-        }
-
-        @Override
-        public void create(boolean stream) throws IOException {
-            if (!stream) {
-                throw new IOException("Datagram sockets are not supported");
-            }
-        }
-
-        @Override
-        public void connect(String host, int port) throws IOException {
-            connect(getByName(host), port);
-        }
-
-        @Override
-        public void connect(InetAddress address, int port) throws IOException {
-            connect(new InetSocketAddress(address, port), 10_000);
-        }
-
-        @Override
-        public void connect(SocketAddress toAddress, int timeoutMillis) throws IOException {
-            if (!(toAddress instanceof InetSocketAddress peerSocketAddress)) {
-                throw new IOException("Unsupported toAddress type");
-            } else if (peerSocketAddress.isUnresolved()) {
-                throw new UnknownHostException(peerSocketAddress.getHostName());
-            }
-
-            try {
-                var peerAddress = peerSocketAddress.getAddress();
-                if (binding == null) {
-                    binding = netInterfaces.bind(
-                            peerAddress.isLoopbackAddress() ? getLoopbackAddress() : localHost,
-                            localport,
-                            this,
-                            soReuseAddr);
-                    localport = binding.port();
-                }
-
-                int peerPort = peerSocketAddress.getPort();
-                var peerSocket = route(binding.address(), peerAddress, peerPort);
-                if (!(peerSocket instanceof NodeSocketImpl listeningSocket) || !listeningSocket.isServer) {
-                    throw new SocketException("Connection refused");
-                }
-                stableConnection = listeningSocket.node() == Node.this;
-                address = peerAddress;
-                port = peerPort;
-                if (!listeningSocket.backlog.offer(this)) {
-                    throw new SocketException("Connection refused");
-                } else if (timeoutMillis > 0 && (peer = connected.poll(timeoutMillis, MILLISECONDS)) == null) {
-                    throw new SocketTimeoutException();
-                } else if (timeoutMillis == 0) {
-                    peer = connected.take();
-                }
-                var latency = context.faultInjector().setPairLatencyIfNotSet(peerAddress, address,
-                                                                             ofNanos((context.faults().network()
-                                                                                             .cloggingLatencyMaximum()
-                                                                                             .toNanos()
-                                                                                     * current().nextInt(1000))
-                                                                                             / 1000));
-                this.sendBufferSize = toIntExact(max(current().nextLong(0, 5_000_000), 25_000 * (2 + latency.toMillis())));
-                this.receiveBuffer = new NetBuffer();
-                startVirtualThread(new FutureTask<>(this::receiver)).setName(address + " - receiver");
-                startVirtualThread(new FutureTask<>(this::sender)).setName(address + " - sender");
-            } catch (InterruptedException e) {
-                close();
-                throw new SocketException("Closed by interrupt");
-            } catch (SocketException e) {
-                close();
-                throw e;
-            }
-        }
-
-        @Override
-        public void bind(InetAddress host, int port) throws IOException {
-            binding = netInterfaces.bind(host, port, this, soReuseAddr);
-            localport = binding.port();
-            if (isServer) {
-                address = binding.address();
-            }
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return new InputStream() {
-                @Override
-                public int read() throws IOException {
-                    byte[] a = new byte[1];
-                    int n = read(a, 0, 1);
-                    return (n > 0) ? (a[0] & 0xff) : -1;
-                }
-
-                @Override
-                public int read(byte[] b, int off, int len) throws IOException {
-                    requireNonNull(b);
-                    checkFromIndexSize(off, len, b.length);
-                    for (; ; ) {
-                        int readable = min(len, Math.toIntExact(receivedBytes.get() - readBytes.get()));
-                        assert readable >= 0 && readable <= receiveBuffer.size() && readable <= len;
-                        if (closed) {
-                            throw new SocketException("Socket is closed");
-                        } else if (isInputShutdown) {
-                            return -1;
-                        } else if (readable > 0) {
-                            receiveBuffer.read(b, off, readable);
-                            readBytes.add(readable);
-                            return readable;
-                        } else if (len == 0) {
-                            return 0;
-                        } else if (tcpFINReceived) {
-                            return -1;
-                        } else if (!receivedBytes.await(MILLISECONDS.toNanos(soTimeout))) {
-                            throw new SocketTimeoutException();
-                        }
-                    }
-                }
-
-                @Override
-                public int available() {
-                    return isInputShutdown ? 0 : (int) (receivedBytes.get() - readBytes.get());
-                }
-
-                @Override
-                public void close() {
-                    shutdownInput();
-                }
-            };
-        }
-
-        @Override
-        protected void shutdownInput() {
-            isInputShutdown = true;
-            sentBytes.signal();
-        }
-
-        @Override
-        protected void shutdownOutput() {
-            isOutputShutdown = true;
-            // Unblock local write() and peer read() so that it can returns -1 if all bytes have been read
-            peer.writtenBytes.signal();
-        }
-
-        private int availableSendBufferForPeer() {
-            return sendBufferSize - toIntExact(writtenBytes.get() - receivedBytes.get());
-        }
-
-        @Override
-        public OutputStream getOutputStream() {
-            return new OutputStream() {
-                @Override
-                public void write(int b) throws IOException {
-                    write(new byte[] {(byte) b});
-                }
-
-                @Override
-                public void write(byte[] b, int off, int len) throws IOException {
-                    requireNonNull(b);
-                    checkFromIndexSize(off, len, b.length);
-                    for (int bytesWritten, totalWritten = 0; totalWritten < len; totalWritten += bytesWritten) {
-                        if (closed) {
-                            throw new SocketException("socket is closed");
-                        } else if (peer.closed) {
-                            throw new SocketException("Connection reset");
-                        } else if (isOutputShutdown) {
-                            throw new SocketException("Socket output is shutdown");
-                        } else if (peer.isInputShutdown) {
-                            // Discard silently per contract
-                            return;
-                        }
-                        bytesWritten = min(len, peer.availableSendBufferForPeer());
-                        if (bytesWritten > 0) {
-                            peer.receiveBuffer.append(b, off, bytesWritten);
-                            peer.writtenBytes.add(bytesWritten);
-                        } else {
-                            peer.receivedBytes.await();
-                        }
-                    }
-                }
-
-                @Override
-                public void close() {
-                    NodeSocketImpl.this.close();
-                }
-            };
-        }
-
-        private Void sender() throws InterruptedException, InterruptedIOException {
-            for (; ; ) {
-                if (sentBytes.get() == writtenBytes.get()) {
-                    // All bytes previously written by the peer have been sent
-                    if (peer.isOutputShutdown) {
-                        // Peer notified that no more data will be sent
-                        peer.tcpFINSent = true;
-                        sentBytes.signal();
-                        return null;
-                    }
-                    // Wait for more bytes from peer
-                    writtenBytes.await();
-                } else {
-                    // Peer has written some bytes which needs to be sent
-                    long twoNanosSec = MILLISECONDS.toNanos(2);
-                    sleep(ofNanos((twoNanosSec * current().nextInt(0, 1000)) / 1000));
-                    sentBytes.set(writtenBytes.get());
-                }
-            }
-        }
-
-        private Void receiver() throws InterruptedException, InterruptedIOException {
-            for (; ; ) {
-                if (isInputShutdown) {
-                    return null;
-                } else if (context.faultInjector().isDisconnected(address, binding.address)) {
-                    // TODO: Here we behaves like black-hole, should we throw an error or close the connection
-                    //  instead ?
-                    return null;
-                }
-                if (receivedBytes.get() == sentBytes.get()) {
-                    // All bytes sent by peer have been received
-                    if (peer.tcpFINSent) {
-                        // Peer will not send bytes anymore, wake-up read() so that it can returns -1
-                        tcpFINReceived = true;
-                        receivedBytes.signal();
-                        return null;
-                    }
-                    // Wait for more bytes sent by peer
-                    sentBytes.await();
-                } else {
-                    // Receive bytes sent by peer
-                    long bytes = current().nextInt(100) < 5
-                            ? sentBytes.get()
-                            : current().nextLong(receivedBytes.get(), sentBytes.get() + 1);
-                    var delay = context.faultInjector()
-                                       .networkSendDelay(peer.address, address, stableConnection)
-                                       .plus(context.faultInjector()
-                                                    .networkReceiveDelay(peer.address, address, stableConnection));
-                    sleep(delay);
-                    receivedBytes.set(bytes);
-                }
-            }
-        }
-
-        @Override
-        public int available() throws IOException {
-            if (closed) {
-                throw new SocketException("socket is closed");
-            }
-            return isInputShutdown ? 0 : receiveBuffer.size();
-        }
-
-        @Override
-        public void close() {
-            closed = isOutputShutdown = isInputShutdown = true;
-            if (binding != null) {
-                binding.close();
-            }
-            if (isServer) {
-                // unblock local accept()
-                backlog.offer(new NodeSocketImpl(false));
-            } else {
-                // Unblock local read() and peer's write()
-                sentBytes.signal();
-                if (peer != null) {
-                    peer.writtenBytes.signal();
-                }
-            }
-        }
-
-        @Override
-        public void sendUrgentData(int data) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public <T> void setOption(SocketOption<T> name, T value) {
-            if (StandardSocketOptions.SO_RCVBUF.equals(name)) {
-                setOption(SO_RCVBUF, value);
-            } else if (StandardSocketOptions.SO_REUSEADDR.equals(name)) {
-                setOption(SO_REUSEADDR, value);
-            } else if (StandardSocketOptions.SO_LINGER.equals(name)) {
-                setOption(SO_LINGER, value);
-            } else if (StandardSocketOptions.TCP_NODELAY.equals(name)) {
-                setOption(TCP_NODELAY, value);
-            } else if (StandardSocketOptions.SO_KEEPALIVE.equals(name)) {
-                setOption(SO_KEEPALIVE, value);
-            } else {
-                throw new UnsupportedOperationException(name.name());
-            }
-        }
-
-        @Override
-        public void setOption(int optID, Object value) {
-            if (optID == SO_TIMEOUT) {
-                soTimeout = (Integer) value;
-            } else if (optID == SO_REUSEADDR) {
-                if (isServer) {
-                    soReuseAddr = (Boolean) value;
-                }
-            } else if (!isServer && optID == SO_LINGER) {
-                soLinger = value;
-            } else if (!isServer && optID == SO_RCVBUF) {
-                // SO_RCVBUF is only a hint: simply ignore it
-            } else if (optID == TCP_NODELAY || optID == SO_KEEPALIVE) {
-                // Ignored
-            } else {
-                throw new UnsupportedOperationException();
-            }
-        }
-
-        @Override
-        public Object getOption(int optID) {
-            if (optID == SO_TIMEOUT) {
-                return soTimeout;
-            } else if (isServer && optID == SO_REUSEADDR) {
-                return soReuseAddr;
-            } else if (isServer && optID == SO_RCVBUF) {
-                return sendBufferSize;
-            } else if (!isServer && optID == SO_LINGER) {
-                return soLinger;
-            } else if (optID == SO_BINDADDR) {
-                return binding != null ? binding.address() : InetAddress.ofLiteral("0.0.0.0");
-            } else {
-                throw new UnsupportedOperationException();
-            }
-        }
-
-        @Override
-        protected void listen(int backlog) {
-            this.backlog = new ArrayBlockingQueue<>(backlog);
-        }
-
-        @Override
-        public void accept(SocketImpl socket) throws IOException {
-            if (!(socket instanceof NodeSocketImpl acceptedLocalSocket)) {
-                context.simulator()
-                        .exitSimulation(
-                                INTERNAL_ERROR,
-                                new Simulator.SimulationError("The accepted local socket is not a NodeSocketImpl: '%s'"
-                                        .formatted(socket.toString())));
-                throw new IOException("Not a NodeSocketImpl");
-            }
-            try {
-                var peerSocket = soTimeout == 0 ? backlog.take() : backlog.poll(soTimeout, MILLISECONDS);
-                if (closed) {
-                    throw new SocketException("Socket closed");
-                } else if (peerSocket == null) {
-                    throw new InterruptedIOException();
-                }
-                acceptedLocalSocket.binding = new Binding(peerSocket.address, peerSocket.port, () -> {});
-                acceptedLocalSocket.localport = localport;
-                acceptedLocalSocket.address = peerSocket.binding.address();
-                acceptedLocalSocket.port = peerSocket.binding.port();
-                acceptedLocalSocket.peer = peerSocket;
-
-                if (context.faultInjector().isDisconnected(address, peerSocket.address)) {
-                    acceptedLocalSocket.close();
-                } else {
-                    var latency = context.faultInjector().setPairLatencyIfNotSet(peerSocket.address, address,
-                                                                                 ofNanos((context.faults().network()
-                                                                                                 .cloggingLatencyMaximum()
-                                                                                                 .toNanos()
-                                                                                         * current().nextInt(1000))
-                                                                                                 / 1000));
-                    acceptedLocalSocket.sendBufferSize = toIntExact(max(current().nextLong(0, 5_000_000), 25 * (
-                            MILLISECONDS.toMicros(2)
-                                    + NANOSECONDS.toMicros(latency.toNanos()))));
-                    acceptedLocalSocket.receiveBuffer = new NetBuffer();
-
-                    startVirtualThread(new FutureTask<>(acceptedLocalSocket::receiver))
-                            .setName(acceptedLocalSocket.address + " - receiver");
-                    startVirtualThread(new FutureTask<>(acceptedLocalSocket::sender))
-                            .setName(peerSocket.address + " - sender");
-                    peerSocket.connected.offer(acceptedLocalSocket);
-                    Thread.yield();
-                }
-            } catch (InterruptedException e) {
-                throw new InterruptedIOException();
-            }
-        }
-
-        @SuppressWarnings("unchecked")
-        @Override
-        public <T> T getOption(SocketOption<T> name) {
-            if (StandardSocketOptions.SO_RCVBUF.equals(name)) {
-                return (T) getOption(SO_RCVBUF);
-            } else if (StandardSocketOptions.SO_REUSEADDR.equals(name)) {
-                return (T) getOption(SO_REUSEADDR);
-            } else if (StandardSocketOptions.SO_LINGER.equals(name)) {
-                return (T) getOption(SO_LINGER);
-            } else {
-                throw new UnsupportedOperationException(name.name());
-            }
-        }
-
-        @Override
-        public Set<SocketOption<?>> supportedOptions() {
-            return Set.of(
-                    StandardSocketOptions.SO_RCVBUF,
-                    StandardSocketOptions.SO_REUSEADDR,
-                    StandardSocketOptions.SO_LINGER,
-                    StandardSocketOptions.TCP_NODELAY,
-                    StandardSocketOptions.SO_KEEPALIVE);
-        }
-
-        @Override
-        public FileDescriptor getFileDescriptor() {
-            return null;
-        }
-
-        @Override
-        public InetAddress getInetAddress() {
-            return address;
-        }
-
-        @Override
-        public int getPort() {
-            return port;
-        }
-
-        @Override
-        public int getLocalPort() {
-            return localport;
-        }
-    }
-
     @SuppressWarnings({"deprecation", "removal"})
     SocketImpl route(InetAddress from, InetAddress address, int port)
             throws UnknownHostException, NoRouteToHostException {
         return netInterfaces.isLocal(address)
                 ? netInterfaces.route(address, port)
                 : context.network().route(from, address, port);
-    }
-
-    private record Binding(InetAddress address, int port, Closeable closeable) implements Closeable {
-        @Override
-        public void close() {
-            try {
-                closeable.close();
-            } catch (IOException e) {
-                // Ignore silently
-            }
-        }
     }
 
     private class NodeInterfaces {
