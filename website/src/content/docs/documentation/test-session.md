@@ -1,25 +1,25 @@
 ---
 title: The Test Session
-description: A test session is the full lifecycle from mvn verify to the final HTML report.
+description: A test session is the full lifecycle from mvn package to the final report.
 ---
 
-A test session is the full lifecycle from `mvn verify` to the final HTML report. Here is what happens, step by step.
+A test session is the full lifecycle from `mvn package` to the final report. Here is what happens, step by step.
 
 ---
 
 ## Phase 1: Instrumentation
 
-The plugin instruments all application and test classes **offline** (before any simulation runs). Call-sites to JDK APIs like `new Socket()`, `Files.read()`, or `new Thread()` are rewritten to use the simulator's deterministic replacements.
+The plugin instruments all application classes **offline** (before any simulation runs). Call-sites to JDK APIs like `new Socket()`, `Files.read()`, or `new Thread()` are rewritten to use the simulator's deterministic replacements.
 
 During this phase, the plugin also performs **static bytecode analysis** to discover all `Assert.*` call sites and their string-literal labels. This builds a complete property catalog before any simulation starts.
 
-## Phase 2: Test Discovery
+## Phase 2: Packaging
 
-The plugin scans `target/test-classes` for classes matching `**/*DST` (or your custom `includes`/`excludes` patterns). Within each class, it discovers all `public void` no-arg methods. Each class+method pair becomes a separate test to run.
+The plugin packages everything into a **self-contained executable JAR**: instrumented application classes, the simulator agent, the runner, Jackson libraries, the deployment descriptor, and the orchestration configuration. This JAR can be run standalone with `java -jar`.
 
 ## Phase 3: Simulation Loop
 
-For each test, the orchestrator enters a loop running up to `parallelism` simulations concurrently. Each iteration:
+When the JAR is executed, the orchestrator enters a loop running up to `parallelism` simulations concurrently. Each iteration:
 
 1. The orchestrator generates a **Plan** — either a fresh random walk, a branch from a known signal, or a replay of a past plan for determinism verification.
 2. A child JVM is forked with the instrumented classpath and the simulator agent. The plan is sent via stdin.
@@ -36,7 +36,7 @@ The session ends when any of these conditions is met:
 
 ## Phase 5: Report & Verdict
 
-The plugin generates an **HTML report** and a **JSON report** at `target/opendst/<TestClass>/report.html`. It then checks all properties: every `always` property must have passed on every hit, every `sometimes` property must have been satisfied at least once, and the system must have terminated cleanly. If any check fails, the build fails.
+The runner generates a **JSON report** at the end of the session. It then checks all properties: every `always` property must have passed on every hit, every `sometimes` property must have been satisfied at least once, and the system must have terminated cleanly. If any check fails, the run exits with a non-zero status.
 
 ---
 

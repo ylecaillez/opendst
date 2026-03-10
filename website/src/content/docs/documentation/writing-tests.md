@@ -1,112 +1,124 @@
 ---
 title: Writing DST Scenarios
-description: DST tests are plain Java classes. No annotations, no base classes, no test framework.
+description: Describe your distributed system topology in deployment.yaml and write plain Java applications.
 ---
 
-DST tests are plain Java classes. No annotations, no base classes, no test framework.
-
----
-
-## Structural Rules
-
-- Class name must end with `DST` (or match your custom `includes` pattern).
-- Must have a **public no-arg constructor**.
-- Each test method must be `public void` with zero parameters (can throw exceptions).
-- Place test files in `src/test/java` as usual.
-- Just write your simulation logic directly in the method body — the framework wraps it automatically.
+OpenDST scenarios are defined declaratively. You write plain Java applications with `public static void main(String[])` entry points, then describe the deployment topology in a `deployment.yaml` file. No test framework, no annotations, no base classes.
 
 ---
 
-## Pattern A: Single-Node
+## Project Layout
 
-The simplest pattern. The entire scenario runs inline. Good for testing algorithms, data structures, or single-process logic under randomized inputs.
+Application classes live in `src/main/java`. The deployment topology is described in `deployment.yaml` at the project root. There are no "test classes" — the simulator runs your real application code.
 
-```java title="SingleNodeDST.java"
-public class SingleNodeDST {
-    public void run() {
-        Signals.ready();
-        int value = ThreadLocalRandom.current().nextInt(100);
-        Assert.always(value >= 0, "non-negative", null);
-        Assert.sometimes(value > 50, "sometimes-large", null);
-    }
-}
+```
+my-project/
+├── deployment.yaml              # Topology descriptor
+├── pom.xml                      # Maven config with opendst-maven-plugin
+└── src/main/java/
+    └── com/example/
+        ├── Server.java          # Service with main()
+        ├── Client.java          # Service with main()
+        └── MyTraceAuditor.java  # Optional: log observer
 ```
 
 ---
 
-## Pattern B: Multi-Node with `startNode()`
+## The Deployment Descriptor
 
-For distributed scenarios. Each node gets its own hostname, IP address, and console. Nodes communicate over simulated TCP sockets. All standard Java networking APIs (`Socket`, `ServerSocket`) work transparently.
+`deployment.yaml` defines the services that make up your distributed system. Each service maps to a Java class with a `public static void main(String[])` method.
 
-```java title="MultiNodeDST.java"
-public class MultiNodeDST {
-    public void run() throws IOException {
-        startNode("server", "10.0.0.1", () -> server());
-        startNode("client", "10.0.0.2", () -> client());
+```yaml title="deployment.yaml"
+services:
+  server:
+    class: com.example.Server
+    ip: 10.0.0.1
+    args: ["8080"]
+  client:
+    class: com.example.Client
+    ip: 10.0.0.2
+    args: ["10.0.0.1", "8080"]
+
+traceAuditor:
+  class: com.example.MyTraceAuditor
+```
+
+### Service Properties
+
+| Property | Required | Description |
+|----------|----------|-------------|
+| `class`  | yes      | Fully-qualified class name with `public static void main(String[])`. Use `$` for inner classes (e.g., `MyApp$Server`). |
+| `ip`     | yes      | Virtual IP address for this node. |
+| `args`   | no       | Command-line arguments passed to `main()`. |
+| `dir`    | no       | Local directory path containing the application classes. Defaults to the current project's `target/classes/` and runtime dependencies. |
+| `artifact` | no     | Maven GAV coordinate (e.g., `com.example:my-app:war:1.0.0`). Used when the service comes from a different Maven module. |
+
+### Source Resolution
+
+Each service resolves its classpath from one of three sources (mutually exclusive):
+
+1. **Current project** (default) — when neither `dir` nor `artifact` is set, the service uses the current project's compiled classes and runtime dependencies.
+2. **Local directory** (`dir`) — a path to an exploded WAR or classes directory. The simulator loads classes from `WEB-INF/classes/` and `WEB-INF/lib/`.
+3. **Maven artifact** (`artifact`) — a Maven GAV coordinate resolved from local/remote repositories.
+
+---
+
+## Writing Services
+
+Each service is a standalone Java class with a `main` method. Use the `opendst-sdk` for assertions and lifecycle signals:
+
+```java title="src/main/java/com/example/EchoApp.java"
+import com.pingidentity.opendst.api.Assert;
+import com.pingidentity.opendst.api.Signals;
+import java.io.*;
+import java.net.*;
+
+public class EchoApp {
+
+    public static class Server {
+        public static void main(String[] args) throws Exception {
+            var port = Integer.parseInt(args[0]);
+            try (var ss = new ServerSocket(port);
+                 var socket = ss.accept();
+                 var in = new DataInputStream(socket.getInputStream());
+                 var out = new DataOutputStream(socket.getOutputStream())) {
+                Signals.ready();              // Ready for fault injection
+                int value = in.readInt();
+                Assert.reachable("server-received", null);
+                out.writeInt(value + 1);
+            }
+        }
     }
 
-    private Void server() throws Exception {
-        var ss = new ServerSocket(8080);
-        Signals.ready();
-        // ... accept connections, process requests
-        return null;
-    }
-
-    private Void client() throws Exception {
-        Signals.ready();
-        var socket = new Socket("10.0.0.1", 8080);
-        // ... send requests, verify responses
-        return null;
+    public static class Client {
+        public static void main(String[] args) throws Exception {
+            var host = args[0];
+            var port = Integer.parseInt(args[1]);
+            Signals.ready();
+            try (var socket = new Socket(host, port);
+                 var out = new DataOutputStream(socket.getOutputStream());
+                 var in = new DataInputStream(socket.getInputStream())) {
+                out.writeInt(42);
+                int response = in.readInt();
+                Assert.always(response == 43, "echo-correct", null);
+            }
+        }
     }
 }
 ```
 
-:::note
-Node methods return `Void` (capital V) because they are `Callable<Void>`. Always return `null` at the end.
-:::
+Each service runs in its own classloader-isolated node with a virtual IP. All socket, thread, and time operations are intercepted deterministically.
 
 ---
 
-## Pattern C: Deployment API (Full Isolation)
+## Trace Auditing
 
-For testing real distributed applications. Each service gets its own `ClassLoader`, working directory, and filesystem. Think of `image()` as a Docker image and `service()` as a container.
+Implement the `TraceAuditor` interface to observe log output from all simulated nodes in real time. The trace auditor runs **outside** the simulation context to protect determinism.
 
-```java title="DeploymentDST.java"
-import static com.pingidentity.opendst.Deployment.Image.image;
-import static com.pingidentity.opendst.Deployment.Service.service;
-import static com.pingidentity.opendst.Simulator.deploy;
+```java title="src/main/java/com/example/MyTraceAuditor.java"
+import com.pingidentity.opendst.api.TraceAuditor;
 
-public class DeploymentDST {
-    static final Path WAR = Path.of("my-app");
-
-    public void run() throws IOException {
-        deploy(
-            of(image("server-img", WAR, "com.example.Server")),
-            of(service("node-1", "server-img", ofLiteral("10.0.0.1"), args("8080")),
-               service("node-2", "server-img", ofLiteral("10.0.0.2"), args("8080"))));
-    }
-}
-```
-
-**Images** define a reusable blueprint: a WAR directory path, a main class, and an optional extra classpath. The WAR directory is resolved relative to `target/opendst/instrumented-wars/`.
-
-**Services** are instances of an image, each with a unique hostname, IP, and optional `main(String[] args)` arguments.
-
-**Filesystem isolation:** Files under `WEB-INF/fs/` in the image are copied to the service's working directory at startup.
-
----
-
-## Log Monitoring
-
-Implement the `LogMonitor` interface on your DST class to observe log output from all simulated nodes in real time. The framework detects the interface automatically.
-
-```java title="MonitoredDST.java"
-public class MonitoredDST implements LogMonitor {
-    public void run() throws IOException {
-        startNode("server", "10.0.0.1", this::server);
-        startNode("client", "10.0.0.2", this::client);
-    }
-
+public class MyTraceAuditor implements TraceAuditor {
     @Override
     public void process(Log log) throws Throwable {
         if (log.message().contains("ERROR")) {
@@ -116,6 +128,42 @@ public class MonitoredDST implements LogMonitor {
 }
 ```
 
+Reference it in `deployment.yaml`:
+
+```yaml
+traceAuditor:
+  class: com.example.MyTraceAuditor
+```
+
+The `Log` record contains: `host` (node name), `time` (simulated instant), `iteration` (PRNG step count), and `message` (the log line).
+
 :::caution
-`LogMonitor.process()` runs **outside** the simulation context to protect determinism. Do not share mutable state between your `run()` method and your `process()` method.
+`TraceAuditor.process()` runs outside the simulation. Throwing an exception stops the simulation and marks it as a failure. Do not share mutable state with service code.
 :::
+
+---
+
+## Multi-Module Projects
+
+For projects where the application under test lives in a separate Maven module, use the `artifact` property to reference it by GAV coordinate, or `dir` to point to its exploded WAR directory:
+
+```yaml title="deployment.yaml"
+services:
+  alice:
+    class: com.example.bank.AccountServer
+    artifact: com.example:bank-app:war:1.0.0
+    ip: 10.0.0.1
+    args: ["8001", "1000"]
+  bob:
+    class: com.example.bank.AccountServer
+    artifact: com.example:bank-app:war:1.0.0
+    ip: 10.0.0.2
+    args: ["8002", "1000"]
+  coordinator:
+    class: com.example.bank.Coordinator
+    artifact: com.example:bank-app:war:1.0.0
+    ip: 10.0.0.3
+    args: ["10.0.0.1", "8001", "10.0.0.2", "8002", "20"]
+```
+
+When using `artifact`, the plugin resolves the WAR from Maven repositories, extracts it, instruments the bytecode, and packages everything into the self-contained simulation JAR.

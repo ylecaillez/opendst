@@ -100,23 +100,21 @@ OpenDST requires a structured directory containing all classes and dependencies 
 ```
 
 ### Step 2: Plugin and SDK Integration
-Add the `opendst-sdk` for signaling and the `opendst-maven-plugin` to orchestrate the simulation during the `test` phase.
+Add the `opendst-sdk` for signaling and the `opendst-maven-plugin` to instrument and package the simulation.
 
 ```xml
 <plugin>
     <groupId>com.pingidentity.opendst</groupId>
     <artifactId>opendst-maven-plugin</artifactId>
     <version>${opendst.version}</version>
-    <configuration>
-        <parallelism>8</parallelism>
-        <networkFaults>
-            <enabled>true</enabled>
-            <latencyProbability>0.5</latencyProbability>
-        </networkFaults>
-    </configuration>
     <executions>
         <execution>
-            <goals><goal>test</goal></goals>
+            <goals><goal>build</goal></goals>
+            <configuration>
+                <descriptor>${project.basedir}/deployment.yaml</descriptor>
+                <parallelism>8</parallelism>
+                <stagnationLimit>200</stagnationLimit>
+            </configuration>
         </execution>
     </executions>
 </plugin>
@@ -131,26 +129,34 @@ Add the `opendst-sdk` for signaling and the `opendst-maven-plugin` to orchestrat
 *   An application entry point (`public static void main`).
 
 ### Learning Outcomes
-You will implement a multi-node simulation scenario. You will learn to use the **Deployment API** to construct topologies and the **Log Monitor** to enforce global properties.
+You will implement a multi-node simulation scenario. You will learn to use the **Deployment Descriptor** to construct topologies and the **Trace Auditor** to enforce global properties.
 
 ### The Deployment Scenario
-Scenario classes live in `src/test/java` and are automatically discovered by the OpenDST plugin.
+Application classes live in `src/main/java`. The deployment topology is described declaratively in `deployment.yaml`:
+
+```yaml
+services:
+  node-1:
+    class: com.example.AppMain
+    ip: 10.0.0.1
+    args: ["8080"]
+  node-2:
+    class: com.example.AppMain
+    ip: 10.0.0.2
+    args: ["8080"]
+  workload:
+    class: com.example.Workload
+    ip: 10.0.0.100
+    args: ["10.0.0.1"]
+
+traceAuditor:
+  class: com.example.ConsensusAuditor
+```
+
+The Trace Auditor observes logs from all nodes in real time, running **outside** the simulation context:
 
 ```java
-public class DistributedConsensusDST implements LogMonitor {
-    public static final Path WAR = Path.of("my-app-name");
-
-    public void run() throws IOException {
-        deploy(
-            of(image("node-v1", WAR, "com.example.AppMain")),
-            of(
-                service("node-1", "node-v1", ofLiteral("10.0.0.1"), new String[]{"8080"}),
-                service("node-2", "node-v1", ofLiteral("10.0.0.2"), new String[]{"8080"}),
-                service("workload", "node-v1", ofLiteral("10.0.0.100"), new String[]{"10.0.0.1"})
-            ));
-    }
-
-    // The Global Invariant Checker
+public class ConsensusAuditor implements TraceAuditor {
     @Override
     public void process(Log log) throws Throwable {
         if (log.message().contains("InconsistencyDetected")) {

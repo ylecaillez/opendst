@@ -51,10 +51,10 @@ graph TD
 
 ## 3. Building and Deploying
 
-OpenDST is designed to test real deployments. The standard way to provide your application to the simulator is via a **WAR** (Web Application Archive) or a simple directory of classes.
+OpenDST is designed to test real deployments. Your application logic resides in `src/main`, and the deployment topology is described in a `deployment.yaml` file.
 
 ### Project Structure
-A typical DST project uses the `opendst-maven-plugin`. Your application logic resides in `src/main`, and your DST scenarios reside in `src/test`.
+A typical DST project uses the `opendst-maven-plugin`. Application classes live in `src/main/java` — there are no special test classes. The `deployment.yaml` at the project root describes which services to run and how they connect.
 
 ### Packaging as a WAR
 In your `pom.xml`, configure the `maven-war-plugin` to create an exploded WAR:
@@ -75,7 +75,7 @@ The simulator will use the content of `WEB-INF/classes` and `WEB-INF/lib` from t
 
 ---
 
-## 4. Bug Hunting with Signals and Log Monitors
+## 4. Bug Hunting with Signals and Trace Auditors
 
 ### Using Signals (The SDK)
 The `opendst-sdk` provides a way for your code to communicate with the orchestrator.
@@ -98,16 +98,11 @@ if (code == SECRET_SEQUENCE[currentLevel]) {
 }
 ```
 
-### The Log Monitor
-You can define custom "Property Checkers" by implementing the `LogMonitor` interface on your DST class. This allows you to detect bugs by observing the logs of all nodes in real time.
+### The Trace Auditor
+You can define custom "Property Checkers" by implementing the `TraceAuditor` interface. This allows you to detect bugs by observing the logs of all nodes in real time. The trace auditor runs **outside** the simulation context to protect determinism.
 
 ```java
-public class MyDST implements LogMonitor {
-    public void run() throws IOException {
-        startNode("server", "10.0.0.1", this::server);
-        startNode("client", "10.0.0.2", this::client);
-    }
-
+public class MyTraceAuditor implements TraceAuditor {
     @Override
     public void process(Log log) throws Throwable {
         // Fail if any node logs an error
@@ -118,22 +113,26 @@ public class MyDST implements LogMonitor {
 }
 ```
 
+Reference it in `deployment.yaml`:
+
+```yaml
+traceAuditor:
+  class: com.example.MyTraceAuditor
+```
+
 ### Quick Interrupt on Discovery
-In OpenDST, throwing an `AssertionError` (either in the test or the `LogMonitor`) is the preferred way to **instantly stop** the simulation. The orchestrator catches this, identifies the run as a "discovery," and saves the exact `Plan` (seed and sequence of events) to `target/opendst/<testName>/failures/` for instant replay.
+In OpenDST, throwing an `AssertionError` (either in the application or the `TraceAuditor`) is the preferred way to **instantly stop** the simulation. The orchestrator catches this, identifies the run as a "discovery," and saves the exact `Plan` (seed and sequence of events) for instant replay.
 
 ---
 
 ## 5. Running the Simulation
 
-Use the Maven plugin to start the exploration:
+The `build` goal produces a self-contained executable JAR. Build and run:
 
 ```bash
-# Run all DST tests
-mvn verify
+# Build the simulation JAR
+mvn package
 
-# Run a specific DST test
-mvn verify -Dopendst.test=MySystemDST
-
-# Replay a specific failing plan
-mvn verify -Dopendst.test=<testName> -Dopendst.plan=target/opendst/<testName>/failures/failure-0.json
+# Run the simulation
+java -jar target/<your-project>-<version>-opendst.jar
 ```

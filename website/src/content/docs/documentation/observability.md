@@ -1,18 +1,18 @@
 ---
 title: Reports & Observability
-description: HTML/JSON reports and the structured log protocol.
+description: JSON reports and the structured log protocol.
 ---
 
 ---
 
-## HTML & JSON Reports
+## JSON Reports
 
-At the end of each test session, the plugin generates reports at `target/opendst/<TestClass>/report.html` and `report.json`. The report contains:
+At the end of each test session, the runner generates a report as `report.json`. The report contains:
 
 - **Total plans executed** and total violations.
 - **System health:** Whether the simulator terminated cleanly across all runs.
-- **Property table:** Every assertion property with its label, type (`always`/`sometimes`/`alwaysOrUnreachable`), hit count, first iteration hit, source location (class + line), and pass/fail status.
-- **First pass/fail log:** The raw JSON of the first passing and first failing hit for each property, for debugging.
+- **Property table:** Every assertion property with its label, type (`always`/`sometimes`/`alwaysOrUnreachable`), hit count, first iteration hit, source location (class + line), pass/fail status, and structured `details` from the assertion call.
+- **First pass/fail details:** The `details` map from the first passing and first failing hit for each property, for debugging.
 
 ---
 

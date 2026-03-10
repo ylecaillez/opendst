@@ -101,31 +101,15 @@ public class EchoApp {
 Describe the deployment topology in a `deployment.yaml`:
 
 ```yaml
-images:
-  - name: echo-server
-    artifact: com.example:my-app:war:1.0.0
-    warDir: my-app
-    mainClass: com.example.EchoApp$Server
-  - name: echo-client
-    artifact: com.example:my-app:war:1.0.0
-    warDir: my-app
-    mainClass: com.example.EchoApp$Client
-
 services:
-  - name: server
-    image: echo-server
-    hostname: server.local
+  server:
+    class: com.example.EchoApp$Server
     ip: 10.0.0.1
     args: ["8080"]
-  - name: client
-    image: echo-client
-    hostname: client.local
+  client:
+    class: com.example.EchoApp$Client
     ip: 10.0.0.2
     args: ["10.0.0.1", "8080"]
-
-faults:
-  network:
-    enabled: true
 ```
 
 Configure the Maven plugin with the `build` goal:

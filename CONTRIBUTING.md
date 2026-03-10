@@ -14,7 +14,7 @@ Thank you for your interest in contributing to OpenDST! This document provides g
 mvn clean install
 
 # Run integration tests
-mvn verify -pl opendst-maven-plugin
+mvn verify -pl opendst-maven-plugin -am
 ```
 
 Note: The `opendst-examples` module is expected to fail by design (it demonstrates bug detection). Do not include it in build verification.
@@ -35,7 +35,8 @@ The build uses `-Werror`, so all compiler warnings must be resolved.
 |--------|-------------|
 | `opendst-sdk` | Public API stubs and types (the only compile dependency users need) |
 | `opendst-agent` | Simulation engine and bytecode rewriting agent |
-| `opendst-maven-plugin` | Maven plugin for running DST tests |
+| `opendst-runner` | Test orchestration, execution, signal tracking, and report generation |
+| `opendst-maven-plugin` | Maven plugin that instruments bytecode and packages self-contained simulation JARs |
 | `opendst-examples` | Example applications demonstrating OpenDST |
 
 ## Submitting Changes
