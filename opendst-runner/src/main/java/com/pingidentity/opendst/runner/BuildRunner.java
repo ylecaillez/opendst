@@ -62,7 +62,8 @@ import picocli.CommandLine.Parameters;
  *   <li>Uses {@link Orchestrator.GuidedOrchestrator} to drive exploration</li>
  * </ol>
  */
-@Command(name = "opendst", description = "Run OpenDST deterministic simulation tests")
+@Command(name = "opendst", description = "Run OpenDST deterministic simulation tests",
+        mixinStandardHelpOptions = true)
 public final class BuildRunner implements Callable<Integer> {
 
     @Parameters(index = "0", hidden = true, description = "Working directory (set by Bootstrap)")
