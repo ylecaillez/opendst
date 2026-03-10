@@ -1,4 +1,0 @@
-/* Subtle border on code blocks */
-div[class*='language-'] {
-  border: 1px solid var(--vp-c-divider);
-}

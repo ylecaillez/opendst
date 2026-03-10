@@ -70,11 +70,7 @@ nohup.out
 #Selfie Snapshots
 *.ss
 *.md
-!website/**/*.md
 !README.md
-!CONTRIBUTING.md
-!DEVELOPER.md
-!USAGE.md
 .gemini/
 build_debug.log
 build_warnings.log
