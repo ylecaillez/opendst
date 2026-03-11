@@ -58,8 +58,8 @@ import java.util.stream.Stream;
 public final class Node {
     static final ThreadLocal<Node> CURRENT = new ThreadLocal<>();
 
-    public final SimulationContext context;
-    public final String hostName;
+    final SimulationContext context;
+    final String hostName;
     final ClassLoader classLoader;
     final PrintStream console;
     final List<Thread> virtualThreads = new ArrayList<>();
@@ -95,7 +95,13 @@ public final class Node {
         context.network().registerDns(hostName, this);
     }
 
-    /** {@return The Node attached to this thread or null if this thread is not part of a simulation}. */
+    /**
+     * {@return The Node attached to this thread or null if this thread is not part of a simulation}.
+     *
+     * <p>Must be {@code public} — called from ByteBuddy {@code @Advice} code that is inlined into JDK classes
+     * ({@code java.lang.System}, {@code java.lang.Runtime}, {@code java.time.Clock}, {@code java.util.Random},
+     * {@code java.lang.ThreadBuilders}, {@code java.lang.VirtualThread}, etc.).
+     */
     public static Node currentNodeOrNull() {
         var node = CURRENT.get();
         if (node == null) {
@@ -108,7 +114,7 @@ public final class Node {
      * {@return The Node attached to this thread}.
      * @throws IllegalStateException if this thread is not part of a simulation.
      */
-    public static Node currentNodeOrThrow() {
+    static Node currentNodeOrThrow() {
         var node = currentNodeOrNull();
         if (node == null) {
             throw new IllegalStateException(format(
@@ -122,27 +128,33 @@ public final class Node {
         console.flush();
     }
 
+    /** Must be {@code public} — called from advice inlined into {@code java.net.InetAddress}. */
     public InetAddress getLocalHost() {
         return localHost;
     }
 
+    /** Must be {@code public} — called from advice inlined into {@code java.time.Clock}. */
     public Instant instant() {
         return context.scheduler().now();
     }
 
+    /**
+     * Must be {@code public} — called from advice inlined into {@code java.util.Random},
+     * {@code java.security.SecureRandom}, {@code java.util.concurrent.ThreadLocalRandom}, etc.
+     */
     public Randomness.Source random() {
         return context.random();
     }
 
-    public ConsoleCapture logger() {
+    ConsoleCapture logger() {
         return context.logger();
     }
 
-    public Faults.Injector faultInjector() {
+    Faults.Injector faultInjector() {
         return context.faultInjector();
     }
 
-    public Network network() {
+    Network network() {
         return context.network();
     }
 
@@ -159,7 +171,7 @@ public final class Node {
     }
 
     @SuppressWarnings({"deprecation", "removal"})
-    public SocketImpl newSocketImpl(boolean isServer) {
+    SocketImpl newSocketImpl(boolean isServer) {
         return new NodeSocketImpl(this, isServer);
     }
 
@@ -171,6 +183,8 @@ public final class Node {
 
     /**
      * Attaches the provided thread to this node.
+     *
+     * <p>Must be {@code public} — called from advice inlined into {@code java.lang.ThreadBuilders}.
      *
      * @param thread A newly created thread
      */
@@ -197,7 +211,7 @@ public final class Node {
      *
      * @param scenario The scenario to execute
      */
-    public void startNode(Callable<Void> scenario) {
+    void startNode(Callable<Void> scenario) {
         requireNonNull(scenario);
         var originalNode = CURRENT.get();
         CURRENT.set(this);
@@ -230,23 +244,6 @@ public final class Node {
         }
     }
 
-    public void unblock(Thread thread) {
-        requireNonNull(thread);
-        if (thread.isAlive() && thread.getState() != TERMINATED) {
-            if (isOnWaitingList(thread)) {
-                while (getNext(thread) != null) {
-                    onSpinWait();
-                }
-                if (!compareAndSetOnWaitingList(thread, true, false)) {
-                    throw new Simulator.SimulationError(format(
-                            "Thread '%s' is no more present on the waiting-list. Determinism is broken",
-                            thread.getName()));
-                }
-                Threads.Internals.unblock(thread);
-            }
-        }
-    }
-
     void checkNoThreadOnWaitingList(Node node) {
         requireNonNull(node);
         if (node != this) {
@@ -268,53 +265,83 @@ public final class Node {
         }
     }
 
+    /** Must be {@code public} — used as method reference from advice inlined into {@code java.lang.ThreadBuilders}. */
     public void scheduleNow(Runnable runnable) {
         context.scheduler()
                 .scheduleExactlyAt(
                         this, runnable, instant().plusNanos(defaultSchedulingJitter.applyAsLong(context.random())));
     }
 
+    /** Must be {@code public} — called from advice inlined into {@code java.lang.VirtualThread}. */
     public Future<?> scheduleAfterDelay(Runnable runnable, long delay, TimeUnit unit) {
         return context.scheduler().scheduleExactlyAt(this, runnable, instant().plus(delay, unit.toChronoUnit()));
     }
 
     /** Deterministic implementation of {@code java.util.ImmutableCollections#REVERSE}. */
-    public final boolean immutableCollectionsReverse() {
+    final boolean immutableCollectionsReverse() {
         return reverse;
     }
 
     /** Deterministic implementation of {@code java.util.ImmutableCollections#SALT32L}. */
-    public final long immutableCollectionsSalt32l() {
+    final long immutableCollectionsSalt32l() {
         return salt32l;
     }
 
-    /** {@return the current simulated wall-clock time in nanoseconds.} */
+    /**
+     * {@return the current simulated wall-clock time in nanoseconds.}
+     *
+     * <p>Must be {@code public} — called from advice inlined into {@code java.lang.System}.
+     */
     public long nanoTime() {
         return NANOS.between(Simulator.START_TIME, instant());
     }
 
-    /** {@return the current simulated wall-clock time in milliseconds.} */
+    /**
+     * {@return the current simulated wall-clock time in milliseconds.}
+     *
+     * <p>Must be {@code public} — called from advice inlined into {@code java.lang.System}.
+     */
     public long currentTimeMillis() {
         return instant().toEpochMilli();
     }
 
+    /** Must be {@code public} — called from advice inlined into {@code java.lang.Runtime}. */
     public void addShutdownHook(Thread hook) {
         shutdownHooks.add(hook);
     }
 
+    /** Must be {@code public} — called from advice inlined into {@code java.lang.Runtime}. */
     public boolean removeShutdownHook(Thread hook) {
         return shutdownHooks.remove(hook);
     }
 
+    /** Must be {@code public} — called from advice inlined into {@code java.lang.Runtime}. */
     public void exit(int status) {
         throw new Simulator.SystemExitError(status);
     }
 
-    public void purgeAndUnblockVirtualThreads() {
-        virtualThreads.forEach(this::unblock);
+    void purgeAndUnblockVirtualThreads() {
+        virtualThreads.forEach(this::unblockWaitingThread);
     }
 
-    public void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
+    private void unblockWaitingThread(Thread thread) {
+        requireNonNull(thread);
+        if (thread.isAlive() && thread.getState() != TERMINATED) {
+            if (isOnWaitingList(thread)) {
+                while (getNext(thread) != null) {
+                    onSpinWait();
+                }
+                if (!compareAndSetOnWaitingList(thread, true, false)) {
+                    throw new Simulator.SimulationError(format(
+                            "Thread '%s' is no more present on the waiting-list. Determinism is broken",
+                            thread.getName()));
+                }
+                Threads.Internals.unblock(thread);
+            }
+        }
+    }
+
+    private void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
         context.simulator().uncaughtExceptionHandler(this, thread, throwable);
     }
 
