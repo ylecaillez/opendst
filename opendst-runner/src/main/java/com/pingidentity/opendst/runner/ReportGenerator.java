@@ -80,7 +80,7 @@ final class ReportGenerator {
             var details = pass ? assertion.firstPassDetails() : assertion.firstFailDetails();
             var newExamples = new ArrayList<>(examples);
             if (newExamples.size() >= 3) {
-                // We cannot remove the assocaited plan's file as it might be referenced by another example.
+                // We cannot remove the associated plan's file as it might be referenced by another example.
                 newExamples.removeLast();
             }
             newExamples.add(new Example(planFile, iteration, details));
@@ -113,7 +113,7 @@ final class ReportGenerator {
 
     record ReportState(int count, String duration, List<AssertionState> assertions) {}
 
-    public void generate(Path reportFile) {
+    public synchronized void generate(Path reportFile) {
         var state = new ArrayList<AssertionState>();
         for (var assertion : assertions) {
             var hit = examples.get(assertion.message());
