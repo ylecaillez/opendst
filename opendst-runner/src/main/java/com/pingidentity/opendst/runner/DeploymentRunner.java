@@ -105,6 +105,10 @@ public final class DeploymentRunner {
             TraceAuditor traceAuditor = _ -> {};
             if (descriptor.traceAuditor() != null) {
                 var auditorAppDir = descriptor.traceAuditor().appDir();
+                if (auditorAppDir == null) {
+                    throw new IllegalStateException(
+                            "Trace auditor has no 'dir' or 'artifact' — the deployment descriptor may not have been enriched by the build plugin");
+                }
                 var auditorClassLoader = nodeClassLoader(appsDir, auditorAppDir);
                 var auditorClass = Class.forName(descriptor.traceAuditor().className(), true, auditorClassLoader);
                 traceAuditor =
