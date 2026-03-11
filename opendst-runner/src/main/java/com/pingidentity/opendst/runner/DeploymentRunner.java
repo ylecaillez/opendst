@@ -239,6 +239,11 @@ public final class DeploymentRunner {
                 }
                 if (artifact != null && !artifact.isBlank()) {
                     var parts = artifact.split(":");
+                    if (parts.length < 2) {
+                        throw new IllegalArgumentException(
+                                "Malformed artifact coordinate (expected groupId:artifactId[:...]:version): "
+                                        + artifact);
+                    }
                     return parts[1] + "-" + parts[parts.length - 1];
                 }
                 return serviceName;
@@ -276,6 +281,11 @@ public final class DeploymentRunner {
                 }
                 if (artifact != null && !artifact.isBlank()) {
                     var parts = artifact.split(":");
+                    if (parts.length < 2) {
+                        throw new IllegalArgumentException(
+                                "Malformed artifact coordinate (expected groupId:artifactId[:...]:version): "
+                                        + artifact);
+                    }
                     return parts[1] + "-" + parts[parts.length - 1];
                 }
                 return null;
