@@ -199,30 +199,35 @@ public final class Node {
      */
     public void startNode(Callable<Void> scenario) {
         requireNonNull(scenario);
-        ofVirtual().name(hostName + "-main").start(() -> {
-            CURRENT.set(this);
-            try {
-                scenario.call();
-                shutdown.complete(0);
-            } catch (Throwable e) {
-                if (e instanceof Simulator.SystemExitError exitError) {
-                    shutdown.complete(exitError.exitCode);
-                } else {
-                    uncaughtExceptionHandler(currentThread(), e);
-                }
-            } finally {
-                stopped = true;
-                context.network().unregisterDns(hostName);
-                shutdownHooks.forEach(Thread::start);
-                shutdownHooks.forEach(hook -> {
-                    try {
-                        hook.join();
-                    } catch (InterruptedException e) {
-                        currentThread().interrupt();
+        var originalNode = CURRENT.get();
+        CURRENT.set(this);
+        try {
+            ofVirtual().name(hostName + "-main").start(() -> {
+                try {
+                    scenario.call();
+                    shutdown.complete(0);
+                } catch (Throwable e) {
+                    if (e instanceof Simulator.SystemExitError exitError) {
+                        shutdown.complete(exitError.exitCode);
+                    } else {
+                        uncaughtExceptionHandler(currentThread(), e);
                     }
-                });
-            }
-        });
+                } finally {
+                    stopped = true;
+                    context.network().unregisterDns(hostName);
+                    shutdownHooks.forEach(Thread::start);
+                    shutdownHooks.forEach(hook -> {
+                        try {
+                            hook.join();
+                        } catch (InterruptedException e) {
+                            currentThread().interrupt();
+                        }
+                    });
+                }
+            });
+        } finally {
+            CURRENT.set(originalNode);
+        }
     }
 
     public void unblock(Thread thread) {
