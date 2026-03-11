@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.pingidentity.opendst</groupId>
         <artifactId>opendst</artifactId>
-        <version>0.0.1-SNAPSHOT</version>
+        <version>@project.version@</version>
     </parent>
 
     <artifactId>network-fault-test</artifactId>
@@ -41,7 +41,7 @@
         <dependency>
             <groupId>com.pingidentity.opendst</groupId>
             <artifactId>opendst-sdk</artifactId>
-            <version>0.0.1-SNAPSHOT</version>
+            <version>@project.version@</version>
         </dependency>
     </dependencies>
 </project>
