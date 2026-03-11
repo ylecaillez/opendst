@@ -97,8 +97,8 @@ public final class Randomness {
             if (iteration >= nextIteration) {
                 try {
                     var segment = segments.removeFirst();
-                    assert nextIteration > iteration;
                     nextIteration = segment.iteration();
+                    assert nextIteration > iteration;
                     setSeed(segment.seed());
                 } catch (NoSuchElementException e) {
                     this.simulator.exitSimulation(Simulator.ExitReason.PLAN_OK, null);
