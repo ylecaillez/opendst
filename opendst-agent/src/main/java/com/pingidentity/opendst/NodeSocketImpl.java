@@ -402,9 +402,9 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                         // Discard silently per contract
                         return;
                     }
-                    bytesWritten = min(len, peer.availableSendBufferForPeer());
+                    bytesWritten = min(len - totalWritten, peer.availableSendBufferForPeer());
                     if (bytesWritten > 0) {
-                        peer.receiveBuffer.append(b, off, bytesWritten);
+                        peer.receiveBuffer.append(b, off + totalWritten, bytesWritten);
                         peer.writtenBytes.add(bytesWritten);
                     } else {
                         peer.receivedBytes.await();
