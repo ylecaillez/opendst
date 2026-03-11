@@ -41,7 +41,7 @@ When running inside a simulation:
 
 ### Prerequisites
 
-*   Java 25 or later (Preview features enabled).
+*   Java 25 or later.
 *   Maven.
 
 ### Running Simulations
