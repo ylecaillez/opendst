@@ -67,7 +67,6 @@ final class ExecutionResult {
                     firstFailDetails);
         }
     }
-    ;
 
     private final Map<String, TrackedAssertion> assertionsHit = new HashMap<>();
     private boolean interesting;
