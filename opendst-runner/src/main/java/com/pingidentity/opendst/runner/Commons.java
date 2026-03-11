@@ -75,9 +75,11 @@ public final class Commons {
     public static void deleteRecursively(Path basePath, Path directoryToDelete) throws IOException {
         if (!exists(directoryToDelete)) {
             return;
-        } else if (basePath.toAbsolutePath().getParent() == null) {
+        }
+        var absoluteBase = basePath.toAbsolutePath();
+        if (absoluteBase.getParent() == null) {
             throw new IllegalArgumentException("The base directory '%s' must not be the root".formatted(basePath));
-        } else if (!directoryToDelete.toRealPath().startsWith(basePath)) {
+        } else if (!directoryToDelete.toRealPath().startsWith(absoluteBase)) {
             throw new IllegalArgumentException(
                     "Directory '%s' will not be deleted as it is outside '%s'".formatted(directoryToDelete, basePath));
         }
