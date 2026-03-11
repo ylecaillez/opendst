@@ -37,6 +37,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 import java.net.BindException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -61,7 +63,96 @@ import java.util.concurrent.SynchronousQueue;
  * virtual threads per connection.
  */
 @SuppressWarnings({"deprecation", "removal"})
-public final class NodeSocketImpl extends SocketImpl implements Closeable {
+final class NodeSocketImpl extends SocketImpl implements Closeable {
+
+    /**
+     * A bound network address/port pair with a cleanup action.
+     * <p>
+     * When closed, the binding invokes its closeable to unbind from the
+     * node's network interfaces.
+     */
+    record Binding(InetAddress address, int port, Closeable closeable) implements Closeable {
+        @Override
+        public void close() {
+            try {
+                closeable.close();
+            } catch (IOException e) {
+                // Ignore silently
+            }
+        }
+    }
+
+    /**
+     * A lock-based variable that supports blocking waits for value changes.
+     * <p>
+     * Used to coordinate producer-consumer communication in the simulated TCP
+     * stack (e.g., tracking how many bytes have been written, sent, received,
+     * and read).
+     */
+    @SuppressWarnings("serial")
+    static final class AsyncVar extends ReentrantLock {
+        private final Condition condition = newCondition();
+        private long changeCount;
+        private long value;
+
+        void await() throws InterruptedIOException {
+            lock();
+            try {
+                long change = changeCount;
+                while (change == changeCount) {
+                    condition.await();
+                }
+            } catch (InterruptedException e) {
+                throw new InterruptedIOException();
+            } finally {
+                unlock();
+            }
+        }
+
+        boolean await(long nanos) throws InterruptedIOException {
+            if (nanos == 0) {
+                await();
+                return true;
+            }
+            lock();
+            try {
+                long change = changeCount;
+                while (nanos > 0 && change == changeCount) {
+                    nanos = condition.awaitNanos(nanos);
+                }
+                return change != changeCount;
+            } catch (InterruptedException e) {
+                throw new InterruptedIOException();
+            } finally {
+                unlock();
+            }
+        }
+
+        void add(long value) {
+            set(this.value + value);
+        }
+
+        void set(long value) {
+            if (value != this.value) {
+                this.value = value;
+                signal();
+            }
+        }
+
+        void signal() {
+            lock();
+            try {
+                changeCount++;
+                condition.signalAll();
+            } finally {
+                unlock();
+            }
+        }
+
+        long get() {
+            return value;
+        }
+    }
 
     private static final class NetBuffer {
         private static final int CHUNK_SIZE = 4096;

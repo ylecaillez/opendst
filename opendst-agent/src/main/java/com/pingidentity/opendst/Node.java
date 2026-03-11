@@ -164,7 +164,7 @@ public final class Node {
     }
 
     @SuppressWarnings({"deprecation", "removal"})
-    Binding bindSocket(InetAddress address, int port, SocketImpl socket, boolean reuseAddress) throws BindException {
+    NodeSocketImpl.Binding bindSocket(InetAddress address, int port, SocketImpl socket, boolean reuseAddress) throws BindException {
         return netInterfaces.bind(address, port, socket, reuseAddress);
     }
 
@@ -366,7 +366,7 @@ public final class Node {
             return socket;
         }
 
-        Binding bind(InetAddress address, int port, SocketImpl socket, boolean reuseAddress) throws BindException {
+        NodeSocketImpl.Binding bind(InetAddress address, int port, SocketImpl socket, boolean reuseAddress) throws BindException {
             for (int i = EPHEMERAL_RANGE_START; port == 0 && i < EPHEMERAL_RANGE_END; i++) {
                 if (!boundSockets.containsKey(toHostPort(address, i))) {
                     port = i;
@@ -381,12 +381,12 @@ public final class Node {
                     anyHostPort.add(hostPort);
                 }
                 anyHostPort.forEach(hostPort -> boundSockets.put(hostPort, socket));
-                return new Binding(address, port, () -> anyHostPort.forEach(hp -> boundSockets.remove(hp, socket)));
+                return new NodeSocketImpl.Binding(address, port, () -> anyHostPort.forEach(hp -> boundSockets.remove(hp, socket)));
             } else if (isLocal(address)) {
                 var hostPort = toHostPort(address, port);
                 checkNotInUse(hostPort, reuseAddress);
                 boundSockets.put(hostPort, socket);
-                return new Binding(address, port, () -> boundSockets.remove(hostPort));
+                return new NodeSocketImpl.Binding(address, port, () -> boundSockets.remove(hostPort));
             } else {
                 throw new BindException("Cannot assign requested address");
             }
