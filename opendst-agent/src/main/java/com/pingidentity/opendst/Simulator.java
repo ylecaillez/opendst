@@ -192,6 +192,10 @@ public final class Simulator {
     }
 
     private static void validatePlan(Plan plan) {
+        if (plan.segments().isEmpty()) {
+            System.err.println("The provided plan is invalid: at least one segment is required");
+            getRuntime().halt(1);
+        }
         Segment previous = null;
         for (var segment : plan.segments()) {
             if (previous != null && previous.iteration() >= segment.iteration()) {
