@@ -231,7 +231,11 @@ final class TestExecutor {
                 proc.destroyForcibly();
             }
             if (runKiller != null) {
-                getRuntime().removeShutdownHook(runKiller);
+                try {
+                    getRuntime().removeShutdownHook(runKiller);
+                } catch (IllegalStateException ignored) {
+                    // JVM is shutting down; hook will run naturally
+                }
             }
         }
     }
