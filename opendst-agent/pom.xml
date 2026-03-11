@@ -27,10 +27,6 @@
   <description>Java agent and simulation engine for deterministic simulation testing</description>
   <artifactId>opendst-agent</artifactId>
 
-  <properties>
-    <maven.deploy.skip>true</maven.deploy.skip>
-  </properties>
-
   <dependencies>
     <dependency>
       <groupId>net.bytebuddy</groupId>
