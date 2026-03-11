@@ -42,7 +42,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.locks.ReentrantLock;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonParser;
 import tools.jackson.jr.ob.JSON;
@@ -118,12 +117,10 @@ public final class Simulator {
         var logger = new ConsoleCapture(this, traceAuditor, System.out);
         var network = new Network(this);
         var faultInjector = new Faults.Injector(this, faults);
-        var lock = new ReentrantLock();
         var scheduler = new Time.Scheduler(START_TIME, this, logger);
 
         // Assemble the immutable context last — passed only to Node
-        this.context =
-                new SimulationContext(this, scheduler, random, faults, hasher, network, faultInjector, logger, lock);
+        this.context = new SimulationContext(this, scheduler, random, faults, hasher, network, faultInjector, logger);
 
         logger.logLifecycle("started", START_TIME, 0).log();
     }

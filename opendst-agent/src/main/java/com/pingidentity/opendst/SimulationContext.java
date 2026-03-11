@@ -15,8 +15,6 @@
  */
 package com.pingidentity.opendst;
 
-import java.util.concurrent.locks.Lock;
-
 /**
  * Immutable record holding all global simulation services.
  *
@@ -32,5 +30,4 @@ record SimulationContext(
         StateHasher hasher,
         Network network,
         Faults.Injector faultInjector,
-        ConsoleCapture logger,
-        Lock lock) {}
+        ConsoleCapture logger) {}

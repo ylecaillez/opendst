@@ -225,22 +225,6 @@ public final class Node {
         });
     }
 
-    public void block(Thread thread) {
-        requireNonNull(thread);
-        if (thread != currentThread()) {
-            throw new Simulator.SimulationError("A thread can only block itself");
-        }
-
-        context.lock().unlock();
-        try {
-            while (!isOnWaitingList(thread)) {
-                onSpinWait();
-            }
-        } finally {
-            context.lock().lock();
-        }
-    }
-
     public void unblock(Thread thread) {
         requireNonNull(thread);
         if (thread.isAlive() && thread.getState() != TERMINATED) {
