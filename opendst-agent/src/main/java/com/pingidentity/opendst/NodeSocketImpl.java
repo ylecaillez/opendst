@@ -393,7 +393,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                 checkFromIndexSize(off, len, b.length);
                 for (int bytesWritten, totalWritten = 0; totalWritten < len; totalWritten += bytesWritten) {
                     if (closed) {
-                        throw new SocketException("socket is closed");
+                        throw new SocketException("Socket is closed");
                     } else if (peer.closed) {
                         throw new SocketException("Connection reset");
                     } else if (isOutputShutdown) {
@@ -476,7 +476,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
     @Override
     public int available() throws IOException {
         if (closed) {
-            throw new SocketException("socket is closed");
+            throw new SocketException("Socket is closed");
         }
         return isInputShutdown ? 0 : receiveBuffer.size();
     }
@@ -575,7 +575,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
         try {
             var peerSocket = soTimeout == 0 ? backlog.take() : backlog.poll(soTimeout, MILLISECONDS);
             if (closed) {
-                throw new SocketException("Socket closed");
+                throw new SocketException("Socket is closed");
             } else if (peerSocket == null) {
                 throw new InterruptedIOException();
             }
