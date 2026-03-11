@@ -591,14 +591,10 @@ public class BuildMojo extends AbstractMojo {
             return;
         }
         try (var stream = walk(instrumentedWarsDir)) {
-            stream.filter(Files::isRegularFile).forEach(p -> {
+            for (var p : stream.filter(Files::isRegularFile).toList()) {
                 var relativePath = instrumentedWarsDir.relativize(p).toString().replace('\\', '/');
-                try {
-                    addEntry(jos, "apps/" + relativePath, readAllBytes(p));
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            });
+                addEntry(jos, "apps/" + relativePath, readAllBytes(p));
+            }
         }
     }
 
