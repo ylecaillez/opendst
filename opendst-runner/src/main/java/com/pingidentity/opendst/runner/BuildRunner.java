@@ -174,7 +174,7 @@ public final class BuildRunner implements Callable<Integer> {
 
         logger.raw().info("Simulation complete. Report written to: " + reportFile);
 
-        if (failFast && reportGenerator.hasFailures()) {
+        if (reportGenerator.hasFailures()) {
             return 1;
         }
         return 0;

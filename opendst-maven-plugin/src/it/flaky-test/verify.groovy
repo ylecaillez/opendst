@@ -61,8 +61,8 @@ process.inputStream.eachLine { line ->
 
 def exitCode = process.waitFor()
 
-// No --fail-fast, so exit code should be 0 regardless of assertion failures
-check(exitCode == 0, "Expected exit code 0, got: ${exitCode}", logFile)
+// Assertion failures detected, so exit code should be non-zero
+check(exitCode != 0, "Expected non-zero exit code (assertion failures), got: ${exitCode}", logFile)
 
 // Verify the report was produced
 def reportFile = new File(workingDir, "report/report.json")
