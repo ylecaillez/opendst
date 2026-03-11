@@ -154,7 +154,7 @@ public final class Faults {
                                 + (config.networkLatencyFast().toNanos() / scaledA))
                         / (2 * probabilityFastNanos));
             }
-            long scaledA = (a - probabilityFastNanos) / (precision - probabilityFastNanos);
+            long scaledA = ((a - probabilityFastNanos) * precision) / (precision - probabilityFastNanos);
             return ofNanos(((config.networkLatencyMinimum().toNanos() * (precision - scaledA))
                             + (config.networkLatencySlow().toNanos() * scaledA))
                     / (2 * precision));
