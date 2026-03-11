@@ -242,7 +242,7 @@ public final class Node {
                             "Thread '%s' is no more present on the waiting-list. Determinism is broken",
                             thread.getName()));
                 }
-                unblock(thread);
+                Threads.Internals.unblock(thread);
             }
         }
     }
@@ -311,9 +311,7 @@ public final class Node {
     }
 
     public void purgeAndUnblockVirtualThreads() {
-        for (var thread : virtualThreads) {
-            unblock(thread);
-        }
+        virtualThreads.forEach(this::unblock);
     }
 
     public void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
