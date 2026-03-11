@@ -24,7 +24,7 @@ import static java.nio.file.Files.copy;
 import static java.nio.file.Files.exists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
-import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.CREATE_NEW;
 import static java.util.Arrays.asList;
 import static java.util.concurrent.ThreadLocalRandom.current;
 
@@ -195,7 +195,7 @@ final class TestExecutor {
     }
 
     private static void savePlan(Plan plan, Path file) throws IOException {
-        try (var os = newOutputStream(file, CREATE)) {
+        try (var os = newOutputStream(file, CREATE_NEW)) {
             JSON_MAPPER.writeValue(os, plan);
         } catch (FileAlreadyExistsException e) {
             // Ignore: This plan has already been saved
