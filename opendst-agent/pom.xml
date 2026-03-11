@@ -96,6 +96,20 @@
                   </manifestEntries>
                 </transformer>
               </transformers>
+              <relocations>
+                <relocation>
+                  <pattern>net.bytebuddy</pattern>
+                  <shadedPattern>com.pingidentity.opendst.shaded.net.bytebuddy</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>tools.jackson</pattern>
+                  <shadedPattern>com.pingidentity.opendst.shaded.tools.jackson</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.fasterxml.jackson</pattern>
+                  <shadedPattern>com.pingidentity.opendst.shaded.com.fasterxml.jackson</shadedPattern>
+                </relocation>
+              </relocations>
               <filters>
                 <filter>
                   <artifact>net.bytebuddy:byte-buddy</artifact>
