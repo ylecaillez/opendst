@@ -20,6 +20,7 @@ import static java.lang.System.err;
 import static java.lang.System.exit;
 import static java.lang.Thread.sleep;
 
+import com.pingidentity.opendst.TraceEvents;
 import com.pingidentity.opendst.api.Assert;
 import com.pingidentity.opendst.api.Signals;
 import com.pingidentity.opendst.it.networkfault.SocketStateMachine.SocketAction;
@@ -36,12 +37,16 @@ import java.net.Socket;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * DST application that exercises TCP socket semantics under fault injection.
+ * DST application that exercises TCP socket semantics under
+ * fault injection.
  *
- * <p>Random socket API call sequences are generated on both client and server,
- * and each outcome is validated against the {@link SocketStateMachine} oracle.
- * Structured {@code [event]} lines are emitted to stdout so the
- * {@link NetworkFaultTraceAuditor} can validate transitions from outside the simulation.
+ * <p>Random socket API call sequences are generated on both
+ * client and server. The {@link SocketStateMachine.Tracker}
+ * is used for test <em>steering</em> only — preventing the
+ * chaos test from attempting invalid socket API calls.
+ * Actual runtime validation is performed by PObserve monitors
+ * in {@link NetworkFaultTraceAuditor}, fed by typed trace
+ * events emitted automatically from {@code NodeSocketImpl}.
  */
 public final class NetworkFaultApp {
 
@@ -226,34 +231,50 @@ public final class NetworkFaultApp {
 
                 Socket socket;
                 if (rng.nextInt(3) == 0) {
-                    // new Socket(host, port) — creates and connects in one call
-                    Assert.reachable("client-direct-connect", null);
+                    // new Socket(host, port) — creates and
+                    // connects in one call
+                    Assert.reachable(
+                            "client-direct-connect", null);
                     t.emit(id, "created");
                     try {
                         socket = new Socket(host, port);
                         t.emit(id, "connected");
-                        Assert.reachable("client-open", null);
+                        Assert.reachable(
+                                "client-open", null);
                     } catch (IOException e) {
                         rethrowPartition(e);
                         t.emit(id, "error");
                         continue;
                     }
                 } else {
-                    // new Socket() — unbound, must connect explicitly
-                    Assert.reachable("client-unbound", null);
+                    // new Socket() — unbound, must connect
+                    Assert.reachable(
+                            "client-unbound", null);
                     socket = new Socket();
                     t.emit(id, "created");
                 }
 
                 try {
-                    randomClientActions(id, t, socket, host, port, rng);
+                    randomClientActions(
+                            id, t, socket,
+                            host, port, rng);
                 } finally {
-                    try { socket.close(); } catch (IOException ignored) {}
+                    try {
+                        socket.close();
+                    } catch (IOException ignored) {}
                     if (t.stateOf(id) != State.CLOSED) {
                         t.emit(id, "closed");
                     }
                 }
             }
+
+            // Signal liveness check: all client operations
+            // are complete, sockets are closed. The marker
+            // flows through the console capture pipeline to
+            // NetworkFaultTraceAuditor.checkLiveness().
+            System.out.println(
+                    new TraceEvents.TestCompleted()
+                            .serialize());
         }
     }
 

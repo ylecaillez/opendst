@@ -19,11 +19,17 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * TCP socket state machine oracle for validating socket API call sequences.
+ * TCP socket state machine oracle for test steering.
  *
- * <p>This class models the lifecycle of TCP sockets (both listeners and connections)
- * as a finite state machine. It is used by both the application (to emit and validate
- * events inside the simulation) and the trace auditor (to validate events from outside).
+ * <p>This class models the lifecycle of TCP sockets (both
+ * listeners and connections) as a finite state machine. It is
+ * used by {@link NetworkFaultApp} to prevent the chaos test
+ * from attempting invalid socket API calls ({@link Tracker#isValid}).
+ *
+ * <p>Runtime validation of socket semantics is now handled by
+ * PObserve monitors in {@link NetworkFaultTraceAuditor}, fed
+ * by typed trace events emitted automatically from
+ * {@code NodeSocketImpl}.
  *
  * <h2>Listener states</h2>
  *
@@ -138,55 +144,75 @@ public final class SocketStateMachine {
     /**
      * Tracks per-entity state and validates event transitions.
      *
-     * <p>{@link #emit} combines stdout event emission with state transition
-     * so callers never need to keep the two in sync. {@link #applyTransition}
-     * validates without emitting (used by the trace auditor).
+     * <p>Used by {@link NetworkFaultApp} for test steering:
+     * {@link #isValid} prevents the chaos test from attempting
+     * invalid socket API calls, and {@link #emit} applies the
+     * state transition after a successful call.
+     *
+     * <p>Trace event emission to stdout has been removed — the
+     * simulated network layer ({@code NodeSocketImpl}) now emits
+     * typed trace events automatically, and PObserve monitors
+     * in {@link NetworkFaultTraceAuditor} validate them.
      */
     public static final class Tracker {
-        /** Prefix for structured event lines emitted to stdout. */
-        public static final String EVENT_PREFIX = "[event] ";
 
-        private final Map<String, State> entities = new HashMap<>();
-
-        /** Returns {@code true} if the event is valid for the given entity. */
-        public boolean isValid(String id, String event) {
-            State cur = entities.get(id);
-            if (cur == null) return INITIAL_EVENTS.containsKey(event);
-            var allowed = TRANSITIONS.get(cur);
-            return allowed != null && allowed.containsKey(event);
-        }
-
-        /** Emits a structured event line to stdout and applies the state transition. */
-        public State emit(String id, String event) {
-            System.out.println(EVENT_PREFIX + id + " " + event);
-            return applyTransition(id, event);
-        }
-
-        /** Returns the current state of the given entity, or {@code null} if unknown. */
-        public State stateOf(String id) { return entities.get(id); }
+        private final Map<String, State> entities =
+                new HashMap<>();
 
         /**
-         * Applies a state transition without emitting. Throws {@link IllegalStateException}
-         * if the transition is invalid.
+         * Returns {@code true} if the event is valid for
+         * the given entity in its current state.
          */
-        public State applyTransition(String id, String event) {
+        public boolean isValid(String id, String event) {
+            State cur = entities.get(id);
+            if (cur == null) {
+                return INITIAL_EVENTS.containsKey(event);
+            }
+            var allowed = TRANSITIONS.get(cur);
+            return allowed != null
+                    && allowed.containsKey(event);
+        }
+
+        /**
+         * Applies the state transition for the given entity.
+         * Throws {@link IllegalStateException} if the
+         * transition is invalid.
+         */
+        public State emit(String id, String event) {
             State cur = entities.get(id);
             if (cur == null) {
                 State initial = INITIAL_EVENTS.get(event);
-                if (initial == null)
+                if (initial == null) {
                     throw new IllegalStateException(
-                            "%s: first event must be one of %s, got '%s'"
-                                    .formatted(id, INITIAL_EVENTS.keySet(), event));
+                            "%s: first event must be one "
+                            + "of %s, got '%s'"
+                                    .formatted(
+                                            id,
+                                            INITIAL_EVENTS
+                                                    .keySet(),
+                                            event));
+                }
                 entities.put(id, initial);
                 return initial;
             }
             var allowed = TRANSITIONS.get(cur);
-            if (allowed == null || !allowed.containsKey(event))
+            if (allowed == null
+                    || !allowed.containsKey(event)) {
                 throw new IllegalStateException(
-                        "%s: illegal event '%s' in state %s".formatted(id, event, cur));
+                        "%s: illegal event '%s' in state %s"
+                                .formatted(id, event, cur));
+            }
             State next = allowed.get(event);
             entities.put(id, next);
             return next;
+        }
+
+        /**
+         * Returns the current state of the given entity,
+         * or {@code null} if unknown.
+         */
+        public State stateOf(String id) {
+            return entities.get(id);
         }
     }
 

@@ -51,6 +51,7 @@ import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -63,6 +64,9 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 @SuppressWarnings({"deprecation", "removal"})
 final class NodeSocketImpl extends SocketImpl implements Closeable {
+
+    /** Globally unique socket counter — no reset needed; each simulation run is a fresh JVM. */
+    private static final AtomicLong SOCKET_COUNTER = new AtomicLong();
 
     /**
      * A bound network address/port pair with a cleanup action.
@@ -196,6 +200,9 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
 
     private final Node node;
 
+    /** Identity string for trace events, null until bind/connect/accept assigns it. */
+    private String socketId;
+
     private SynchronousQueue<NodeSocketImpl> connected;
     private NetBuffer receiveBuffer;
     /** Bytes already pulled from buffer (location of the beginning of recvBuf) */
@@ -230,6 +237,10 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
 
     Node node() {
         return node;
+    }
+
+    private void emitTrace(TraceEvents.TraceEvent event) {
+        node.console.println(event.serialize());
     }
 
     @Override
@@ -276,6 +287,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             stableConnection = listeningSocket.node() == node;
             address = peerAddress;
             port = peerPort;
+            socketId = node.hostName + ":" + binding.address().getHostAddress()
+                    + ":" + localport + "#" + SOCKET_COUNTER.getAndIncrement();
             if (!listeningSocket.backlog.offer(this)) {
                 throw new SocketException("Connection refused");
             } else if (timeoutMillis > 0 && (peer = connected.poll(timeoutMillis, MILLISECONDS)) == null) {
@@ -312,6 +325,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
         localport = binding.port();
         if (isServer) {
             address = binding.address();
+            socketId = node.hostName + ":" + binding.address().getHostAddress()
+                    + ":" + localport + "#" + SOCKET_COUNTER.getAndIncrement();
         }
     }
 
@@ -339,10 +354,18 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                     } else if (readable > 0) {
                         receiveBuffer.read(b, off, readable);
                         readBytes.add(readable);
+                        if (socketId != null) {
+                            var read = new byte[readable];
+                            arraycopy(b, off, read, 0, readable);
+                            emitTrace(new TraceEvents.DataRead(socketId, read));
+                        }
                         return readable;
                     } else if (len == 0) {
                         return 0;
                     } else if (tcpFINReceived) {
+                        if (socketId != null) {
+                            emitTrace(new TraceEvents.EOFRead(socketId));
+                        }
                         return -1;
                     } else if (!receivedBytes.await(MILLISECONDS.toNanos(soTimeout))) {
                         throw new SocketTimeoutException();
@@ -371,6 +394,9 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
     @Override
     protected void shutdownOutput() {
         isOutputShutdown = true;
+        if (socketId != null) {
+            emitTrace(new TraceEvents.ShutdownOutputCompleted(socketId));
+        }
         // Unblock local write() and peer read() so that it can returns -1 if all bytes have been read
         peer.writtenBytes.signal();
     }
@@ -393,10 +419,20 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                 checkFromIndexSize(off, len, b.length);
                 for (int bytesWritten, totalWritten = 0; totalWritten < len; totalWritten += bytesWritten) {
                     if (closed) {
+                        if (socketId != null) {
+                            emitTrace(new TraceEvents.IOExceptionRaised(socketId, "write"));
+                        }
                         throw new SocketException("Socket is closed");
                     } else if (peer.closed) {
+                        if (socketId != null) {
+                            emitTrace(new TraceEvents.ConnectionReset(socketId));
+                            emitTrace(new TraceEvents.IOExceptionRaised(socketId, "write"));
+                        }
                         throw new SocketException("Connection reset");
                     } else if (isOutputShutdown) {
+                        if (socketId != null) {
+                            emitTrace(new TraceEvents.IOExceptionRaised(socketId, "write"));
+                        }
                         throw new SocketException("Socket output is shutdown");
                     } else if (peer.isInputShutdown) {
                         // Discard silently per contract
@@ -406,6 +442,11 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                     if (bytesWritten > 0) {
                         peer.receiveBuffer.append(b, off + totalWritten, bytesWritten);
                         peer.writtenBytes.add(bytesWritten);
+                        if (socketId != null) {
+                            var written = new byte[bytesWritten];
+                            arraycopy(b, off + totalWritten, written, 0, bytesWritten);
+                            emitTrace(new TraceEvents.DataWritten(socketId, written));
+                        }
                     } else {
                         peer.receivedBytes.await();
                     }
@@ -445,8 +486,9 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             if (isInputShutdown) {
                 return null;
             } else if (node.faultInjector().isDisconnected(address, binding.address())) {
-                // TODO: Here we behaves like black-hole, should we throw an error or close the connection
-                //  instead ?
+                if (socketId != null) {
+                    emitTrace(new TraceEvents.ConnectionReset(socketId));
+                }
                 return null;
             }
             if (receivedBytes.get() == sentBytes.get()) {
@@ -475,14 +517,20 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
 
     @Override
     public int available() throws IOException {
-        if (closed) {
-            throw new SocketException("Socket is closed");
+                    if (closed) {
+                        if (socketId != null) {
+                            emitTrace(new TraceEvents.IOExceptionRaised(socketId, "read"));
+                        }
+                        throw new SocketException("Socket is closed");
         }
         return isInputShutdown ? 0 : receiveBuffer.size();
     }
 
     @Override
     public void close() {
+        if (!closed && socketId != null) {
+            emitTrace(new TraceEvents.SocketClosed(socketId));
+        }
         closed = isOutputShutdown = isInputShutdown = true;
         if (binding != null) {
             binding.close();
@@ -584,6 +632,10 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             acceptedLocalSocket.address = peerSocket.binding.address();
             acceptedLocalSocket.port = peerSocket.binding.port();
             acceptedLocalSocket.peer = peerSocket;
+            acceptedLocalSocket.socketId = node.hostName + ":"
+                    + acceptedLocalSocket.address.getHostAddress()
+                    + ":" + acceptedLocalSocket.localport
+                    + "#" + SOCKET_COUNTER.getAndIncrement();
 
             if (node.faultInjector().isDisconnected(address, peerSocket.address)) {
                 acceptedLocalSocket.close();
@@ -608,6 +660,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                 startVirtualThread(new FutureTask<>(acceptedLocalSocket::sender))
                         .setName(peerSocket.address + " - sender");
                 peerSocket.connected.offer(acceptedLocalSocket);
+                emitTrace(new TraceEvents.ConnectionEstablished(
+                        peerSocket.socketId, socketId, acceptedLocalSocket.socketId));
                 Thread.yield();
             }
         } catch (InterruptedException e) {
