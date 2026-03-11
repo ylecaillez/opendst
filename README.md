@@ -29,7 +29,7 @@ By intercepting non-deterministic operations (like time, threading, and randomne
 
 ## How It Works
 
-OpenDST uses two instrumentation strategies. Application code is instrumented **offline** by the Maven plugin using the JDK 25 ClassFile API (JEP 457), which rewrites SDK stub call-sites at build time. JDK internals are handled at **runtime** by a lightweight Java Agent (`SimulatorAgent`) that intercepts non-deterministic APIs and redirects them to the Simulator.
+OpenDST uses two instrumentation strategies. Application code is instrumented **offline** by the Maven plugin using the JDK 25 ClassFile API (JEP 484), which rewrites SDK stub call-sites at build time. JDK internals are handled at **runtime** by a lightweight Java Agent (`SimulatorAgent`) that intercepts non-deterministic APIs and redirects them to the Simulator.
 
 When running inside a simulation:
 *   **Time:** `System.currentTimeMillis()` and `System.nanoTime()` return a simulated time that advances only when the simulator decides.
@@ -167,7 +167,7 @@ myapp-opendst/              # --working-dir (default: JAR path minus .jar)
 ## Architecture
 
 *   **`Simulator`:** The core engine that manages the simulation loop, virtual time, and task scheduling.
-*   **`SimulatorAgent`:** A Java Agent that uses the ClassFile API (JEP 457) to intercept JDK methods and redirect them to the `Simulator`.
+*   **`SimulatorAgent`:** A Java Agent that uses the ClassFile API (JEP 484) to intercept JDK methods and redirect them to the `Simulator`.
 *   **`Node`:** Represents a node in the distributed system simulation (context for the current execution).
 
 ## References & Further Reading
