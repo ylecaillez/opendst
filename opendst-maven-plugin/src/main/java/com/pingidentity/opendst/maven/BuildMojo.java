@@ -366,7 +366,11 @@ public class BuildMojo extends AbstractMojo {
                     if (relativePath.isEmpty()) {
                         continue;
                     }
-                    var target = targetDir.resolve(relativePath);
+                    var target = targetDir.resolve(relativePath).normalize();
+                    if (!target.startsWith(targetDir.normalize())) {
+                        throw new IOException(
+                                "Zip-Slip: entry '" + relativePath + "' resolves outside target directory");
+                    }
                     if (isDirectory(entry)) {
                         createDirectories(target);
                     } else {
@@ -493,11 +497,16 @@ public class BuildMojo extends AbstractMojo {
      * from {@code system/*.jar} after extraction.
      */
     private void addBootstrapClass(JarOutputStream jos) throws IOException {
-        var classesDir = Path.of(Bootstrap.class
-                .getProtectionDomain()
-                .getCodeSource()
-                .getLocation()
-                .getPath());
+        final Path classesDir;
+        try {
+            classesDir = Path.of(Bootstrap.class
+                    .getProtectionDomain()
+                    .getCodeSource()
+                    .getLocation()
+                    .toURI());
+        } catch (java.net.URISyntaxException e) {
+            throw new IOException("Failed to resolve Bootstrap class location", e);
+        }
         var launcherRelPath = Bootstrap.class.getName().replace('.', '/') + ".class";
 
         if (isDirectory(classesDir)) {
