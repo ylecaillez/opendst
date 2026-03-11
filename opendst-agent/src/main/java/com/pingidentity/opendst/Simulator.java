@@ -248,7 +248,7 @@ public final class Simulator {
                 sleep(60_000);
             } catch (InterruptedException _) {
             }
-            getRuntime().halt(0);
+            getRuntime().halt(realReason.code);
         }
     }
 
