@@ -33,7 +33,7 @@ final class StateHasher {
         }
     }
 
-    int getHash() {
+    synchronized int getHash() {
         return hash;
     }
 }
