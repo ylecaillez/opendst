@@ -19,7 +19,6 @@ import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.ALW
 import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.SOMETIMES;
 
 import com.pingidentity.opendst.runner.Assertion;
-
 import java.lang.classfile.ClassModel;
 import java.lang.classfile.Instruction;
 import java.lang.classfile.Opcode;

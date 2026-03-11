@@ -61,15 +61,16 @@ public final class Faults {
                 Duration cloggingLatencyMaximum) {
 
             public NetworkConfig() {
-                this(false,
-                     // Latency
-                     ofNanos(100_000),
-                     ofNanos(800_000),
-                     ofMillis(100),
+                this(
+                        false,
+                        // Latency
+                        ofNanos(100_000),
+                        ofNanos(800_000),
+                        ofMillis(100),
 
-                     // Clogging
-                     0.5,
-                     ofMillis(100));
+                        // Clogging
+                        0.5,
+                        ofMillis(100));
             }
         }
     }
@@ -150,14 +151,14 @@ public final class Faults {
             if (a <= probabilityFastNanos) {
                 long scaledA = Math.max(1, (a * precision) / probabilityFastNanos);
                 return ofNanos((config.networkLatencyMinimum().toNanos() * (precision - scaledA)
-                        + (config.networkLatencyFast().toNanos() / scaledA)) / (2 * probabilityFastNanos));
+                                + (config.networkLatencyFast().toNanos() / scaledA))
+                        / (2 * probabilityFastNanos));
             }
             long scaledA = (a - probabilityFastNanos) / (precision - probabilityFastNanos);
             return ofNanos(((config.networkLatencyMinimum().toNanos() * (precision - scaledA))
-                    + (config.networkLatencySlow().toNanos() * scaledA))
-                                   / (2 * precision));
+                            + (config.networkLatencySlow().toNanos() * scaledA))
+                    / (2 * precision));
         }
-
     }
 
     private Faults() {

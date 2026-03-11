@@ -31,7 +31,6 @@ import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 
 import com.pingidentity.opendst.runner.Assertion;
 import com.pingidentity.opendst.runner.OpenDstLogger;
-
 import java.io.IOException;
 import java.lang.classfile.ClassFile;
 import java.lang.classfile.ClassFile.ClassHierarchyResolverOption;
@@ -171,10 +170,7 @@ final class Instrumentation {
             // Instrument target/classes/ → <appName>/WEB-INF/classes.jar
             var webInfDir = instrumentedWarsDir.resolve(appName).resolve("WEB-INF");
             instrumentClassesFolder(
-                    classFile,
-                    basePath.resolve("target/classes"),
-                    webInfDir.resolve("classes.jar"),
-                    discovered);
+                    classFile, basePath.resolve("target/classes"), webInfDir.resolve("classes.jar"), discovered);
 
             // Instrument runtime dependency JARs → <appName>/WEB-INF/lib/
             var libDir = webInfDir.resolve("lib");
@@ -192,8 +188,7 @@ final class Instrumentation {
      * {@code classes/} folders and JAR files.
      */
     private void instrumentApplicationDirectory(
-            ClassFile classFile, Path sourceDir, Path outputDir, Set<Assertion> discovered)
-            throws IOException {
+            ClassFile classFile, Path sourceDir, Path outputDir, Set<Assertion> discovered) throws IOException {
         if (!exists(sourceDir)) {
             return;
         }
@@ -261,8 +256,7 @@ final class Instrumentation {
     }
 
     /** Instruments a directory of class files and bundles them into a JAR. */
-    private void instrumentClassesFolder(
-            ClassFile classFile, Path sourceDir, Path targetJar, Set<Assertion> discovered)
+    private void instrumentClassesFolder(ClassFile classFile, Path sourceDir, Path targetJar, Set<Assertion> discovered)
             throws IOException {
         if (!exists(sourceDir)) {
             return;
@@ -288,11 +282,7 @@ final class Instrumentation {
 
     /** Core logic for instrumenting a stream of entries. */
     private void instrumentEntries(
-            ClassFile classFile,
-            JarOutputStream jos,
-            Set<Assertion> discovered,
-            Path root,
-            Stream<Path> entries)
+            ClassFile classFile, JarOutputStream jos, Set<Assertion> discovered, Path root, Stream<Path> entries)
             throws IOException {
         var completionService = new ExecutorCompletionService<TransformationResult>(executor);
         int classTasks = 0;

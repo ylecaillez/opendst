@@ -1,26 +1,41 @@
+/*
+ * Copyright 2026 Ping Identity Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.pingidentity.opendst.runner;
 
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion.newFailAssertion;
 import static com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion.newPassAssertion;
 
-import java.util.HashMap;
-import java.util.Map;
-
 import com.pingidentity.opendst.runner.Commons.SignalEvent;
 import com.pingidentity.opendst.runner.Signal.AssertSignal;
 import com.pingidentity.opendst.runner.Signal.LifecycleSignal;
+import java.util.HashMap;
+import java.util.Map;
 import tools.jackson.databind.JsonNode;
 
 final class ExecutionResult {
 
-    record TrackedAssertion(String name,
-                            int passCount,
-                            long firstPassIteration,
-                            JsonNode firstPassDetails,
-                            int failCount,
-                            long firstFailIteration,
-                            JsonNode firstFailDetails) {
+    record TrackedAssertion(
+            String name,
+            int passCount,
+            long firstPassIteration,
+            JsonNode firstPassDetails,
+            int failCount,
+            long firstFailIteration,
+            JsonNode firstFailDetails) {
 
         static TrackedAssertion newPassAssertion(String name, long iteration, JsonNode details) {
             return new TrackedAssertion(name, 1, iteration, details, 0, -1, null);
@@ -31,15 +46,28 @@ final class ExecutionResult {
         }
 
         TrackedAssertion pass() {
-            return new TrackedAssertion(name, passCount + 1, firstPassIteration, firstPassDetails, failCount,
-                                        firstFailIteration, firstFailDetails);
+            return new TrackedAssertion(
+                    name,
+                    passCount + 1,
+                    firstPassIteration,
+                    firstPassDetails,
+                    failCount,
+                    firstFailIteration,
+                    firstFailDetails);
         }
 
         TrackedAssertion fail() {
-            return new TrackedAssertion(name, passCount, firstPassIteration, firstPassDetails, failCount + 1,
-                                        firstFailIteration, firstFailDetails);
+            return new TrackedAssertion(
+                    name,
+                    passCount,
+                    firstPassIteration,
+                    firstPassDetails,
+                    failCount + 1,
+                    firstFailIteration,
+                    firstFailDetails);
         }
-    };
+    }
+    ;
 
     private final Map<String, TrackedAssertion> assertionsHit = new HashMap<>();
     private boolean interesting;
@@ -70,14 +98,18 @@ final class ExecutionResult {
                 trackAssertion("simulation started", true, signal.iteration(), null);
             } else if ("stopped".equals(lifecycleSignal.message())) {
                 boolean success = "success".equals(lifecycleSignal.reason());
-                trackAssertion("simulation stopped successfully", success,
-                               signal.iteration(), stoppedDetails(lifecycleSignal));
+                trackAssertion(
+                        "simulation stopped successfully",
+                        success,
+                        signal.iteration(),
+                        stoppedDetails(lifecycleSignal));
                 runHash = lifecycleSignal.hash();
                 return true;
             }
         } else if (signal.signal() instanceof AssertSignal assertSignal) {
-            trackAssertion(assertSignal.message(), assertSignal.condition(),
-                           signal.iteration(), assertSignal.details());
+            trackAssertion(
+                    assertSignal.message(), assertSignal.condition(),
+                    signal.iteration(), assertSignal.details());
         }
         return false;
     }
@@ -96,9 +128,10 @@ final class ExecutionResult {
     }
 
     private void trackAssertion(String name, boolean pass, long iteration, JsonNode details) {
-        assertionsHit.compute(name, (_, existing) -> existing == null
-                ? pass ? newPassAssertion(name, iteration, details)
-                       : newFailAssertion(name, iteration, details)
-                : pass ? existing.pass() : existing.fail());
+        assertionsHit.compute(
+                name,
+                (_, existing) -> existing == null
+                        ? pass ? newPassAssertion(name, iteration, details) : newFailAssertion(name, iteration, details)
+                        : pass ? existing.pass() : existing.fail());
     }
 }

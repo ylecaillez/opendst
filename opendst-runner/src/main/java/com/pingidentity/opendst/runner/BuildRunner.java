@@ -27,12 +27,10 @@ import com.pingidentity.opendst.runner.Commons.DurationUtils;
 import com.pingidentity.opendst.runner.Orchestrator.GuidedOrchestrator;
 import com.pingidentity.opendst.runner.TestExecutor.JvmConfig;
 import com.pingidentity.opendst.runner.TestExecutor.RunConfig;
-
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.Callable;
-
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -62,8 +60,7 @@ import picocli.CommandLine.Parameters;
  *   <li>Uses {@link Orchestrator.GuidedOrchestrator} to drive exploration</li>
  * </ol>
  */
-@Command(name = "opendst", description = "Run OpenDST deterministic simulation tests",
-        mixinStandardHelpOptions = true)
+@Command(name = "opendst", description = "Run OpenDST deterministic simulation tests", mixinStandardHelpOptions = true)
 public final class BuildRunner implements Callable<Integer> {
 
     @Parameters(index = "0", hidden = true, description = "Working directory (set by Bootstrap)")
@@ -72,33 +69,34 @@ public final class BuildRunner implements Callable<Integer> {
     @Option(names = "--fail-fast", description = "Stop on first assertion failure")
     private boolean failFast;
 
-    @Option(names = "--forkCount",
+    @Option(
+            names = "--forkCount",
             description = "Number of concurrent simulation forks (default: availableProcessors - 1)",
             defaultValue = "-1")
     private int forkCount;
 
-    @Option(names = "--duration",
-            description = "Maximum simulation duration in milliseconds",
-            defaultValue = "100000")
+    @Option(names = "--duration", description = "Maximum simulation duration in milliseconds", defaultValue = "100000")
     private long duration;
 
-    @Option(names = "--branch-probability",
+    @Option(
+            names = "--branch-probability",
             description = "Probability of branching to explore a new path",
             defaultValue = "0.7")
     private double branchProbability;
 
-    @Option(names = "--replay-probability",
+    @Option(
+            names = "--replay-probability",
             description = "Probability of replaying a previous trace",
             defaultValue = "0.05")
     private double replayProbability;
 
-    @Option(names = "--stagnation-limit",
+    @Option(
+            names = "--stagnation-limit",
             description = "Stop after this many iterations without new coverage",
             defaultValue = "100")
     private int stagnationLimit;
 
-    @Option(names = "--jvm-args",
-            description = "JVM arguments for child processes (overrides build-time default)")
+    @Option(names = "--jvm-args", description = "JVM arguments for child processes (overrides build-time default)")
     private String jvmArgs;
 
     public static void main(String[] args) {
@@ -142,30 +140,31 @@ public final class BuildRunner implements Callable<Integer> {
         var orchestrator = new GuidedOrchestrator(logger, duration, branchProbability, faultsConfig);
 
         var instrumentedWarsDir = deploymentDir.resolve("apps");
-        var agentJarPath = deploymentDir.resolve("system/opendst-agent.jar").toAbsolutePath().toString();
+        var agentJarPath = deploymentDir
+                .resolve("system/opendst-agent.jar")
+                .toAbsolutePath()
+                .toString();
 
         // Merge JVM arguments: CLI --jvm-args wins, else fall back to build-time default
         var effectiveJvmArgs = jvmArgs != null ? jvmArgs : config.jvmArguments();
 
         var jvmConfig = new JvmConfig(
-                instrumentedWarsDir, agentJarPath, effectiveJvmArgs, null, null,
-                DeploymentRunner.class.getName());
-        var runConfig = new RunConfig(
-                replayProbability, false, stagnationLimit, forkCount, failFast);
+                instrumentedWarsDir, agentJarPath, effectiveJvmArgs, null, null, DeploymentRunner.class.getName());
+        var runConfig = new RunConfig(replayProbability, false, stagnationLimit, forkCount, failFast);
 
         // TestExecutor uses testClass/testMethod as child JVM args.
         // For DeploymentRunner, we pass the deployment dir path so the child knows where to find deployment.yaml.
         var reportGenerator = new ReportGenerator(assertions);
         new TestExecutor(
-                reportDir,
-                runsDir,
-                deploymentDir.toAbsolutePath().toString(), // passed as "testClass" arg to child JVM
-                "run",                                     // passed as "testMethod" arg (unused but required)
-                classpath,
-                jvmConfig,
-                logger,
-                orchestrator,
-                runConfig)
+                        reportDir,
+                        runsDir,
+                        deploymentDir.toAbsolutePath().toString(), // passed as "testClass" arg to child JVM
+                        "run", // passed as "testMethod" arg (unused but required)
+                        classpath,
+                        jvmConfig,
+                        logger,
+                        orchestrator,
+                        runConfig)
                 .execute(reportGenerator);
 
         // Always write a final report — even if no run was "interesting", we still

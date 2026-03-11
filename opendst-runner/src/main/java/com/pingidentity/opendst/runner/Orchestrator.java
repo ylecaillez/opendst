@@ -22,7 +22,6 @@ import com.pingidentity.opendst.Plan;
 import com.pingidentity.opendst.Plan.Segment;
 import com.pingidentity.opendst.runner.Commons.SignalEvent;
 import com.pingidentity.opendst.runner.Signal.AssertSignal;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;

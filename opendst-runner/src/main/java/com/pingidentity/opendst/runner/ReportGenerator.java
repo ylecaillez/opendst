@@ -21,7 +21,6 @@ import static java.lang.System.currentTimeMillis;
 import static java.util.Comparator.comparing;
 
 import com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion;
-
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -30,7 +29,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -45,30 +43,28 @@ final class ReportGenerator {
 
     ReportGenerator(Set<Assertion> discoveredProperties) {
         this.assertions = Set.copyOf(discoveredProperties);
-        this.assertions.forEach(assertion -> examples.put(assertion.message(),
-                                                          new Examples(0, List.of(), 0, List.of())));
+        this.assertions.forEach(
+                assertion -> examples.put(assertion.message(), new Examples(0, List.of(), 0, List.of())));
         this.startTime = Instant.now();
     }
 
-    private record AssertionState(String name, String pass, Examples examples) { }
+    private record AssertionState(String name, String pass, Examples examples) {}
 
-    private record Example(Path planFile, long iteration, JsonNode details) { }
+    private record Example(Path planFile, long iteration, JsonNode details) {}
 
     private record Examples(int passCount, List<Example> passExamples, int failCount, List<Example> failExamples) {
         Examples add(TrackedAssertion assertion, Path planFile) {
             return new Examples(
-                passCount + assertion.passCount(), appendInto(passExamples, planFile, assertion, true),
-                failCount + assertion.failCount(), appendInto(failExamples, planFile, assertion, false));
+                    passCount + assertion.passCount(), appendInto(passExamples, planFile, assertion, true),
+                    failCount + assertion.failCount(), appendInto(failExamples, planFile, assertion, false));
         }
 
         /**
          * Add an example into the provided list if it is interesting enough. Interestingness being established by
          * the iteration at which the assertion has been hit: the sooner, the more interesting.
          */
-        private static List<Example> appendInto(List<Example> examples,
-                                                Path planFile,
-                                                TrackedAssertion assertion,
-                                                boolean pass) {
+        private static List<Example> appendInto(
+                List<Example> examples, Path planFile, TrackedAssertion assertion, boolean pass) {
             if (pass && assertion.passCount() == 0 || !pass && assertion.failCount() == 0) {
                 // This assertion has not been hit
                 return examples;
@@ -81,7 +77,7 @@ final class ReportGenerator {
                 //  in the logs to check whether two logs are effectively identical.
                 return examples;
             }
-            var details = pass ? assertion.firstPassDetails() :  assertion.firstFailDetails();
+            var details = pass ? assertion.firstPassDetails() : assertion.firstFailDetails();
             var newExamples = new ArrayList<>(examples);
             if (newExamples.size() >= 3) {
                 // We cannot remove the assocaited plan's file as it might be referenced by another example.
@@ -95,8 +91,10 @@ final class ReportGenerator {
 
     void addExecutionResult(ExecutionResult executionResult, Path planFile) {
         totalPlans.incrementAndGet();
-        executionResult.assertionsHit().forEach((name, assertionTrack) ->
-            examples.computeIfPresent(name, (_, examples) -> examples.add(assertionTrack, planFile)));
+        executionResult
+                .assertionsHit()
+                .forEach((name, assertionTrack) ->
+                        examples.computeIfPresent(name, (_, examples) -> examples.add(assertionTrack, planFile)));
     }
 
     /** Returns {@code true} if any non-SOMETIMES assertion has recorded at least one failure. */
@@ -123,7 +121,8 @@ final class ReportGenerator {
                 // Never hit at runtime.
                 // fail: always(), sometimes() (mustHit — must be reached at least once)
                 // pass: alwaysOrUnreachable(), unreachable()
-                state.add(new AssertionState(assertion.message(), assertion.kind().mustHit() ? "fail" : "pass", hit));
+                state.add(
+                        new AssertionState(assertion.message(), assertion.kind().mustHit() ? "fail" : "pass", hit));
             } else if (SOMETIMES.equals(assertion.kind())) {
                 state.add(new AssertionState(assertion.message(), hit.passCount() == 0 ? "fail" : "pass", hit));
             } else if (hit.failCount() > 0) {
@@ -132,12 +131,15 @@ final class ReportGenerator {
                 state.add(new AssertionState(assertion.message(), "pass", hit));
             }
         }
-        JSON_MAPPER.writer()
-                   .withDefaultPrettyPrinter()
-                   .writeValue(reportFile,
-                               new ReportState(totalPlans.get(),
-                                               formatDuration(startTime.toEpochMilli(), currentTimeMillis()),
-                                               List.copyOf(state)));
+        JSON_MAPPER
+                .writer()
+                .withDefaultPrettyPrinter()
+                .writeValue(
+                        reportFile,
+                        new ReportState(
+                                totalPlans.get(),
+                                formatDuration(startTime.toEpochMilli(), currentTimeMillis()),
+                                List.copyOf(state)));
     }
 
     private String formatDuration(long start, long end) {

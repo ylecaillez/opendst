@@ -262,8 +262,8 @@ public final class Network {
                 });
                 factoryInstalled = true;
             } catch (Throwable e) {
-                throw new Simulator.SimulationError("Failed to install socket factories — "
-                        + "network isolation cannot be guaranteed", e);
+                throw new Simulator.SimulationError(
+                        "Failed to install socket factories — " + "network isolation cannot be guaranteed", e);
             }
         }
 

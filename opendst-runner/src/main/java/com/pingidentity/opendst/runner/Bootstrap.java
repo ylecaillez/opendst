@@ -51,7 +51,11 @@ public final class Bootstrap {
     public static void main(String[] args) {
         try {
             // 1. Locate the JAR we are running from
-            var jarPath = Path.of(Bootstrap.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            var jarPath = Path.of(Bootstrap.class
+                    .getProtectionDomain()
+                    .getCodeSource()
+                    .getLocation()
+                    .toURI());
 
             // 2. Resolve working directory and strip --working-dir from args before forwarding
             var workingDir = resolveWorkingDir(args, jarPath);
@@ -71,14 +75,13 @@ public final class Bootstrap {
             urls.add(deploymentDir.toUri().toURL()); // deployment root for plugin + opendst-agent classes
             var systemDir = deploymentDir.resolve("system");
             try (var jars = list(systemDir)) {
-                jars.filter(p -> p.toString().endsWith(".jar"))
-                        .forEach(p -> {
-                            try {
-                                urls.add(p.toUri().toURL());
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        });
+                jars.filter(p -> p.toString().endsWith(".jar")).forEach(p -> {
+                    try {
+                        urls.add(p.toUri().toURL());
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
             }
 
             // Parent is platform classloader — isolates from system CL (which only sees the bootstrap JAR)
@@ -141,8 +144,8 @@ public final class Bootstrap {
                 var entry = entries.nextElement();
                 var target = targetDir.resolve(entry.getName()).normalize();
                 if (!target.startsWith(targetDir.normalize())) {
-                    throw new IOException("Zip-Slip: entry '" + entry.getName()
-                            + "' resolves outside target directory");
+                    throw new IOException(
+                            "Zip-Slip: entry '" + entry.getName() + "' resolves outside target directory");
                 }
                 if (entry.isDirectory()) {
                     createDirectories(target);

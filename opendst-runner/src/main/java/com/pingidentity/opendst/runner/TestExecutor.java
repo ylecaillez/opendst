@@ -48,7 +48,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 
@@ -61,13 +60,16 @@ final class TestExecutor {
 
     /** JVM launch configuration for child processes. */
     record JvmConfig(
-            Path instrumentedWarsDir, String agentJarPath, String jvmArguments, String debugArgs, File logSpy,
-            String mainClass) {
-    }
+            Path instrumentedWarsDir,
+            String agentJarPath,
+            String jvmArguments,
+            String debugArgs,
+            File logSpy,
+            String mainClass) {}
 
     /** Execution loop control parameters. */
-    record RunConfig(double replayProbability, boolean isDebugOrReplay, int stagnationLimit, int forkCount,
-                     boolean failFast) {}
+    record RunConfig(
+            double replayProbability, boolean isDebugOrReplay, int stagnationLimit, int forkCount, boolean failFast) {}
 
     private final Path reportDir;
     private final Path runsDir;
@@ -84,10 +86,16 @@ final class TestExecutor {
     private final Queue<Plan> pastPlans = new ArrayBlockingQueue<>(10);
     private volatile boolean failureDetected;
 
-    TestExecutor(Path reportDir, Path runsDir,
-                 String testClass, String testMethod, String classpath, JvmConfig jvm,
-                 OpenDstLogger logger,
-                 Orchestrator orchestrator, RunConfig run) {
+    TestExecutor(
+            Path reportDir,
+            Path runsDir,
+            String testClass,
+            String testMethod,
+            String classpath,
+            JvmConfig jvm,
+            OpenDstLogger logger,
+            Orchestrator orchestrator,
+            RunConfig run) {
         this.reportDir = reportDir;
         this.runsDir = runsDir;
         this.testClass = testClass;
@@ -113,9 +121,8 @@ final class TestExecutor {
         }
     }
 
-    private Void runLoop(int count, ReportGenerator reportGenerator)
-            throws IOException, InterruptedException {
-        for(;;) {
+    private Void runLoop(int count, ReportGenerator reportGenerator) throws IOException, InterruptedException {
+        for (; ; ) {
             if (failureDetected) {
                 return null;
             }
@@ -136,13 +143,21 @@ final class TestExecutor {
                 return null;
             }
             if (executionResult.runFailed()) {
-                logger.run("fail").error().withSeed(executionPlan.plan().segments().getLast().seed()).log();
+                logger.run("fail")
+                        .error()
+                        .withSeed(executionPlan.plan().segments().getLast().seed())
+                        .log();
             } else if (executionPlan.plan().hash() == 0) {
                 pastPlans.offer(executionPlan.plan().withHash(executionResult.runHash()));
             } else if (executionPlan.plan().hash() == executionResult.runHash()) {
-                logger.run("verified").withSeed(executionPlan.plan().segments().getLast().seed()).log();
+                logger.run("verified")
+                        .withSeed(executionPlan.plan().segments().getLast().seed())
+                        .log();
             } else {
-                logger.run("flaky").error().withSeed(executionPlan.plan().segments().getLast().seed()).log();
+                logger.run("flaky")
+                        .error()
+                        .withSeed(executionPlan.plan().segments().getLast().seed())
+                        .log();
             }
 
             var hexHash = HexFormat.of().toHexDigits(executionResult.runHash());
@@ -177,7 +192,7 @@ final class TestExecutor {
                 return null;
             }
         }
-     }
+    }
 
     private static void savePlan(Plan plan, Path file) throws IOException {
         try (var os = newOutputStream(file, CREATE)) {
@@ -202,8 +217,7 @@ final class TestExecutor {
         return orchestrator.nextPlan();
     }
 
-    private ExecutionResult runOnce(Path runBaseDir, ExecutionPlan execution)
-            throws IOException, InterruptedException {
+    private ExecutionResult runOnce(Path runBaseDir, ExecutionPlan execution) throws IOException, InterruptedException {
         Process proc = null;
         Thread runKiller = null;
         try {
@@ -251,7 +265,7 @@ final class TestExecutor {
             // For some reason (hopefully captured in the last log line), the process exited but the "stopped" signal
             // has not been received.
             logger.raw()
-                  .error("opendst-agent exited unexpectedly with code %d. Here are the latest logs received:\n%s"
+                    .error("opendst-agent exited unexpectedly with code %d. Here are the latest logs received:\n%s"
                             .formatted(proc.waitFor(), String.join("\n", lastLogs)));
             throw new IOException("opendst-agent failed unexpectedly (exit code %d)".formatted(proc.waitFor()));
         }
@@ -309,9 +323,8 @@ final class TestExecutor {
     }
 
     private Path createRunBaseDir(int count) throws IOException {
-        var runBaseDir = runsDir
-                .resolve(Commons.RUN_DIR_FORMAT.formatted(count))
-                .toAbsolutePath();
+        var runBaseDir =
+                runsDir.resolve(Commons.RUN_DIR_FORMAT.formatted(count)).toAbsolutePath();
         deleteRecursively(runsDir, runBaseDir);
         if (!runBaseDir.toFile().mkdirs()) {
             throw new IllegalStateException(

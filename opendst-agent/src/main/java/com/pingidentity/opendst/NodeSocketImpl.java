@@ -37,9 +37,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
-import java.net.BindException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -54,6 +51,8 @@ import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Simulated TCP socket implementation replacing the JDK's platform socket.
@@ -284,12 +283,16 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             } else if (timeoutMillis == 0) {
                 peer = connected.take();
             }
-            var latency = node.faultInjector().setPairLatencyIfNotSet(peerAddress, address,
-                                                                         ofNanos((node.faults().network()
-                                                                                         .cloggingLatencyMaximum()
-                                                                                         .toNanos()
-                                                                                 * current().nextInt(1000))
-                                                                                         / 1000));
+            var latency = node.faultInjector()
+                    .setPairLatencyIfNotSet(
+                            peerAddress,
+                            address,
+                            ofNanos((node.faults()
+                                                    .network()
+                                                    .cloggingLatencyMaximum()
+                                                    .toNanos()
+                                            * current().nextInt(1000))
+                                    / 1000));
             this.sendBufferSize = toIntExact(max(current().nextLong(0, 5_000_000), 25_000 * (2 + latency.toMillis())));
             this.receiveBuffer = new NetBuffer();
             startVirtualThread(new FutureTask<>(this::receiver)).setName(address + " - receiver");
@@ -462,9 +465,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                         ? sentBytes.get()
                         : current().nextLong(receivedBytes.get(), sentBytes.get() + 1);
                 var delay = node.faultInjector()
-                                   .networkSendDelay(peer.address, address, stableConnection)
-                                   .plus(node.faultInjector()
-                                                .networkReceiveDelay(peer.address, address, stableConnection));
+                        .networkSendDelay(peer.address, address, stableConnection)
+                        .plus(node.faultInjector().networkReceiveDelay(peer.address, address, stableConnection));
                 sleep(delay);
                 receivedBytes.set(bytes);
             }
@@ -586,15 +588,19 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             if (node.faultInjector().isDisconnected(address, peerSocket.address)) {
                 acceptedLocalSocket.close();
             } else {
-                var latency = node.faultInjector().setPairLatencyIfNotSet(peerSocket.address, address,
-                                                                             ofNanos((node.faults().network()
-                                                                                             .cloggingLatencyMaximum()
-                                                                                             .toNanos()
-                                                                                     * current().nextInt(1000))
-                                                                                             / 1000));
-                acceptedLocalSocket.sendBufferSize = toIntExact(max(current().nextLong(0, 5_000_000), 25 * (
-                        MILLISECONDS.toMicros(2)
-                                + NANOSECONDS.toMicros(latency.toNanos()))));
+                var latency = node.faultInjector()
+                        .setPairLatencyIfNotSet(
+                                peerSocket.address,
+                                address,
+                                ofNanos((node.faults()
+                                                        .network()
+                                                        .cloggingLatencyMaximum()
+                                                        .toNanos()
+                                                * current().nextInt(1000))
+                                        / 1000));
+                acceptedLocalSocket.sendBufferSize = toIntExact(max(
+                        current().nextLong(0, 5_000_000),
+                        25 * (MILLISECONDS.toMicros(2) + NANOSECONDS.toMicros(latency.toNanos()))));
                 acceptedLocalSocket.receiveBuffer = new NetBuffer();
 
                 startVirtualThread(new FutureTask<>(acceptedLocalSocket::receiver))

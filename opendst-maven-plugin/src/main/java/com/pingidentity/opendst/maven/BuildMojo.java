@@ -19,6 +19,7 @@ import static com.pingidentity.opendst.runner.Commons.INSTRUMENTED_WARS_DIR;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.Commons.deleteRecursively;
 import static java.lang.Runtime.getRuntime;
+import static java.nio.file.FileSystems.newFileSystem;
 import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Files.exists;
@@ -26,23 +27,20 @@ import static java.nio.file.Files.isDirectory;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.Files.readAllBytes;
 import static java.nio.file.Files.walk;
-import static java.nio.file.FileSystems.newFileSystem;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.util.concurrent.Executors.newFixedThreadPool;
-
 import static tools.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES;
 import static tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES;
 import static tools.jackson.databind.SerializationFeature.INDENT_OUTPUT;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.pingidentity.opendst.runner.Assertion;
+import com.pingidentity.opendst.runner.Bootstrap;
 import com.pingidentity.opendst.runner.BuildRunner.BuildConfig;
 import com.pingidentity.opendst.runner.DeploymentRunner.DeploymentDescriptor;
-import com.pingidentity.opendst.runner.DeploymentRunner.DeploymentDescriptor.TraceAuditorDescriptor;
 import com.pingidentity.opendst.runner.DeploymentRunner.DeploymentDescriptor.ServiceDescriptor;
-import com.pingidentity.opendst.runner.Bootstrap;
+import com.pingidentity.opendst.runner.DeploymentRunner.DeploymentDescriptor.TraceAuditorDescriptor;
 import com.pingidentity.opendst.runner.OpenDstLogger;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -55,7 +53,6 @@ import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
-
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
@@ -68,12 +65,10 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.MavenProjectHelper;
-
 import org.eclipse.aether.RepositorySystem;
 import org.eclipse.aether.artifact.DefaultArtifact;
 import org.eclipse.aether.resolution.ArtifactRequest;
 import org.eclipse.aether.resolution.ArtifactResolutionException;
-
 import tools.jackson.dataformat.yaml.YAMLMapper;
 
 /**
@@ -84,10 +79,7 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
  *
  * <p>The produced JAR can then be run with: {@code java -jar target/<finalName>-opendst.jar}
  */
-@Mojo(
-        name = "build",
-        defaultPhase = LifecyclePhase.PACKAGE,
-        requiresDependencyResolution = ResolutionScope.TEST)
+@Mojo(name = "build", defaultPhase = LifecyclePhase.PACKAGE, requiresDependencyResolution = ResolutionScope.TEST)
 public class BuildMojo extends AbstractMojo {
     private static final String OPENDST_SIMULATOR_JAR = "/META-INF/agents/opendst-agent.jar";
 
@@ -111,7 +103,9 @@ public class BuildMojo extends AbstractMojo {
     @Parameter(property = "opendst.descriptor", required = true)
     private File descriptor;
 
-    @Parameter(property = "opendst.outputJar", defaultValue = "${project.build.directory}/${project.build.finalName}-opendst.jar")
+    @Parameter(
+            property = "opendst.outputJar",
+            defaultValue = "${project.build.directory}/${project.build.finalName}-opendst.jar")
     private File outputJar;
 
     @Parameter(property = "opendst.jvmArguments")
@@ -201,8 +195,7 @@ public class BuildMojo extends AbstractMojo {
             } else {
                 enrichedDir = project.getArtifactId(); // current project
             }
-            enrichedServices.put(name, new ServiceDescriptor(
-                    null, enrichedDir, svc.className(), svc.ip(), svc.args()));
+            enrichedServices.put(name, new ServiceDescriptor(null, enrichedDir, svc.className(), svc.ip(), svc.args()));
         }
 
         // Enrich trace auditor
@@ -217,8 +210,7 @@ public class BuildMojo extends AbstractMojo {
             } else {
                 enrichedDir = project.getArtifactId(); // current project
             }
-            enrichedTraceAuditor = new TraceAuditorDescriptor(
-                    null, enrichedDir, traceAuditor.className());
+            enrichedTraceAuditor = new TraceAuditorDescriptor(null, enrichedDir, traceAuditor.className());
         }
 
         return new DeploymentDescriptor(enrichedServices, enrichedTraceAuditor);
@@ -264,8 +256,8 @@ public class BuildMojo extends AbstractMojo {
             } else {
                 appDir = project.getArtifactId();
             }
-            uniqueSources.putIfAbsent(appDir,
-                    new SourceInfo(svc.artifact(), svc.dir(), "service '%s'".formatted(serviceName)));
+            uniqueSources.putIfAbsent(
+                    appDir, new SourceInfo(svc.artifact(), svc.dir(), "service '%s'".formatted(serviceName)));
         }
 
         // From trace auditor
@@ -279,8 +271,7 @@ public class BuildMojo extends AbstractMojo {
             } else {
                 appDir = project.getArtifactId();
             }
-            uniqueSources.putIfAbsent(appDir,
-                    new SourceInfo(ta.artifact(), ta.dir(), "traceAuditor"));
+            uniqueSources.putIfAbsent(appDir, new SourceInfo(ta.artifact(), ta.dir(), "traceAuditor"));
         }
 
         try (var executor = newFixedThreadPool(getRuntime().availableProcessors() * 2)) {
@@ -302,14 +293,13 @@ public class BuildMojo extends AbstractMojo {
                     // Dir mode: instrument the existing directory
                     var sourceDir = basePath.resolve(source.dir());
                     if (!exists(sourceDir)) {
-                        throw new IOException("%s references non-existent directory: %s"
-                                .formatted(source.label(), sourceDir));
+                        throw new IOException(
+                                "%s references non-existent directory: %s".formatted(source.label(), sourceDir));
                     }
                     allDiscovered.addAll(instrumentation.instrumentAppDir(appDir, sourceDir));
                 } else {
                     // Current project mode: instrument target/classes/ + runtime deps
-                    allDiscovered.addAll(instrumentation.instrumentClasses(
-                            appDir, collectRuntimeDependencyJars()));
+                    allDiscovered.addAll(instrumentation.instrumentClasses(appDir, collectRuntimeDependencyJars()));
                 }
             }
             return allDiscovered;
@@ -333,8 +323,8 @@ public class BuildMojo extends AbstractMojo {
         var request = new ArtifactRequest(artifact, project.getRemoteProjectRepositories(), null);
         var resolved = repositorySystem.resolveArtifact(session.getRepositorySession(), request);
 
-        var stagingDir = basePath.resolve("target").resolve("opendst")
-                .resolve("staging").resolve(appDir);
+        var stagingDir =
+                basePath.resolve("target").resolve("opendst").resolve("staging").resolve(appDir);
         unpackArchive(resolved.getArtifact().getFile().toPath(), stagingDir);
         return stagingDir;
     }
@@ -436,14 +426,18 @@ public class BuildMojo extends AbstractMojo {
      * apps/
      *   &lt;appDir&gt;/                       # Instrumented application content
      *     WEB-INF/
-      *       classes.jar
-      *       lib/
+     *       classes.jar
+     *       lib/
      * deployment.yaml                   # Enriched descriptor (all services have dir set)
      * build-config.json                 # Build-time defaults (JVM args, faults)
      * </pre>
      */
-    private void buildJar(Path basePath, Path instrumentedWarsDir, Path agentJarPath,
-                          DeploymentDescriptor enrichedDescriptor, Set<Assertion> discoveredProperties)
+    private void buildJar(
+            Path basePath,
+            Path instrumentedWarsDir,
+            Path agentJarPath,
+            DeploymentDescriptor enrichedDescriptor,
+            Set<Assertion> discoveredProperties)
             throws IOException, MojoFailureException {
         createDirectories(outputJar.toPath().getParent());
 
@@ -454,8 +448,7 @@ public class BuildMojo extends AbstractMojo {
 
         try (var jos = new JarOutputStream(newOutputStream(outputJar.toPath()), manifest)) {
             // 1. assertions.json
-            addEntry(jos, "META-INF/opendst/assertions.json",
-                    JSON_MAPPER.writeValueAsBytes(discoveredProperties));
+            addEntry(jos, "META-INF/opendst/assertions.json", JSON_MAPPER.writeValueAsBytes(discoveredProperties));
 
             // 2. Bootstrap.class at root — the only class needed for java -jar bootstrap
             addBootstrapClass(jos);
@@ -557,11 +550,30 @@ public class BuildMojo extends AbstractMojo {
     private OpenDstLogger.Sink mavenLogSink() {
         var log = getLog();
         return new OpenDstLogger.Sink() {
-            @Override public boolean isDebugEnabled() { return log.isDebugEnabled(); }
-            @Override public void debug(CharSequence content) { log.debug(content); }
-            @Override public void info(CharSequence content) { log.info(content); }
-            @Override public void warn(CharSequence content) { log.warn(content); }
-            @Override public void error(CharSequence content) { log.error(content); }
+            @Override
+            public boolean isDebugEnabled() {
+                return log.isDebugEnabled();
+            }
+
+            @Override
+            public void debug(CharSequence content) {
+                log.debug(content);
+            }
+
+            @Override
+            public void info(CharSequence content) {
+                log.info(content);
+            }
+
+            @Override
+            public void warn(CharSequence content) {
+                log.warn(content);
+            }
+
+            @Override
+            public void error(CharSequence content) {
+                log.error(content);
+            }
         };
     }
 
@@ -570,15 +582,14 @@ public class BuildMojo extends AbstractMojo {
             return;
         }
         try (var stream = walk(instrumentedWarsDir)) {
-            stream.filter(Files::isRegularFile)
-                    .forEach(p -> {
-                        var relativePath = instrumentedWarsDir.relativize(p).toString().replace('\\', '/');
-                        try {
-                            addEntry(jos, "apps/" + relativePath, readAllBytes(p));
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    });
+            stream.filter(Files::isRegularFile).forEach(p -> {
+                var relativePath = instrumentedWarsDir.relativize(p).toString().replace('\\', '/');
+                try {
+                    addEntry(jos, "apps/" + relativePath, readAllBytes(p));
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
         }
     }
 

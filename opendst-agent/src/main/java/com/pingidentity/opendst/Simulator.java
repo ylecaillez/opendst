@@ -43,12 +43,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.regex.Pattern;
-
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonParser;
 import tools.jackson.jr.ob.JSON;
-import tools.jackson.jr.ob.JSON.Feature;
 import tools.jackson.jr.ob.JacksonJrExtension;
 import tools.jackson.jr.ob.api.ExtensionContext;
 import tools.jackson.jr.ob.api.ReaderWriterProvider;
@@ -100,12 +97,10 @@ public final class Simulator {
     }
 
     // Visible for testing
-    static final Set<String> REDIRECT_CONSTRUCTORS_OF = Set.of(
-            "java/lang/Thread");
+    static final Set<String> REDIRECT_CONSTRUCTORS_OF = Set.of("java/lang/Thread");
 
-    static final Set<String> REDIRECT_STATIC_METHODS_OF = Set.of(
-            "com/pingidentity/opendst/api/Signals",
-            "com/pingidentity/opendst/api/Assert");
+    static final Set<String> REDIRECT_STATIC_METHODS_OF =
+            Set.of("com/pingidentity/opendst/api/Signals", "com/pingidentity/opendst/api/Assert");
 
     static final Instant START_TIME = Instant.ofEpochSecond(1445385600);
 
@@ -127,7 +122,8 @@ public final class Simulator {
         var scheduler = new Time.Scheduler(START_TIME, this, logger);
 
         // Assemble the immutable context last — passed only to Node
-        this.context = new SimulationContext(this, scheduler, random, faults, hasher, network, faultInjector, logger, lock);
+        this.context =
+                new SimulationContext(this, scheduler, random, faults, hasher, network, faultInjector, logger, lock);
 
         logger.logLifecycle("started", START_TIME, 0).log();
     }
@@ -153,26 +149,30 @@ public final class Simulator {
         requireNonNull(traceAuditor);
         checkSimulationState();
         try {
-            var plan = JSON.builder().register(new JacksonJrExtension() {
-                @Override
-                protected void register(ExtensionContext ctxt) {
-                    ctxt.appendProvider(new ReaderWriterProvider() {
+            var plan = JSON.builder()
+                    .register(new JacksonJrExtension() {
                         @Override
-                        public ValueReader findValueReader(JSONReader readContext, Class<?> type) {
-                            if (Duration.class.isAssignableFrom(type)) {
-                                return new ValueReader(Duration.class) {
-                                    @Override
-                                    public Object read(JSONReader reader, JsonParser p) throws JacksonException {
-                                        var value = p.getString();
-                                        return value != null ? Duration.parse(value) : Duration.ZERO;
+                        protected void register(ExtensionContext ctxt) {
+                            ctxt.appendProvider(new ReaderWriterProvider() {
+                                @Override
+                                public ValueReader findValueReader(JSONReader readContext, Class<?> type) {
+                                    if (Duration.class.isAssignableFrom(type)) {
+                                        return new ValueReader(Duration.class) {
+                                            @Override
+                                            public Object read(JSONReader reader, JsonParser p)
+                                                    throws JacksonException {
+                                                var value = p.getString();
+                                                return value != null ? Duration.parse(value) : Duration.ZERO;
+                                            }
+                                        };
                                     }
-                                };
-                            }
-                            return null;
+                                    return null;
+                                }
+                            });
                         }
-                    });
-                }
-            }).build().beanFrom(Plan.class, System.in);
+                    })
+                    .build()
+                    .beanFrom(Plan.class, System.in);
             requireNonNull(plan);
             validatePlan(plan);
             currentThread().setName("OpenDST Simulator Carrier Thread");
@@ -222,20 +222,23 @@ public final class Simulator {
         flushLogs();
 
         int actualHash = context.hasher().getHash();
-        var realReason =
-                !INTERNAL_ERROR.equals(reason) && plan.hash() != 0 && plan.hash() != actualHash ? ExitReason.FLAKY
-                                                                                                : reason;
+        var realReason = !INTERNAL_ERROR.equals(reason) && plan.hash() != 0 && plan.hash() != actualHash
+                ? ExitReason.FLAKY
+                : reason;
         var finalLog = context.logger()
-                              .logLifecycle("stopped", instant(), iteration())
-                              .withString("reason", realReason.message)
-                              .withNumber("hash", actualHash);
+                .logLifecycle("stopped", instant(), iteration())
+                .withString("reason", realReason.message)
+                .withNumber("hash", actualHash);
         if (cause != null) {
             var actualCause =
                     cause instanceof InvocationTargetException && cause.getCause() != null ? cause.getCause() : cause;
             finalLog = finalLog.withString("cause", actualCause.getMessage())
-                               .withPOJO("stacktrace",
-                                         stream(actualCause.getStackTrace()).limit(10).map(StackTraceElement::toString)
-                                                                            .toList());
+                    .withPOJO(
+                            "stacktrace",
+                            stream(actualCause.getStackTrace())
+                                    .limit(10)
+                                    .map(StackTraceElement::toString)
+                                    .toList());
         }
         try {
             finalLog.log();
@@ -293,11 +296,7 @@ public final class Simulator {
     }
 
     public static void startNode(
-            String hostName,
-            InetAddress ipAddress,
-            ClassLoader classLoader,
-            Method main,
-            String[] args) {
+            String hostName, InetAddress ipAddress, ClassLoader classLoader, Method main, String[] args) {
         requireNonNull(hostName);
         requireNonNull(ipAddress);
         requireNonNull(classLoader);

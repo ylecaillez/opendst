@@ -24,7 +24,6 @@ import com.pingidentity.opendst.runner.Signal.ConsoleSignal;
 import com.pingidentity.opendst.runner.Signal.FaultSignal;
 import com.pingidentity.opendst.runner.Signal.LifecycleSignal;
 import java.util.Map;
-
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -141,10 +140,7 @@ public sealed interface Signal permits ConsoleSignal, AssertSignal, FaultSignal,
         }
     }
 
-    record LifecycleSignal(String message,
-                           String reason,
-                           int hash,
-                           String cause) implements Signal {
+    record LifecycleSignal(String message, String reason, int hash, String cause) implements Signal {
 
         @Override
         public SignalType type() {

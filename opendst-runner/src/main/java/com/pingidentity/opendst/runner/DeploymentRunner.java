@@ -34,14 +34,12 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.pingidentity.opendst.Deployment.Image;
 import com.pingidentity.opendst.Deployment.Service;
 import com.pingidentity.opendst.api.TraceAuditor;
-
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-
 import tools.jackson.dataformat.yaml.YAMLMapper;
 
 /**
@@ -82,8 +80,9 @@ public final class DeploymentRunner {
             // The opendst-agent JAR must be on each service's classpath so that the
             // URLClassLoader (parented to getPlatformClassLoader()) can resolve
             // AssertImpl and other opendst-agent classes referenced by instrumented code.
-            var coreJarUrl = deploymentDir.resolve("system/opendst-agent.jar").toUri().toURL();
-            var extraClasspath = new URL[] { coreJarUrl };
+            var coreJarUrl =
+                    deploymentDir.resolve("system/opendst-agent.jar").toUri().toURL();
+            var extraClasspath = new URL[] {coreJarUrl};
             var images = new ArrayList<Image>();
             var services = new ArrayList<Service>();
 
@@ -107,16 +106,18 @@ public final class DeploymentRunner {
             if (descriptor.traceAuditor() != null) {
                 var auditorAppDir = descriptor.traceAuditor().appDir();
                 var auditorClassLoader = nodeClassLoader(appsDir, auditorAppDir);
-                var auditorClass = Class.forName(
-                        descriptor.traceAuditor().className(), true, auditorClassLoader);
-                traceAuditor = (TraceAuditor) auditorClass.getDeclaredConstructor().newInstance();
+                var auditorClass = Class.forName(descriptor.traceAuditor().className(), true, auditorClassLoader);
+                traceAuditor =
+                        (TraceAuditor) auditorClass.getDeclaredConstructor().newInstance();
             }
 
             // Run the simulation
-            runSimulation(() -> {
-                deploy(images, services);
-                return null;
-            }, traceAuditor);
+            runSimulation(
+                    () -> {
+                        deploy(images, services);
+                        return null;
+                    },
+                    traceAuditor);
 
         } catch (ReflectiveOperationException e) {
             err.println("Failed to instantiate trace auditor");
@@ -168,8 +169,8 @@ public final class DeploymentRunner {
         if (exists(classesDir)) {
             urls.add(classesDir.toUri().toURL());
         }
-        return new URLClassLoader("trace-auditor-loader",
-                urls.toArray(URL[]::new), DeploymentRunner.class.getClassLoader());
+        return new URLClassLoader(
+                "trace-auditor-loader", urls.toArray(URL[]::new), DeploymentRunner.class.getClassLoader());
     }
 
     /**
@@ -177,8 +178,8 @@ public final class DeploymentRunner {
      *
      * <p>The descriptor defines the deployment topology using a docker-compose-like format:
      * services (as a named map) and an optional trace auditor. Each service carries its own
- * source and class declaration. Orchestration concerns (faults, duration, fork count)
- * are configured separately in {@link BuildRunner.BuildConfig} and via CLI arguments.
+     * source and class declaration. Orchestration concerns (faults, duration, fork count)
+     * are configured separately in {@link BuildRunner.BuildConfig} and via CLI arguments.
      *
      * <p>Example YAML:
      * <pre>{@code
@@ -196,9 +197,7 @@ public final class DeploymentRunner {
      *   class: com.example.MyTraceAuditor
      * }</pre>
      */
-    public record DeploymentDescriptor(
-            Map<String, ServiceDescriptor> services,
-            TraceAuditorDescriptor traceAuditor) {
+    public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, TraceAuditorDescriptor traceAuditor) {
 
         /**
          * Describes a service with three mutually exclusive source modes:

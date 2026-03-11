@@ -36,7 +36,6 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Pattern;
-
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -105,13 +104,20 @@ public final class Commons {
                 long value = parseLong(matcher.group(1));
                 String unit = matcher.group(2).toLowerCase();
                 switch (unit) {
-                case "ns": return ofNanos(value);
-                case "us": return ofNanos(value * 1000);
-                case "ms": return ofMillis(value);
-                case "s":  return ofSeconds(value);
-                case "m":  return ofMinutes(value);
-                case "h":  return ofHours(value);
-                default: throw new IllegalArgumentException("Unknown unit: " + unit);
+                    case "ns":
+                        return ofNanos(value);
+                    case "us":
+                        return ofNanos(value * 1000);
+                    case "ms":
+                        return ofMillis(value);
+                    case "s":
+                        return ofSeconds(value);
+                    case "m":
+                        return ofMinutes(value);
+                    case "h":
+                        return ofHours(value);
+                    default:
+                        throw new IllegalArgumentException("Unknown unit: " + unit);
                 }
             }
             return ofMillis(parseLong(input)); // Default to ms

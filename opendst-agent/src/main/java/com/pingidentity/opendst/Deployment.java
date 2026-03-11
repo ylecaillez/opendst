@@ -85,12 +85,7 @@ public final class Deployment {
             var image = images.get(service.imageName());
             var serviceClassLoader = new URLClassLoader(service.name(), image.classPath(), getPlatformClassLoader());
             var mainMethod = serviceClassLoader.loadClass(image.mainClassName()).getMethod("main", String[].class);
-            startNode(
-                    service.name(),
-                    service.ip(),
-                    serviceClassLoader,
-                    mainMethod,
-                    service.args());
+            startNode(service.name(), service.ip(), serviceClassLoader, mainMethod, service.args());
         }
     }
 
