@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.it.networkfault;
 
 import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
@@ -21,17 +21,17 @@ import java.util.Map;
 import tools.jackson.jr.ob.JSON;
 
 /**
- * Typed trace events emitted by the simulated network layer.
+ * Typed trace events emitted by socket decorators and
+ * consumed by {@link NetworkFaultTraceAuditor}.
  * <p>
  * Each event corresponds to a P specification monitor event
  * ({@code eSpec_*}) and is serialized to JSON for transport
- * through the vhost console capture pipeline. The test-side
- * {@code TraceEventParser} deserializes these back into typed
+ * through the vhost console capture pipeline. The
+ * {@link TraceEventParser} deserializes these back into typed
  * records, then maps them to PObserve monitor events.
  * <p>
  * This class has no dependency on PObserve — it uses only
- * standard Java types and Jackson-jr (already shaded in the
- * agent) for serialization.
+ * standard Java types and Jackson-jr for serialization.
  */
 public final class TraceEvents {
 
@@ -65,6 +65,33 @@ public final class TraceEvents {
         }
     }
 
+    /** A socket has completed its connection (client-side).
+     *  Emitted before the server's accept() returns, so
+     *  monitors know the socket is valid before data events
+     *  arrive. */
+    public record SocketConnected(
+            String socket
+    ) implements TraceEvent {
+        @Override
+        public String serialize() {
+            return toJson("SocketConnected",
+                    Map.of("socket", socket));
+        }
+    }
+
+    /** A socket has been accepted by a server socket
+     *  (server-side). Emitted during accept() so monitors
+     *  know the accepted socket is valid immediately. */
+    public record SocketAccepted(
+            String socket
+    ) implements TraceEvent {
+        @Override
+        public String serialize() {
+            return toJson("SocketAccepted",
+                    Map.of("socket", socket));
+        }
+    }
+
     /** Data was successfully written to a socket. */
     public record DataWritten(
             String socket, byte[] data
@@ -86,7 +113,8 @@ public final class TraceEvents {
 
         @Override
         public int hashCode() {
-            return 31 * socket.hashCode() + Arrays.hashCode(data);
+            return 31 * socket.hashCode()
+                    + Arrays.hashCode(data);
         }
     }
 
@@ -110,12 +138,15 @@ public final class TraceEvents {
 
         @Override
         public int hashCode() {
-            return 31 * socket.hashCode() + Arrays.hashCode(data);
+            return 31 * socket.hashCode()
+                    + Arrays.hashCode(data);
         }
     }
 
     /** A socket has been closed. */
-    public record SocketClosed(String socket) implements TraceEvent {
+    public record SocketClosed(
+            String socket
+    ) implements TraceEvent {
         @Override
         public String serialize() {
             return toJson("SocketClosed",
@@ -147,7 +178,9 @@ public final class TraceEvents {
     }
 
     /** EOF was read on a socket (peer shut down output). */
-    public record EOFRead(String socket) implements TraceEvent {
+    public record EOFRead(
+            String socket
+    ) implements TraceEvent {
         @Override
         public String serialize() {
             return toJson("EOFRead",
@@ -186,7 +219,8 @@ public final class TraceEvents {
         public String serialize() {
             return toJson("DataDiscarded", Map.of(
                     "socket", socket,
-                    "byteCount", String.valueOf(byteCount)));
+                    "byteCount",
+                    String.valueOf(byteCount)));
         }
     }
 
@@ -239,6 +273,10 @@ public final class TraceEvents {
                             str(map, "clientSocket"),
                             str(map, "serverSocket"),
                             str(map, "acceptedSocket"));
+            case "SocketConnected" ->
+                    new SocketConnected(str(map, "socket"));
+            case "SocketAccepted" ->
+                    new SocketAccepted(str(map, "socket"));
             case "DataWritten" ->
                     new DataWritten(
                             str(map, "socket"),
@@ -302,7 +340,8 @@ public final class TraceEvents {
     private static String toJson(String trace,
                                  Map<String, String> fields) {
         var buf = new ByteArrayOutputStream(128);
-        try (var gen = JSON_INSTANCE.createGenerator(buf)) {
+        try (var gen =
+                     JSON_INSTANCE.createGenerator(buf)) {
             gen.writeStartObject();
             gen.writeStringProperty("trace", trace);
             for (var e : fields.entrySet()) {
@@ -333,7 +372,8 @@ public final class TraceEvents {
         for (int i = 0; i < len; i += 2) {
             bytes[i / 2] = (byte) (
                     (Character.digit(hex.charAt(i), 16) << 4)
-                  + Character.digit(hex.charAt(i + 1), 16));
+                  + Character.digit(
+                            hex.charAt(i + 1), 16));
         }
         return bytes;
     }

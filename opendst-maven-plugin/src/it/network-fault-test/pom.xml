@@ -93,7 +93,7 @@
                         <configuration>
                             <descriptor>${project.basedir}/deployment.yaml</descriptor>
                             <jvmArguments>-XX:TieredStopAtLevel=1 -Xms64m -Xmx64m</jvmArguments>
-                            <traceEventsEnabled>true</traceEventsEnabled>
+
                         </configuration>
                     </execution>
                 </executions>
@@ -108,10 +108,8 @@
             <version>@project.version@</version>
         </dependency>
         <dependency>
-            <groupId>com.pingidentity.opendst</groupId>
-            <artifactId>opendst-agent</artifactId>
-            <version>@project.version@</version>
-            <scope>provided</scope>
+            <groupId>tools.jackson.jr</groupId>
+            <artifactId>jackson-jr-objects</artifactId>
         </dependency>
         <dependency>
             <groupId>io.github.p-org</groupId>

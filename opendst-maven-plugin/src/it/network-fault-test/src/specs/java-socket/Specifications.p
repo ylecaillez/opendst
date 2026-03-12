@@ -110,7 +110,7 @@ spec NoWriteAfterClose observes eSpec_SocketClosed, eSpec_DataWritten
  * Data can only be read from a socket that is part of an established connection.
  * No data should appear that wasn't written by anyone.
  ******************************************************************************/
-spec NoPhantomData observes eSpec_ConnectionEstablished, eSpec_DataRead
+spec NoPhantomData observes eSpec_ConnectionEstablished, eSpec_SocketConnected, eSpec_SocketAccepted, eSpec_DataRead
 {
     var connectedSockets: set[machine];
 
@@ -118,6 +118,14 @@ spec NoPhantomData observes eSpec_ConnectionEstablished, eSpec_DataRead
         on eSpec_ConnectionEstablished do (payload: (clientSocket: machine, serverSocket: machine, acceptedSocket: machine)) {
             connectedSockets += (payload.clientSocket);
             connectedSockets += (payload.acceptedSocket);
+        }
+
+        on eSpec_SocketConnected do (payload: (socket: machine)) {
+            connectedSockets += (payload.socket);
+        }
+
+        on eSpec_SocketAccepted do (payload: (socket: machine)) {
+            connectedSockets += (payload.socket);
         }
 
         on eSpec_DataRead do (payload: (socket: machine, dat: seq[int])) {

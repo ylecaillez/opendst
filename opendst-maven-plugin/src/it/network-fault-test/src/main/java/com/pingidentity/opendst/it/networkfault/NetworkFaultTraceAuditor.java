@@ -15,7 +15,6 @@
  */
 package com.pingidentity.opendst.it.networkfault;
 
-import com.pingidentity.opendst.TraceEvents;
 import com.pingidentity.opendst.api.TraceAuditor;
 import generatedOutput.pobserve.PMachines;
 import pobserve.runtime.Monitor;
@@ -28,9 +27,9 @@ import java.util.List;
  * PObserve-generated monitors compiled from the P formal
  * specification.
  *
- * <p>Trace events are emitted automatically by the simulated
- * network layer ({@code NodeSocketImpl}) and validated here
- * against all 11 P spec monitors:
+ * <p>Trace events are emitted by the socket decorators
+ * ({@link TracingSocket}, {@link TracingServerSocket}) and
+ * validated here against all 11 P spec monitors:
  *
  * <ul>
  *   <li><b>Safety:</b> DataIntegrity, NoWriteAfterClose,
@@ -93,7 +92,19 @@ public final class NetworkFaultTraceAuditor
         for (Monitor<?> monitor : monitors) {
             if (monitor.getEventTypes()
                     .contains(pEvent.getClass())) {
-                monitor.accept(pEvent);
+                try {
+                    monitor.accept(pEvent);
+                } catch (RuntimeException ex) {
+                    throw new AssertionError(
+                            "Monitor "
+                            + monitor.getClass()
+                                    .getSimpleName()
+                            + " failed on event: "
+                            + log.message()
+                            + " from host " + log.host()
+                            + " at iteration "
+                            + log.iteration(), ex);
+                }
             }
         }
     }

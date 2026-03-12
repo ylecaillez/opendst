@@ -15,7 +15,6 @@
  */
 package com.pingidentity.opendst.it.networkfault;
 
-import com.pingidentity.opendst.TraceEvents;
 import generatedOutput.pobserve.PEvents;
 import generatedOutput.pobserve.PTypes;
 import pobserve.runtime.events.PEvent;
@@ -50,6 +49,14 @@ final class TraceEventParser {
                                     machineId(e.clientSocket()),
                                     machineId(e.serverSocket()),
                                     machineId(e.acceptedSocket())));
+            case TraceEvents.SocketConnected e ->
+                    new PEvents.eSpec_SocketConnected(
+                            new PTypes.PTuple_sckt(
+                                    machineId(e.socket())));
+            case TraceEvents.SocketAccepted e ->
+                    new PEvents.eSpec_SocketAccepted(
+                            new PTypes.PTuple_sckt(
+                                    machineId(e.socket())));
             case TraceEvents.DataWritten e ->
                     new PEvents.eSpec_DataWritten(
                             new PTypes.PTuple_sckt_dat(

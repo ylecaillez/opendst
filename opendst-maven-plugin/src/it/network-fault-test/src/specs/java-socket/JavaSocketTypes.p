@@ -152,6 +152,10 @@ event eSpec_ShutdownInputCompleted: (socket: machine);
 event eSpec_DataDiscarded: (socket: machine, byteCount: int);
 // Announced when available() is queried on a socket
 event eSpec_AvailableQueried: (socket: machine, reportedCount: int);
+// Announced when a client socket connects (client-side)
+event eSpec_SocketConnected: (socket: machine);
+// Announced when a server socket accepts a connection (server-side)
+event eSpec_SocketAccepted: (socket: machine);
 
 /***********************************************
  * Enums for socket roles

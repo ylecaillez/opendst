@@ -48,7 +48,6 @@ interface Orchestrator {
         private final long duration;
         private final double branchProbability;
         private final Faults.Config faultsConfig;
-        private final boolean traceEventsEnabled;
 
         // Exploration map: count of how many times we branched FROM this signal+condition
         private final Map<String, Integer> signalExplorationCount = new ConcurrentHashMap<>();
@@ -70,12 +69,11 @@ interface Orchestrator {
         }
 
         GuidedOrchestrator(OpenDstLogger logger, long duration, double branchProbability,
-                Faults.Config faultsConfig, boolean traceEventsEnabled) {
+                Faults.Config faultsConfig) {
             this.logger = logger;
             this.duration = duration;
             this.branchProbability = branchProbability;
             this.faultsConfig = faultsConfig;
-            this.traceEventsEnabled = traceEventsEnabled;
         }
 
         @Override
@@ -139,7 +137,7 @@ interface Orchestrator {
             var segments = new ArrayList<>(prefixSegments);
             long seed = current().nextLong();
             segments.add(new Segment(seed, branchPoint + explorationLength));
-            var exploratoryPlan = new Plan(segments, faultsConfig, traceEventsEnabled);
+            var exploratoryPlan = new Plan(segments, faultsConfig);
             logger.run("explore")
                     .withSeed(seed)
                     .withScore(selected.score())
@@ -153,7 +151,7 @@ interface Orchestrator {
         private ExecutionPlan newRandomWalk() {
             long seed = current().nextLong();
             logger.run("random-walk").withSeed(seed).log();
-            var plan = new Plan(List.of(new Segment(seed, duration)), faultsConfig, traceEventsEnabled);
+            var plan = new Plan(List.of(new Segment(seed, duration)), faultsConfig);
             return new ExecutionPlan(plan, new GuidanceMonitor(plan));
         }
 

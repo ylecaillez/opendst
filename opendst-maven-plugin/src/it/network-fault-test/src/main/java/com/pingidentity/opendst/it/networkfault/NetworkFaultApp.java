@@ -20,7 +20,6 @@ import static java.lang.System.err;
 import static java.lang.System.exit;
 import static java.lang.Thread.sleep;
 
-import com.pingidentity.opendst.TraceEvents;
 import com.pingidentity.opendst.api.Assert;
 import com.pingidentity.opendst.api.Signals;
 
@@ -43,26 +42,32 @@ import java.util.concurrent.ThreadLocalRandom;
  * is attempted and {@link IOException} is caught — the chaos
  * test does not skip any operations.
  *
- * <p>Runtime validation is performed by PObserve monitors in
- * {@link NetworkFaultTraceAuditor}, fed by typed trace events
- * emitted automatically from {@code NodeSocketImpl}.
+ * <p>All socket I/O is wrapped with {@link TracingSocket} and
+ * {@link TracingServerSocket} decorators, which emit typed
+ * trace events through {@code System.out}. These flow through
+ * the console capture pipeline to
+ * {@link NetworkFaultTraceAuditor}, where PObserve monitors
+ * validate TCP socket semantics.
  */
 public final class NetworkFaultApp {
 
     // ==================== Server ====================
 
     /**
-     * Chaos server that periodically restarts its {@link ServerSocket}, randomly toggling
+     * Chaos server that periodically restarts its
+     * {@link ServerSocket}, randomly toggling
      * {@code SO_REUSEADDR} and construction patterns.
      *
-     * <p>Per {@link ServerSocket#setReuseAddress}, the option must be set
-     * before {@link ServerSocket#bind}. Without it, rebinding the same port
-     * may fail with {@link BindException} — either from actual TIME_WAIT
+     * <p>Per {@link ServerSocket#setReuseAddress}, the option
+     * must be set before {@link ServerSocket#bind}. Without
+     * it, rebinding the same port may fail with
+     * {@link BindException} — either from actual TIME_WAIT
      * contention or from the fault injector.
      */
     public static final class Server {
         @SuppressWarnings("InfiniteLoopStatement")
-        public static void main(String[] args) throws Exception {
+        public static void main(String[] args)
+                throws Exception {
             if (args.length < 1) {
                 err.println("Usage: Server <port>");
                 exit(1);
@@ -73,104 +78,138 @@ public final class NetworkFaultApp {
 
             while (true) {
                 // Try to create and bind a ServerSocket.
-                // BindException is expected when SO_REUSEADDR is off.
-                ServerSocket ss;
+                // BindException is expected when
+                // SO_REUSEADDR is off.
+                TracingServerSocket ss;
                 try {
                     ss = createServerSocket(port, rng);
                 } catch (BindException e) {
-                    Assert.reachable("server-bind-failed", null);
+                    Assert.reachable(
+                            "server-bind-failed", null);
                     sleep(100);
                     continue;
                 }
 
-                try (ss) {
+                try {
                     if (listenerId == 0) Signals.ready();
                     listenerId++;
 
-                    int acceptsBeforeRestart = rng.nextInt(1, 20);
-                    for (int a = 0; a < acceptsBeforeRestart; a++) {
+                    int acceptsBeforeRestart =
+                            rng.nextInt(1, 20);
+                    for (int a = 0;
+                         a < acceptsBeforeRestart; a++) {
                         try {
                             var accepted = ss.accept();
-                            handleConnection(accepted, rng);
+                            handleConnection(
+                                    accepted, rng);
                         } catch (IOException e) {
                             rethrowPartition(e);
                             sleep(100);
                         }
                     }
+                } finally {
+                    ss.close();
                 }
                 Assert.reachable("server-restart", null);
             }
         }
 
         /**
-         * Creates a {@link ServerSocket} using a random construction pattern.
+         * Creates a {@link TracingServerSocket} using a
+         * random construction pattern.
          *
-         * <p>Two patterns exercise the ServerSocket API differently:
+         * <p>Two patterns exercise the ServerSocket API
+         * differently:
          * <ol>
-         *   <li><b>Deferred bind</b>: {@code new ServerSocket()} then
-         *       {@code setReuseAddress()} then {@code bind()}.</li>
-         *   <li><b>Constructor bind</b>: {@code new ServerSocket(port)}.
-         *       Binds immediately with the platform default for SO_REUSEADDR.</li>
+         *   <li><b>Deferred bind</b>:
+         *       {@code new ServerSocket()} then
+         *       {@code setReuseAddress()} then
+         *       {@code bind()}.</li>
+         *   <li><b>Constructor bind</b>:
+         *       {@code new ServerSocket(port)}. Binds
+         *       immediately with the platform default for
+         *       SO_REUSEADDR.</li>
          * </ol>
          *
-         * @throws BindException if the port is already in use (or fault-injected)
+         * @throws BindException if the port is already in
+         *         use (or fault-injected)
          */
-        private static ServerSocket createServerSocket(int port,
-                                                       ThreadLocalRandom rng) throws IOException {
+        private static TracingServerSocket createServerSocket(
+                int port, ThreadLocalRandom rng)
+                throws IOException {
             if (rng.nextBoolean()) {
-                // Deferred bind — can set SO_REUSEADDR before bind
-                Assert.reachable("server-deferred-bind", null);
+                // Deferred bind — can set SO_REUSEADDR
+                // before bind
+                Assert.reachable(
+                        "server-deferred-bind", null);
                 var ss = new ServerSocket();
+                var tss = TracingServerSocket.wrap(ss);
                 boolean reuseAddr = rng.nextBoolean();
-                ss.setReuseAddress(reuseAddr);
-                Assert.sometimes(reuseAddr, "server-reuse-addr-on", null);
-                Assert.sometimes(!reuseAddr, "server-reuse-addr-off", null);
-                ss.bind(new InetSocketAddress(port));  // may throw BindException
-                return ss;
+                tss.setReuseAddress(reuseAddr);
+                Assert.sometimes(reuseAddr,
+                        "server-reuse-addr-on", null);
+                Assert.sometimes(!reuseAddr,
+                        "server-reuse-addr-off", null);
+                tss.bind(new InetSocketAddress(port));
+                return tss;
             } else {
-                // Constructor bind — binds immediately, platform default SO_REUSEADDR
-                Assert.reachable("server-constructor-bind", null);
-                return new ServerSocket(port);  // may throw BindException
+                // Constructor bind — binds immediately,
+                // platform default SO_REUSEADDR
+                Assert.reachable(
+                        "server-constructor-bind", null);
+                return TracingServerSocket.wrap(
+                        new ServerSocket(port));
             }
         }
 
         /**
-         * Handles an accepted connection with a randomly chosen strategy.
+         * Handles an accepted connection with a randomly
+         * chosen strategy.
          */
-        private static void handleConnection(Socket socket,
-                                             ThreadLocalRandom rng) {
-            try (socket;
-                 var in = socket.getInputStream();
-                 var out = socket.getOutputStream()) {
+        private static void handleConnection(
+                TracingSocket ts, ThreadLocalRandom rng) {
+            try (var _ = new AutoClose(ts)) {
+                var in = ts.getInputStream();
+                var out = ts.getOutputStream();
 
                 switch (rng.nextInt(4)) {
                     case 0 -> {
-                        Assert.reachable("server-normal-echo", null);
+                        Assert.reachable(
+                                "server-normal-echo",
+                                null);
                         echo(in, out);
                     }
                     case 1 -> {
-                        // Per Socket.shutdownOutput(): disables the output stream.
-                        // Peer sees EOF. We then drain any remaining input.
-                        Assert.reachable("server-output-halfclose", null);
+                        Assert.reachable(
+                                "server-output-halfclose",
+                                null);
                         echoOnce(in, out);
-                        socket.shutdownOutput();
+                        ts.shutdownOutput();
                         drain(in);
-                        socket.shutdownInput();
+                        ts.shutdownInput();
                     }
                     case 2 -> {
-                        // Per Socket.shutdownInput(): any data received after this
-                        // is acknowledged then discarded. read() returns -1.
-                        Assert.reachable("server-input-halfclose", null);
-                        socket.shutdownInput();
-                        out.write("server-initiated".getBytes());
+                        Assert.reachable(
+                                "server-input-halfclose",
+                                null);
+                        ts.shutdownInput();
+                        out.write("server-initiated"
+                                .getBytes());
                     }
                     case 3 -> {
-                        Assert.reachable("server-random-sequence", null);
-                        randomConnActions(socket, in, out, rng);
+                        Assert.reachable(
+                                "server-random-sequence",
+                                null);
+                        randomConnActions(
+                                ts, in, out, rng);
                     }
                 }
             } catch (IOException e) {
-                try { rethrowPartition(e); } catch (IOException p) { throw new RuntimeException(p); }
+                try {
+                    rethrowPartition(e);
+                } catch (IOException p) {
+                    throw new RuntimeException(p);
+                }
             }
         }
     }
@@ -178,14 +217,17 @@ public final class NetworkFaultApp {
     // ==================== Client ====================
 
     /**
-     * Chaos client that connects to the server with random action sequences.
+     * Chaos client that connects to the server with random
+     * action sequences.
      *
-     * <p>Each connection attempt exercises a random subset of socket API
-     * calls. Invalid calls (e.g. write after close) are expected — the
-     * resulting {@link IOException} is caught and the test continues.
+     * <p>Each connection attempt exercises a random subset
+     * of socket API calls. Invalid calls (e.g. write after
+     * close) are expected — the resulting {@link IOException}
+     * is caught and the test continues.
      */
     public static final class Client {
-        public static void main(String[] args) throws Exception {
+        public static void main(String[] args)
+                throws Exception {
             if (args.length < 2) {
                 err.println("Usage: Client <host> <port>");
                 exit(1);
@@ -195,14 +237,15 @@ public final class NetworkFaultApp {
             var rng = ThreadLocalRandom.current();
 
             for (int i = 0; i < 200; i++) {
-                Socket socket;
+                TracingSocket ts;
                 if (rng.nextInt(3) == 0) {
                     // new Socket(host, port) — creates and
                     // connects in one call
                     Assert.reachable(
                             "client-direct-connect", null);
                     try {
-                        socket = new Socket(host, port);
+                        ts = TracingSocket.wrapConnected(
+                                new Socket(host, port));
                         Assert.reachable(
                                 "client-open", null);
                     } catch (IOException e) {
@@ -213,15 +256,16 @@ public final class NetworkFaultApp {
                     // new Socket() — unbound, must connect
                     Assert.reachable(
                             "client-unbound", null);
-                    socket = new Socket();
+                    ts = TracingSocket.wrapUnconnected(
+                            new Socket());
                 }
 
                 try {
                     randomClientActions(
-                            socket, host, port, rng);
+                            ts, host, port, rng);
                 } finally {
                     try {
-                        socket.close();
+                        ts.close();
                     } catch (IOException ignored) {}
                 }
             }
@@ -238,15 +282,21 @@ public final class NetworkFaultApp {
 
     // ==================== Helpers ====================
 
-    /** Re-throws if the exception is a network partition fault. */
-    private static void rethrowPartition(IOException e) throws IOException {
-        if (e.getMessage() != null && e.getMessage().contains("network-partition")) {
+    /** Re-throws if the exception is a network partition
+     *  fault. */
+    private static void rethrowPartition(IOException e)
+            throws IOException {
+        if (e.getMessage() != null
+                && e.getMessage()
+                        .contains("network-partition")) {
             throw e;
         }
     }
 
-    /** Echo loop: read from peer, write back. Stops on EOF. */
-    private static void echo(InputStream in, OutputStream out)
+    /** Echo loop: read from peer, write back. Stops on
+     *  EOF. */
+    private static void echo(
+            InputStream in, OutputStream out)
             throws IOException {
         byte[] buf = new byte[1024];
         for (;;) {
@@ -257,7 +307,8 @@ public final class NetworkFaultApp {
     }
 
     /** Read one message and echo it back. */
-    private static void echoOnce(InputStream in, OutputStream out)
+    private static void echoOnce(
+            InputStream in, OutputStream out)
             throws IOException {
         byte[] buf = new byte[1024];
         int n = in.read(buf);
@@ -266,26 +317,30 @@ public final class NetworkFaultApp {
     }
 
     /** Drain remaining data until EOF. */
-    private static void drain(InputStream in) throws IOException {
+    private static void drain(InputStream in)
+            throws IOException {
         byte[] buf = new byte[1024];
         while (in.read(buf) != -1) { /* drain */ }
     }
 
-    // ==================== Random action sequences ====================
+    // ==================== Random action sequences ====
 
     /**
      * Random actions on a server-side accepted socket.
      *
-     * <p>Every action is attempted regardless of socket state.
-     * {@link IOException} is caught and the test continues —
-     * PObserve monitors validate that the simulated network
-     * layer raises exceptions when it should.
+     * <p>Every action is attempted regardless of socket
+     * state. {@link IOException} is caught and the test
+     * continues — PObserve monitors validate that the
+     * simulated network layer raises exceptions when it
+     * should.
      */
-    private static void randomConnActions(Socket socket,
-                                          InputStream in, OutputStream out,
-                                          ThreadLocalRandom rng) throws IOException {
+    private static void randomConnActions(
+            TracingSocket ts, InputStream in,
+            OutputStream out, ThreadLocalRandom rng)
+            throws IOException {
         int steps = rng.nextInt(2, 6);
-        for (int s = 0; s < steps && !socket.isClosed(); s++) {
+        for (int s = 0;
+             s < steps && !ts.isClosed(); s++) {
             switch (rng.nextInt(5)) {
                 case 0 -> {
                     try {
@@ -303,23 +358,27 @@ public final class NetworkFaultApp {
                 }
                 case 2 -> {
                     try {
-                        socket.shutdownInput();
-                        Assert.reachable("server-shutdown-input", null);
+                        ts.shutdownInput();
+                        Assert.reachable(
+                                "server-shutdown-input",
+                                null);
                     } catch (IOException e) {
                         rethrowPartition(e);
                     }
                 }
                 case 3 -> {
                     try {
-                        socket.shutdownOutput();
-                        Assert.reachable("server-shutdown-output", null);
+                        ts.shutdownOutput();
+                        Assert.reachable(
+                                "server-shutdown-output",
+                                null);
                     } catch (IOException e) {
                         rethrowPartition(e);
                     }
                 }
                 case 4 -> {
                     try {
-                        socket.close();
+                        ts.close();
                     } catch (IOException e) {
                         rethrowPartition(e);
                     }
@@ -331,72 +390,98 @@ public final class NetworkFaultApp {
     /**
      * Random actions on a client socket.
      *
-     * <p>Every action is attempted regardless of socket state.
-     * {@link IOException} is caught and the test continues —
-     * PObserve monitors validate that the simulated network
-     * layer raises exceptions when it should.
+     * <p>Every action is attempted regardless of socket
+     * state. {@link IOException} is caught and the test
+     * continues — PObserve monitors validate that the
+     * simulated network layer raises exceptions when it
+     * should.
      */
-    private static void randomClientActions(Socket socket,
-                                            String host, int port,
-                                            ThreadLocalRandom rng) throws IOException {
+    private static void randomClientActions(
+            TracingSocket ts, String host, int port,
+            ThreadLocalRandom rng) throws IOException {
         int steps = rng.nextInt(2, 11);
-        for (int s = 0; s < steps && !socket.isClosed(); s++) {
+        for (int s = 0;
+             s < steps && !ts.isClosed(); s++) {
             switch (rng.nextInt(7)) {
                 case 0 -> {
                     try {
-                        socket.bind(new InetSocketAddress(0));
-                        Assert.reachable("client-bind", null);
+                        ts.delegate().bind(
+                                new InetSocketAddress(0));
+                        Assert.reachable(
+                                "client-bind", null);
                     } catch (IOException e) {
                         rethrowPartition(e);
                     }
                 }
                 case 1 -> {
                     try {
-                        socket.connect(new InetSocketAddress(host, port));
-                        Assert.reachable("client-open", null);
+                        ts.connect(
+                                new InetSocketAddress(
+                                        host, port));
+                        Assert.reachable(
+                                "client-open", null);
                     } catch (IOException e) {
                         rethrowPartition(e);
                     }
                 }
                 case 2 -> {
                     try {
-                        socket.getOutputStream().write("ping".getBytes());
+                        ts.getOutputStream()
+                                .write("ping".getBytes());
                     } catch (IOException e) {
                         rethrowPartition(e);
                     }
                 }
                 case 3 -> {
                     try {
-                        int n = socket.getInputStream().read(new byte[1024]);
-                        Assert.sometimes(n == -1, "client-eof", null);
+                        int n = ts.getInputStream()
+                                .read(new byte[1024]);
+                        Assert.sometimes(n == -1,
+                                "client-eof", null);
                     } catch (IOException e) {
                         rethrowPartition(e);
                     }
                 }
                 case 4 -> {
                     try {
-                        socket.shutdownInput();
-                        Assert.reachable("client-shutdown-input", null);
+                        ts.shutdownInput();
+                        Assert.reachable(
+                                "client-shutdown-input",
+                                null);
                     } catch (IOException e) {
                         rethrowPartition(e);
                     }
                 }
                 case 5 -> {
                     try {
-                        socket.shutdownOutput();
-                        Assert.reachable("client-shutdown-output", null);
+                        ts.shutdownOutput();
+                        Assert.reachable(
+                                "client-shutdown-output",
+                                null);
                     } catch (IOException e) {
                         rethrowPartition(e);
                     }
                 }
                 case 6 -> {
                     try {
-                        socket.close();
+                        ts.close();
                     } catch (IOException e) {
                         rethrowPartition(e);
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * {@link AutoCloseable} adapter for {@link TracingSocket}
+     * to enable try-with-resources.
+     */
+    private record AutoClose(
+            TracingSocket ts) implements AutoCloseable {
+        @Override
+        public void close() throws IOException {
+            ts.close();
         }
     }
 

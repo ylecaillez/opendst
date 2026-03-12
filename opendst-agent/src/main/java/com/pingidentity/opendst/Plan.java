@@ -20,18 +20,18 @@ import java.util.List;
 /**
  * Execution plan for a simulation run.
  */
-public record Plan(List<Segment> segments, Faults.Config faults, boolean traceEventsEnabled, int hash) {
+public record Plan(List<Segment> segments, Faults.Config faults, int hash) {
     public record Segment(long seed, long iteration) {}
 
     public Plan {
         segments = List.copyOf(segments);
     }
 
-    public Plan(List<Segment> segments, Faults.Config faults, boolean traceEventsEnabled) {
-        this(segments, faults, traceEventsEnabled, 0);
+    public Plan(List<Segment> segments, Faults.Config faults) {
+        this(segments, faults, 0);
     }
 
     public Plan withHash(int hash) {
-        return new Plan(segments, faults, traceEventsEnabled, hash);
+        return new Plan(segments, faults, hash);
     }
 }
