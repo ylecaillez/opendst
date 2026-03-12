@@ -218,6 +218,25 @@ public final class Simulator {
         context.hasher().update(objects);
     }
 
+    /**
+     * Called by {@link Randomness.Source} at each segment boundary. Snapshots the current hash,
+     * emits a {@code "segment-completed"} lifecycle signal, and checks the departing segment's
+     * expected hash. If the expected hash is non-zero and differs from the actual hash, the
+     * simulation exits with {@link ExitReason#FLAKY}.
+     *
+     * @param departingSegment the segment that just completed
+     */
+    void checkSegmentHash(Plan.Segment departingSegment) {
+        int actualHash = context.hasher().getHash();
+        context.logger()
+                .logLifecycle("segment-completed", instant(), iteration())
+                .withNumber("hash", actualHash)
+                .log();
+        if (departingSegment.hash() != 0 && departingSegment.hash() != actualHash) {
+            exitSimulation(ExitReason.FLAKY, null);
+        }
+    }
+
     void exitSimulation(ExitReason reason, Throwable cause) {
         Node.CURRENT.remove();
         flushLogs();

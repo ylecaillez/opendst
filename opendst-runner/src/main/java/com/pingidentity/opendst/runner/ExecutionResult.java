@@ -22,7 +22,9 @@ import static com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion.n
 import com.pingidentity.opendst.runner.Commons.SignalEvent;
 import com.pingidentity.opendst.runner.Signal.AssertSignal;
 import com.pingidentity.opendst.runner.Signal.LifecycleSignal;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import tools.jackson.databind.JsonNode;
 
@@ -69,11 +71,17 @@ final class ExecutionResult {
     }
 
     private final Map<String, TrackedAssertion> assertionsHit = new HashMap<>();
+    private final List<Integer> segmentHashes = new ArrayList<>();
     private boolean interesting;
     private int runHash;
 
     int runHash() {
         return runHash;
+    }
+
+    /** {@return the hashes captured at each segment boundary, in order of emission} */
+    List<Integer> segmentHashes() {
+        return segmentHashes;
     }
 
     public boolean isInteresting() {
@@ -95,6 +103,8 @@ final class ExecutionResult {
         if (signal.signal() instanceof LifecycleSignal lifecycleSignal) {
             if ("started".equals(lifecycleSignal.message())) {
                 trackAssertion("simulation started", true, signal.iteration(), null);
+            } else if ("segment-completed".equals(lifecycleSignal.message())) {
+                segmentHashes.add(lifecycleSignal.hash());
             } else if ("stopped".equals(lifecycleSignal.message())) {
                 boolean success = "success".equals(lifecycleSignal.reason());
                 trackAssertion(

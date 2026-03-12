@@ -65,6 +65,7 @@ public final class Randomness {
 
         private final transient Simulator simulator;
         private final transient ArrayDeque<Segment> segments;
+        private transient Segment currentSegment;
         private long iteration;
         private long nextIteration;
         int last;
@@ -73,6 +74,7 @@ public final class Randomness {
             this.simulator = simulator;
             this.segments = new ArrayDeque<>(segments);
             var segment = this.segments.removeFirst();
+            this.currentSegment = segment;
             setSeed(segment.seed());
             nextIteration = segment.iteration();
         }
@@ -95,8 +97,10 @@ public final class Randomness {
         protected int next(int bits) {
             assert bits > 0 && bits <= 32;
             if (iteration >= nextIteration) {
+                this.simulator.checkSegmentHash(currentSegment);
                 try {
                     var segment = segments.removeFirst();
+                    currentSegment = segment;
                     nextIteration = segment.iteration();
                     assert nextIteration > iteration;
                     setSeed(segment.seed());

@@ -21,7 +21,12 @@ import java.util.List;
  * Execution plan for a simulation run.
  */
 public record Plan(List<Segment> segments, Faults.Config faults, int hash) {
-    public record Segment(long seed, long iteration) {}
+    public record Segment(long seed, long iteration, int hash) {
+        /** Convenience constructor for segments with no expected hash. */
+        public Segment(long seed, long iteration) {
+            this(seed, iteration, 0);
+        }
+    }
 
     public Plan {
         segments = List.copyOf(segments);

@@ -22,6 +22,7 @@ import com.pingidentity.opendst.Plan;
 import com.pingidentity.opendst.Plan.Segment;
 import com.pingidentity.opendst.runner.Commons.SignalEvent;
 import com.pingidentity.opendst.runner.Signal.AssertSignal;
+import com.pingidentity.opendst.runner.Signal.LifecycleSignal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -201,7 +202,7 @@ interface Orchestrator {
                     long previousIteration =
                             result.isEmpty() ? 0 : result.getLast().iteration();
                     if (targetIteration > previousIteration) {
-                        result.add(new Segment(segment.seed(), targetIteration));
+                        result.add(new Segment(segment.seed(), targetIteration, 0));
                     }
                     break;
                 }
@@ -211,6 +212,8 @@ interface Orchestrator {
 
         private final class GuidanceMonitor implements Predicate<SignalEvent> {
             private final Plan plan;
+            /** Hashes captured at each segment boundary, in order of emission. */
+            private final List<Integer> segmentHashes = new ArrayList<>();
 
             GuidanceMonitor(Plan plan) {
                 this.plan = plan;
@@ -218,6 +221,12 @@ interface Orchestrator {
 
             @Override
             public boolean test(SignalEvent event) {
+                // Track segment boundary hashes from lifecycle signals
+                if (event.signal() instanceof LifecycleSignal lifecycle
+                        && "segment-completed".equals(lifecycle.message())) {
+                    segmentHashes.add(lifecycle.hash());
+                    return false;
+                }
                 if (!(event.signal() instanceof AssertSignal assertSignal)) {
                     return false;
                 }
@@ -304,13 +313,23 @@ interface Orchestrator {
                 return interesting;
             }
 
+            /**
+             * Builds a prefix from the plan's segments up to the given iteration.
+             * Complete segments (those whose boundary was crossed during the run) carry
+             * their observed hash from {@code segmentHashes}. The truncated segment at
+             * the end gets {@code hash=0} since its boundary was not reached.
+             */
             private List<Segment> buildPrefix(long iteration) {
                 var prefixSegments = new ArrayList<Segment>();
-                for (var segment : plan.segments()) {
+                var planSegments = plan.segments();
+                for (int i = 0; i < planSegments.size(); i++) {
+                    var segment = planSegments.get(i);
                     if (segment.iteration() < iteration) {
-                        prefixSegments.add(segment);
+                        // Complete segment — attach its observed hash if available
+                        int hash = i < segmentHashes.size() ? segmentHashes.get(i) : segment.hash();
+                        prefixSegments.add(new Segment(segment.seed(), segment.iteration(), hash));
                     } else {
-                        // Truncate the segment where the signal was hit
+                        // Truncate the segment where the signal was hit (hash unknown at this boundary)
                         prefixSegments.add(new Segment(segment.seed(), iteration));
                         break;
                     }
