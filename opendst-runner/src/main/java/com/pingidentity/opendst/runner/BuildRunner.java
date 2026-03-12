@@ -23,8 +23,10 @@ import static java.lang.System.exit;
 import static java.nio.file.Files.createDirectories;
 
 import com.pingidentity.opendst.Faults;
+import com.pingidentity.opendst.Plan;
 import com.pingidentity.opendst.runner.Commons.DurationUtils;
 import com.pingidentity.opendst.runner.Orchestrator.GuidedOrchestrator;
+import com.pingidentity.opendst.runner.Orchestrator.ReplayOrchestrator;
 import com.pingidentity.opendst.runner.TestExecutor.JvmConfig;
 import com.pingidentity.opendst.runner.TestExecutor.RunConfig;
 import java.nio.file.Path;
@@ -96,6 +98,9 @@ public final class BuildRunner implements Callable<Integer> {
             defaultValue = "100")
     private int stagnationLimit;
 
+    @Option(names = "--plan", description = "Replay a saved plan file instead of exploring")
+    private Path planFile;
+
     @Option(names = "--jvm-args", description = "JVM arguments for child processes (overrides build-time default)")
     private String jvmArgs;
 
@@ -137,7 +142,6 @@ public final class BuildRunner implements Callable<Integer> {
         // 4. Set up orchestrator and run
         var logger = ofConsole();
         var faultsConfig = toFaultsConfig(config.faults());
-        var orchestrator = new GuidedOrchestrator(logger, duration, branchProbability, faultsConfig);
 
         var instrumentedWarsDir = deploymentDir.resolve("apps");
         var agentJarPath = deploymentDir
@@ -150,7 +154,19 @@ public final class BuildRunner implements Callable<Integer> {
 
         var jvmConfig = new JvmConfig(
                 instrumentedWarsDir, agentJarPath, effectiveJvmArgs, null, null, DeploymentRunner.class.getName());
-        var runConfig = new RunConfig(replayProbability, false, stagnationLimit, forkCount, failFast);
+
+        // Replay mode: load a saved plan and execute it once
+        boolean isReplay = planFile != null;
+        Orchestrator orchestrator;
+        if (isReplay) {
+            var plan = JSON_MAPPER.readValue(planFile.toFile(), Plan.class);
+            orchestrator = new ReplayOrchestrator(plan);
+            forkCount = 1;
+        } else {
+            orchestrator = new GuidedOrchestrator(logger, duration, branchProbability, faultsConfig);
+        }
+
+        var runConfig = new RunConfig(isReplay ? 0 : replayProbability, isReplay, stagnationLimit, forkCount, failFast);
 
         // TestExecutor uses testClass/testMethod as child JVM args.
         // For DeploymentRunner, we pass the deployment dir path so the child knows where to find deployment.yaml.
@@ -166,6 +182,11 @@ public final class BuildRunner implements Callable<Integer> {
                         orchestrator,
                         runConfig)
                 .execute(reportGenerator);
+
+        if (isReplay) {
+            logger.raw().info("Replay complete.");
+            return 0;
+        }
 
         // Always write a final report — even if no run was "interesting", we still
         // want a summary of whatever happened during the simulation.
