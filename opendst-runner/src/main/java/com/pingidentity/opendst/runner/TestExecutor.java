@@ -146,17 +146,20 @@ final class TestExecutor {
                 logger.run("fail")
                         .error()
                         .withSeed(executionPlan.plan().segments().getLast().seed())
+                        .withHash(executionResult.runHash())
                         .log();
             } else if (executionPlan.plan().hash() == 0) {
                 pastPlans.offer(executionPlan.plan().withHash(executionResult.runHash()));
             } else if (executionPlan.plan().hash() == executionResult.runHash()) {
                 logger.run("verified")
                         .withSeed(executionPlan.plan().segments().getLast().seed())
+                        .withHash(executionResult.runHash())
                         .log();
             } else {
                 logger.run("flaky")
                         .error()
                         .withSeed(executionPlan.plan().segments().getLast().seed())
+                        .withHash(executionResult.runHash())
                         .log();
             }
 
