@@ -28,10 +28,9 @@ import java.util.List;
  * PObserve-generated monitors compiled from the P formal
  * specification.
  *
- * <p>Replaces the former hand-coded {@code SocketStateMachine}
- * based auditor. Trace events are now emitted automatically by
- * the simulated network layer ({@code NodeSocketImpl}) and
- * validated here against all 6 P spec monitors:
+ * <p>Trace events are emitted automatically by the simulated
+ * network layer ({@code NodeSocketImpl}) and validated here
+ * against all 6 P spec monitors:
  *
  * <ul>
  *   <li><b>Safety:</b> DataIntegrity, NoWriteAfterClose,
