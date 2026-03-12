@@ -27,6 +27,7 @@ record SimulationContext(
         Time.Scheduler scheduler,
         Randomness.Source random,
         Faults.Config faults,
+        boolean traceEventsEnabled,
         StateHasher hasher,
         Network network,
         Faults.Injector faultInjector,

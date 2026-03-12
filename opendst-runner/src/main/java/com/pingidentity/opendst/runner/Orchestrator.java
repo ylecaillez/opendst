@@ -48,6 +48,7 @@ interface Orchestrator {
         private final long duration;
         private final double branchProbability;
         private final Faults.Config faultsConfig;
+        private final boolean traceEventsEnabled;
 
         // Exploration map: count of how many times we branched FROM this signal+condition
         private final Map<String, Integer> signalExplorationCount = new ConcurrentHashMap<>();
@@ -68,11 +69,13 @@ interface Orchestrator {
             final AtomicInteger falseHits = new AtomicInteger();
         }
 
-        GuidedOrchestrator(OpenDstLogger logger, long duration, double branchProbability, Faults.Config faultsConfig) {
+        GuidedOrchestrator(OpenDstLogger logger, long duration, double branchProbability,
+                Faults.Config faultsConfig, boolean traceEventsEnabled) {
             this.logger = logger;
             this.duration = duration;
             this.branchProbability = branchProbability;
             this.faultsConfig = faultsConfig;
+            this.traceEventsEnabled = traceEventsEnabled;
         }
 
         @Override
@@ -136,7 +139,7 @@ interface Orchestrator {
             var segments = new ArrayList<>(prefixSegments);
             long seed = current().nextLong();
             segments.add(new Segment(seed, branchPoint + explorationLength));
-            var exploratoryPlan = new Plan(segments, faultsConfig);
+            var exploratoryPlan = new Plan(segments, faultsConfig, traceEventsEnabled);
             logger.run("explore")
                     .withSeed(seed)
                     .withScore(selected.score())
@@ -150,7 +153,7 @@ interface Orchestrator {
         private ExecutionPlan newRandomWalk() {
             long seed = current().nextLong();
             logger.run("random-walk").withSeed(seed).log();
-            var plan = new Plan(List.of(new Segment(seed, duration)), faultsConfig);
+            var plan = new Plan(List.of(new Segment(seed, duration)), faultsConfig, traceEventsEnabled);
             return new ExecutionPlan(plan, new GuidanceMonitor(plan));
         }
 

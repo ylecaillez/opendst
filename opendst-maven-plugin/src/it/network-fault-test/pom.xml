@@ -93,6 +93,7 @@
                         <configuration>
                             <descriptor>${project.basedir}/deployment.yaml</descriptor>
                             <jvmArguments>-XX:TieredStopAtLevel=1 -Xms64m -Xmx64m</jvmArguments>
+                            <traceEventsEnabled>true</traceEventsEnabled>
                         </configuration>
                     </execution>
                 </executions>

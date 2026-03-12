@@ -162,6 +162,10 @@ public final class Node {
         return context.faults();
     }
 
+    boolean traceEventsEnabled() {
+        return context.traceEventsEnabled();
+    }
+
     Simulator simulator() {
         return context.simulator();
     }

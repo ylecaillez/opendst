@@ -137,7 +137,8 @@ public final class BuildRunner implements Callable<Integer> {
         // 4. Set up orchestrator and run
         var logger = ofConsole();
         var faultsConfig = toFaultsConfig(config.faults());
-        var orchestrator = new GuidedOrchestrator(logger, duration, branchProbability, faultsConfig);
+        var traceEventsEnabled = config.traceEventsEnabled();
+        var orchestrator = new GuidedOrchestrator(logger, duration, branchProbability, faultsConfig, traceEventsEnabled);
 
         var instrumentedWarsDir = deploymentDir.resolve("apps");
         var agentJarPath = deploymentDir
@@ -217,7 +218,7 @@ public final class BuildRunner implements Callable<Integer> {
     }
 
     /** Build-time configuration baked into the self-contained JAR. */
-    public record BuildConfig(String jvmArguments, FaultsConfig faults) {
+    public record BuildConfig(String jvmArguments, FaultsConfig faults, boolean traceEventsEnabled) {
 
         /** Serializable faults configuration using string-based durations. */
         public record FaultsConfig(NetworkFaultsConfig network) {}

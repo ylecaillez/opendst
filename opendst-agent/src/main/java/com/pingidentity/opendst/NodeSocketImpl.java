@@ -240,6 +240,9 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
     }
 
     private void emitTrace(TraceEvents.TraceEvent event) {
+        if (!node.traceEventsEnabled()) {
+            return;
+        }
         node.console.println(event.serialize());
     }
 

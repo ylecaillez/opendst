@@ -111,6 +111,9 @@ public class BuildMojo extends AbstractMojo {
     @Parameter(property = "opendst.jvmArguments")
     private String jvmArguments;
 
+    @Parameter(property = "opendst.traceEventsEnabled")
+    private boolean traceEventsEnabled;
+
     @Parameter(property = "opendst.skip")
     private boolean skip;
 
@@ -468,7 +471,7 @@ public class BuildMojo extends AbstractMojo {
             addEntry(jos, "deployment.yaml", serializeDescriptor(enrichedDescriptor));
 
             // 6. build-config.json — build-time defaults (runtime params are now CLI-only)
-            var buildConfig = new BuildConfig(jvmArguments, defaultFaultsConfig());
+            var buildConfig = new BuildConfig(jvmArguments, defaultFaultsConfig(), traceEventsEnabled);
             addEntry(jos, "build-config.json", JSON_MAPPER.writeValueAsBytes(buildConfig));
         }
     }
