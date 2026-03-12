@@ -166,6 +166,43 @@ public final class TraceEvents {
         }
     }
 
+    /** Input shutdown completed on a socket. */
+    public record ShutdownInputCompleted(
+            String socket
+    ) implements TraceEvent {
+        @Override
+        public String serialize() {
+            return toJson("ShutdownInputCompleted",
+                    Map.of("socket", socket));
+        }
+    }
+
+    /** Data was silently discarded because the peer's input
+     *  was already shut down. */
+    public record DataDiscarded(
+            String socket, int byteCount
+    ) implements TraceEvent {
+        @Override
+        public String serialize() {
+            return toJson("DataDiscarded", Map.of(
+                    "socket", socket,
+                    "byteCount", String.valueOf(byteCount)));
+        }
+    }
+
+    /** The available() method was queried on a socket. */
+    public record AvailableQueried(
+            String socket, int reportedCount
+    ) implements TraceEvent {
+        @Override
+        public String serialize() {
+            return toJson("AvailableQueried", Map.of(
+                    "socket", socket,
+                    "reportedCount",
+                    String.valueOf(reportedCount)));
+        }
+    }
+
     /** Marker emitted at end of test to trigger liveness
      *  checking. */
     public record TestCompleted() implements TraceEvent {
@@ -223,6 +260,17 @@ public final class TraceEvents {
                     new EOFRead(str(map, "socket"));
             case "ConnectionReset" ->
                     new ConnectionReset(str(map, "socket"));
+            case "ShutdownInputCompleted" ->
+                    new ShutdownInputCompleted(
+                            str(map, "socket"));
+            case "DataDiscarded" ->
+                    new DataDiscarded(
+                            str(map, "socket"),
+                            integer(map, "byteCount"));
+            case "AvailableQueried" ->
+                    new AvailableQueried(
+                            str(map, "socket"),
+                            integer(map, "reportedCount"));
             case "TestCompleted" ->
                     new TestCompleted();
             default -> null;
@@ -236,6 +284,15 @@ public final class TraceEvents {
     private static String str(Map<String, Object> map,
                               String key) {
         return (String) map.get(key);
+    }
+
+    private static int integer(Map<String, Object> map,
+                               String key) {
+        var value = map.get(key);
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        return Integer.parseInt((String) value);
     }
 
     /**

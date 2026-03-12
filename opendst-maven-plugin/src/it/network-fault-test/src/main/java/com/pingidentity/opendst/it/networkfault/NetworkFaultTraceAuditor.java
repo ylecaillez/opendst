@@ -30,12 +30,16 @@ import java.util.List;
  *
  * <p>Trace events are emitted automatically by the simulated
  * network layer ({@code NodeSocketImpl}) and validated here
- * against all 6 P spec monitors:
+ * against all 11 P spec monitors:
  *
  * <ul>
  *   <li><b>Safety:</b> DataIntegrity, NoWriteAfterClose,
- *       NoPhantomData, IOExceptionOnClosedSocket</li>
- *   <li><b>Liveness:</b> DeliveryLiveness, EOFLiveness</li>
+ *       NoPhantomData, IOExceptionOnClosedSocket,
+ *       NoWriteAfterShutdownOutput,
+ *       NoReadAfterShutdownInput,
+ *       NoSilentDataDiscard, AvailableConsistency</li>
+ *   <li><b>Liveness:</b> DeliveryLiveness, EOFLiveness,
+ *       GracefulShutdownIntegrity</li>
  * </ul>
  *
  * <p>Safety violations throw immediately (unchecked
@@ -54,7 +58,17 @@ public final class NetworkFaultTraceAuditor
             new PMachines.IOExceptionOnClosedSocket
                     .Supplier().get(),
             new PMachines.DeliveryLiveness.Supplier().get(),
-            new PMachines.EOFLiveness.Supplier().get());
+            new PMachines.EOFLiveness.Supplier().get(),
+            new PMachines.NoWriteAfterShutdownOutput
+                    .Supplier().get(),
+            new PMachines.NoReadAfterShutdownInput
+                    .Supplier().get(),
+            new PMachines.NoSilentDataDiscard
+                    .Supplier().get(),
+            new PMachines.AvailableConsistency
+                    .Supplier().get(),
+            new PMachines.GracefulShutdownIntegrity
+                    .Supplier().get());
 
     private final TraceEventParser parser =
             new TraceEventParser();
@@ -98,7 +112,9 @@ public final class NetworkFaultTraceAuditor
         for (Monitor<?> monitor : monitors) {
             String state = monitor.getCurrentState().name();
             if ("PendingDelivery".equals(state)
-                    || "PendingEOFDelivery".equals(state)) {
+                    || "PendingEOFDelivery".equals(state)
+                    || "PendingGracefulDelivery"
+                            .equals(state)) {
                 throw new AssertionError(
                         "Liveness violation: "
                         + monitor.getClass().getSimpleName()

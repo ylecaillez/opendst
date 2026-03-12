@@ -223,6 +223,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
     private boolean soReuseAddr;
     private boolean isOutputShutdown;
     private boolean isInputShutdown;
+    /** Set by the local sender() when the peer's shutdownInput() causes an RST to propagate back. */
+    private volatile boolean connectionResetByPeer;
     private int soTimeout;
 
     private Object soLinger;
@@ -391,7 +393,14 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
     @Override
     protected void shutdownInput() {
         isInputShutdown = true;
+        if (socketId != null) {
+            emitTrace(new TraceEvents.ShutdownInputCompleted(socketId));
+        }
+        // Wake up receiver() (waits on sentBytes) so it exits.
         sentBytes.signal();
+        // Wake up sender() (waits on writtenBytes) so it detects isInputShutdown
+        // and can propagate RST back to peer if data arrives.
+        writtenBytes.signal();
     }
 
     @Override
@@ -437,9 +446,13 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                             emitTrace(new TraceEvents.IOExceptionRaised(socketId, "write"));
                         }
                         throw new SocketException("Socket output is shutdown");
-                    } else if (peer.isInputShutdown) {
-                        // Discard silently per contract
-                        return;
+                    } else if (connectionResetByPeer) {
+                        // RST received from peer after it shut down input.
+                        if (socketId != null) {
+                            emitTrace(new TraceEvents.ConnectionReset(socketId));
+                            emitTrace(new TraceEvents.IOExceptionRaised(socketId, "write"));
+                        }
+                        throw new SocketException("Connection reset");
                     }
                     bytesWritten = min(len - totalWritten, peer.availableSendBufferForPeer());
                     if (bytesWritten > 0) {
@@ -467,18 +480,40 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
         for (; ; ) {
             if (sentBytes.get() == writtenBytes.get()) {
                 // All bytes previously written by the peer have been sent
-                if (peer.isOutputShutdown) {
-                    // Peer notified that no more data will be sent
-                    peer.tcpFINSent = true;
+                if (closed || peer.isOutputShutdown) {
+                    // Socket closed or peer notified that no more data will be sent
+                    if (!isInputShutdown && peer.isOutputShutdown) {
+                        peer.tcpFINSent = true;
+                    }
                     sentBytes.signal();
                     return null;
                 }
-                // Wait for more bytes from peer
+                // Wait for more bytes from peer (or shutdownInput/close signal)
                 writtenBytes.await();
             } else {
                 // Peer has written some bytes which needs to be sent
                 long twoNanosSec = MILLISECONDS.toNanos(2);
                 sleep(ofNanos((twoNanosSec * current().nextInt(0, 1000)) / 1000));
+                if (closed) {
+                    // Socket was closed during transit — just exit.
+                    return null;
+                }
+                if (isInputShutdown) {
+                    // TCP RST: local side shut down input, but peer keeps writing.
+                    // The data arriving is discarded and RST propagates back to the peer
+                    // after a network round-trip delay.
+                    // Note: no DataDiscarded trace here — the discard is NOT silent because
+                    // RST notifies the peer. DataDiscarded is reserved for truly silent losses.
+                    var rstDelay = node.faultInjector()
+                            .networkSendDelay(binding.address(), peer.address, stableConnection);
+                    sleep(rstDelay);
+                    peer.connectionResetByPeer = true;
+                    // Unblock peer's write() which may be waiting on receivedBytes (send buffer full)
+                    // or on writtenBytes (in its own sender loop)
+                    receivedBytes.signal();
+                    peer.writtenBytes.signal();
+                    return null;
+                }
                 sentBytes.set(writtenBytes.get());
             }
         }
@@ -526,7 +561,11 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                         }
                         throw new SocketException("Socket is closed");
         }
-        return isInputShutdown ? 0 : receiveBuffer.size();
+        int count = isInputShutdown ? 0 : receiveBuffer.size();
+        if (socketId != null) {
+            emitTrace(new TraceEvents.AvailableQueried(socketId, count));
+        }
+        return count;
     }
 
     @Override
@@ -542,8 +581,9 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             // unblock local accept()
             backlog.offer(new NodeSocketImpl(node, false));
         } else {
-            // Unblock local read() and peer's write()
+            // Unblock local read(), local sender(), and peer's write()
             sentBytes.signal();
+            writtenBytes.signal();
             if (peer != null) {
                 peer.writtenBytes.signal();
             }

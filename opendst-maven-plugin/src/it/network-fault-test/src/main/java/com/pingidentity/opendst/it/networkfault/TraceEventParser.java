@@ -77,6 +77,20 @@ final class TraceEventParser {
             case TraceEvents.ConnectionReset e ->
                     new PEvents.eSpec_ConnectionReset(
                             new PTypes.PTuple_sckt(machineId(e.socket())));
+            case TraceEvents.ShutdownInputCompleted e ->
+                    new PEvents.eSpec_ShutdownInputCompleted(
+                            new PTypes.PTuple_sckt(
+                                    machineId(e.socket())));
+            case TraceEvents.DataDiscarded e ->
+                    new PEvents.eSpec_DataDiscarded(
+                            new PTypes.PTuple_sckt_bytcn(
+                                    machineId(e.socket()),
+                                    e.byteCount()));
+            case TraceEvents.AvailableQueried e ->
+                    new PEvents.eSpec_AvailableQueried(
+                            new PTypes.PTuple_sckt_rprtd(
+                                    machineId(e.socket()),
+                                    e.reportedCount()));
             case TraceEvents.TestCompleted ignored -> null;
         };
     }

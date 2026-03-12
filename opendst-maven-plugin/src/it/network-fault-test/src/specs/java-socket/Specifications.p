@@ -165,6 +165,327 @@ spec IOExceptionOnClosedSocket observes eSpec_SocketClosed, eSpec_IOExceptionRai
 }
 
 /******************************************************************************
+ * Safety: NoWriteAfterShutdownOutput
+ *
+ * Once shutdownOutput() succeeds on a socket, any subsequent write that
+ * returns IO_SUCCESS is a violation. The Java API requires IOException on
+ * write after shutdownOutput.
+ ******************************************************************************/
+spec NoWriteAfterShutdownOutput observes eSpec_ShutdownOutputCompleted, eSpec_DataWritten
+{
+    var shutdownSockets: set[machine];
+
+    start state Monitoring {
+        on eSpec_ShutdownOutputCompleted do (payload: (socket: machine)) {
+            shutdownSockets += (payload.socket);
+        }
+
+        on eSpec_DataWritten do (payload: (socket: machine, dat: seq[int])) {
+            assert !(payload.socket in shutdownSockets),
+                "NoWriteAfterShutdownOutput violation: data written after shutdownOutput()";
+        }
+    }
+}
+
+/******************************************************************************
+ * Safety: NoReadAfterShutdownInput
+ *
+ * Once shutdownInput() succeeds on a socket, any subsequent read that
+ * returns data (not EOF or IOException) is a violation. The Java API
+ * specifies that read() after shutdownInput() returns EOF.
+ ******************************************************************************/
+spec NoReadAfterShutdownInput observes eSpec_ShutdownInputCompleted, eSpec_DataRead
+{
+    var shutdownSockets: set[machine];
+
+    start state Monitoring {
+        on eSpec_ShutdownInputCompleted do (payload: (socket: machine)) {
+            shutdownSockets += (payload.socket);
+        }
+
+        on eSpec_DataRead do (payload: (socket: machine, dat: seq[int])) {
+            assert !(payload.socket in shutdownSockets),
+                "NoReadAfterShutdownInput violation: data read after shutdownInput()";
+        }
+    }
+}
+
+/******************************************************************************
+ * Safety: NoSilentDataDiscard
+ *
+ * Data written to a socket must never be silently discarded. If the peer's
+ * input is already shut down, the writer should get an error or the data
+ * should be delivered. A DataDiscarded event indicates silent data loss.
+ ******************************************************************************/
+spec NoSilentDataDiscard observes eSpec_DataDiscarded
+{
+    start state Monitoring {
+        on eSpec_DataDiscarded do (payload: (socket: machine, byteCount: int)) {
+            assert false,
+                "NoSilentDataDiscard violation: data silently discarded";
+        }
+    }
+}
+
+/******************************************************************************
+ * Safety: AvailableConsistency
+ *
+ * The value returned by available() must not exceed the number of bytes
+ * that have been written by the peer but not yet read by this socket.
+ * Tracks per-connection cumulative writes and reads, then checks the
+ * reported available count against the upper bound.
+ *
+ * Also asserts that available() returns 0 after shutdownInput().
+ ******************************************************************************/
+spec AvailableConsistency observes eSpec_ConnectionEstablished, eSpec_DataWritten, eSpec_DataRead, eSpec_AvailableQueried, eSpec_ShutdownInputCompleted
+{
+    // peer mapping: socket -> its peer
+    var peerOf: map[machine, machine];
+    // Total bytes written by each socket
+    var totalWritten: map[machine, int];
+    // Total bytes read by each socket
+    var totalRead: map[machine, int];
+    // Sockets that have shut down input
+    var inputShutdown: set[machine];
+
+    start state Monitoring {
+        on eSpec_ConnectionEstablished do (payload: (clientSocket: machine, serverSocket: machine, acceptedSocket: machine)) {
+            peerOf[payload.clientSocket] = payload.acceptedSocket;
+            peerOf[payload.acceptedSocket] = payload.clientSocket;
+            totalWritten[payload.clientSocket] = 0;
+            totalWritten[payload.acceptedSocket] = 0;
+            totalRead[payload.clientSocket] = 0;
+            totalRead[payload.acceptedSocket] = 0;
+        }
+
+        on eSpec_DataWritten do (payload: (socket: machine, dat: seq[int])) {
+            if (payload.socket in totalWritten) {
+                totalWritten[payload.socket] = totalWritten[payload.socket] + sizeof(payload.dat);
+            }
+        }
+
+        on eSpec_DataRead do (payload: (socket: machine, dat: seq[int])) {
+            if (payload.socket in totalRead) {
+                totalRead[payload.socket] = totalRead[payload.socket] + sizeof(payload.dat);
+            }
+        }
+
+        on eSpec_ShutdownInputCompleted do (payload: (socket: machine)) {
+            inputShutdown += (payload.socket);
+        }
+
+        on eSpec_AvailableQueried do (payload: (socket: machine, reportedCount: int)) {
+            // After shutdownInput, available() must return 0
+            if (payload.socket in inputShutdown) {
+                assert payload.reportedCount == 0,
+                    "AvailableConsistency violation: available() non-zero after shutdownInput()";
+            }
+
+            // available() must not exceed unread bytes from peer
+            CheckAvailableUpperBound(payload.socket, payload.reportedCount);
+        }
+    }
+
+    fun CheckAvailableUpperBound(socket: machine, reportedCount: int) {
+        var peer: machine;
+        var unreadBytes: int;
+        if (socket in peerOf && socket in totalRead) {
+            peer = peerOf[socket];
+            if (peer in totalWritten) {
+                unreadBytes = totalWritten[peer] - totalRead[socket];
+                assert reportedCount <= unreadBytes,
+                    "AvailableConsistency violation: available() reports more bytes than peer has written minus what we read";
+            }
+        }
+    }
+}
+
+/******************************************************************************
+ * Liveness: GracefulShutdownIntegrity
+ *
+ * After shutdownOutput() on a socket, all previously written bytes must
+ * be read by the peer before EOF. Unlike DeliveryLiveness, the writer-side
+ * SocketClosed does NOT excuse the delivery obligation — the sender chose
+ * graceful shutdown, so the data must arrive. Only the reader-side close
+ * or a connection reset excuses the obligation.
+ *
+ * Uses hot/cold states: enters hot state when shutdownOutput occurs with
+ * undelivered bytes. Returns to cold when peer reads all bytes + EOF.
+ ******************************************************************************/
+spec GracefulShutdownIntegrity observes eSpec_ConnectionEstablished, eSpec_DataWritten, eSpec_DataRead, eSpec_ShutdownOutputCompleted, eSpec_EOFRead, eSpec_SocketClosed, eSpec_ConnectionReset, eSpec_IOExceptionRaised
+{
+    var peerOf: map[machine, machine];
+    // Total bytes written by each socket
+    var totalWritten: map[machine, int];
+    // Total bytes read by each socket (from its peer)
+    var totalRead: map[machine, int];
+    // Sockets that have completed shutdownOutput — these have a delivery obligation
+    var shutdownOutputSockets: set[machine];
+    // Sockets whose graceful obligation has been excused (reader-side close/reset only)
+    var excused: set[machine];
+
+    start state NoObligation {
+        on eSpec_ConnectionEstablished do (payload: (clientSocket: machine, serverSocket: machine, acceptedSocket: machine)) {
+            peerOf[payload.clientSocket] = payload.acceptedSocket;
+            peerOf[payload.acceptedSocket] = payload.clientSocket;
+            totalWritten[payload.clientSocket] = 0;
+            totalWritten[payload.acceptedSocket] = 0;
+            totalRead[payload.clientSocket] = 0;
+            totalRead[payload.acceptedSocket] = 0;
+        }
+
+        on eSpec_DataWritten do (payload: (socket: machine, dat: seq[int])) {
+            if (payload.socket in totalWritten) {
+                totalWritten[payload.socket] = totalWritten[payload.socket] + sizeof(payload.dat);
+            }
+        }
+
+        on eSpec_DataRead do (payload: (socket: machine, dat: seq[int])) {
+            if (payload.socket in totalRead) {
+                totalRead[payload.socket] = totalRead[payload.socket] + sizeof(payload.dat);
+            }
+        }
+
+        on eSpec_ShutdownOutputCompleted do (payload: (socket: machine)) {
+            if (payload.socket in peerOf && !(payload.socket in excused)) {
+                shutdownOutputSockets += (payload.socket);
+                if (HasPendingObligation()) {
+                    goto PendingGracefulDelivery;
+                }
+            }
+        }
+
+        on eSpec_EOFRead do (payload: (socket: machine)) {
+            // EOF delivery fulfills the obligation
+            if (payload.socket in peerOf) {
+                shutdownOutputSockets -= (peerOf[payload.socket]);
+            }
+        }
+
+        on eSpec_SocketClosed do (payload: (socket: machine)) {
+            // Only the READER side close excuses the obligation
+            ExcuseReaderSide(payload.socket);
+        }
+
+        on eSpec_ConnectionReset do (payload: (socket: machine)) {
+            ExcuseBothSides(payload.socket);
+        }
+
+        on eSpec_IOExceptionRaised do (payload: (socket: machine, operation: string)) {
+            if (payload.operation == "close") {
+                ExcuseReaderSide(payload.socket);
+            }
+        }
+    }
+
+    hot state PendingGracefulDelivery {
+        on eSpec_ConnectionEstablished do (payload: (clientSocket: machine, serverSocket: machine, acceptedSocket: machine)) {
+            peerOf[payload.clientSocket] = payload.acceptedSocket;
+            peerOf[payload.acceptedSocket] = payload.clientSocket;
+            totalWritten[payload.clientSocket] = 0;
+            totalWritten[payload.acceptedSocket] = 0;
+            totalRead[payload.clientSocket] = 0;
+            totalRead[payload.acceptedSocket] = 0;
+        }
+
+        on eSpec_DataWritten do (payload: (socket: machine, dat: seq[int])) {
+            if (payload.socket in totalWritten) {
+                totalWritten[payload.socket] = totalWritten[payload.socket] + sizeof(payload.dat);
+            }
+        }
+
+        on eSpec_DataRead do (payload: (socket: machine, dat: seq[int])) {
+            if (payload.socket in totalRead) {
+                totalRead[payload.socket] = totalRead[payload.socket] + sizeof(payload.dat);
+            }
+            if (!HasPendingObligation()) {
+                goto NoObligation;
+            }
+        }
+
+        on eSpec_ShutdownOutputCompleted do (payload: (socket: machine)) {
+            if (payload.socket in peerOf && !(payload.socket in excused)) {
+                shutdownOutputSockets += (payload.socket);
+            }
+        }
+
+        on eSpec_EOFRead do (payload: (socket: machine)) {
+            if (payload.socket in peerOf) {
+                shutdownOutputSockets -= (peerOf[payload.socket]);
+            }
+            if (!HasPendingObligation()) {
+                goto NoObligation;
+            }
+        }
+
+        on eSpec_SocketClosed do (payload: (socket: machine)) {
+            ExcuseReaderSide(payload.socket);
+            if (!HasPendingObligation()) {
+                goto NoObligation;
+            }
+        }
+
+        on eSpec_ConnectionReset do (payload: (socket: machine)) {
+            ExcuseBothSides(payload.socket);
+            if (!HasPendingObligation()) {
+                goto NoObligation;
+            }
+        }
+
+        on eSpec_IOExceptionRaised do (payload: (socket: machine, operation: string)) {
+            if (payload.operation == "close") {
+                ExcuseReaderSide(payload.socket);
+                if (!HasPendingObligation()) {
+                    goto NoObligation;
+                }
+            }
+        }
+    }
+
+    // Excuse only the reader-side: if socket S closes and S is the READER
+    // for some writer W (i.e., W wrote to S), then W's obligation is excused.
+    // Writer-side close does NOT excuse.
+    fun ExcuseReaderSide(socket: machine) {
+        var writer: machine;
+        // If this socket is a reader (its peer is a writer), excuse the peer's obligation
+        if (socket in peerOf) {
+            writer = peerOf[socket];
+            excused += (writer);
+            shutdownOutputSockets -= (writer);
+        }
+    }
+
+    // Reset excuses both sides
+    fun ExcuseBothSides(socket: machine) {
+        excused += (socket);
+        shutdownOutputSockets -= (socket);
+        if (socket in peerOf) {
+            excused += (peerOf[socket]);
+            shutdownOutputSockets -= (peerOf[socket]);
+        }
+    }
+
+    fun HasPendingObligation() : bool {
+        var sock: machine;
+        var reader: machine;
+        foreach (sock in shutdownOutputSockets) {
+            if (!(sock in excused)) {
+                // Check if peer still has unread bytes
+                if (sock in peerOf && sock in totalWritten) {
+                    reader = peerOf[sock];
+                    if (reader in totalRead) {
+                        if (totalRead[reader] < totalWritten[sock]) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+}
+
+/******************************************************************************
  * Liveness: DeliveryLiveness
  *
  * If data is written by a socket, it must eventually be read by the peer,

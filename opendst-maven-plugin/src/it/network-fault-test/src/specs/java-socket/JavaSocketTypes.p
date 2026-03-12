@@ -146,6 +146,12 @@ event eSpec_ShutdownOutputCompleted: (socket: machine);
 event eSpec_EOFRead: (socket: machine);
 // Announced when the connection is reset (peer closed abruptly)
 event eSpec_ConnectionReset: (socket: machine);
+// Announced when shutdownInput() succeeds on a socket
+event eSpec_ShutdownInputCompleted: (socket: machine);
+// Announced when data is silently discarded (peer input already shutdown)
+event eSpec_DataDiscarded: (socket: machine, byteCount: int);
+// Announced when available() is queried on a socket
+event eSpec_AvailableQueried: (socket: machine, reportedCount: int);
 
 /***********************************************
  * Enums for socket roles
