@@ -75,8 +75,6 @@ public final class Node {
     private final InetAddress localHost;
     private final NodeInterfaces netInterfaces;
 
-    private static final int MAX_VIRTUAL_THREADS = 1000;
-
     Node(SimulationContext context, ClassLoader classLoader, String hostName, String localIpAddress)
             throws IOException {
         this.context = requireNonNull(context);
@@ -180,7 +178,7 @@ public final class Node {
         if (!thread.isVirtual()) {
             throw new IllegalArgumentException("Only virtual threads can be attached to a node");
         }
-        if (virtualThreads.size() >= MAX_VIRTUAL_THREADS) {
+        if (virtualThreads.size() >= context.config().maxVirtualThreadsPerNode()) {
             context.simulator()
                     .exitSimulation(
                             INTERNAL_ERROR,

@@ -66,12 +66,10 @@ import net.bytebuddy.asm.Advice.Return;
  * </ul>
  */
 public final class Network {
-    private static final int MAX_NODES = 100;
-    private static final int MAX_ADDRESSES = 256;
 
     private final Simulator simulator;
-    private final Map<InetAddress, String> addressToName = new HashMap<>(MAX_ADDRESSES);
-    private final Map<String, Node> nameToNode = new HashMap<>(MAX_NODES);
+    private final Map<InetAddress, String> addressToName;
+    private final Map<String, Node> nameToNode;
     // Not yet wired — reserved for planned network partition fault injection.
     private final Map<String, Set<String>> partitions = new HashMap<>();
 
@@ -107,15 +105,17 @@ public final class Network {
         }
     }
 
-    Network(Simulator simulator) {
+    Network(Simulator simulator, SimulatorConfig config) {
         this.simulator = requireNonNull(simulator);
+        this.addressToName = new HashMap<>(config.maxAddresses());
+        this.nameToNode = new HashMap<>(config.maxNodes());
     }
 
     // --- DNS and Registry ---
 
     void registerDns(String hostName, Node host) {
         var lowerCaseHostName = hostName.toLowerCase(ROOT);
-        if (nameToNode.size() >= MAX_NODES && !nameToNode.containsKey(lowerCaseHostName)) {
+        if (nameToNode.size() >= host.context.config().maxNodes() && !nameToNode.containsKey(lowerCaseHostName)) {
             simulator.exitSimulation(
                     Simulator.ExitReason.INTERNAL_ERROR,
                     new Simulator.SimulationError("Maximum number of nodes reached"));
@@ -123,7 +123,8 @@ public final class Network {
         if (nameToNode.putIfAbsent(lowerCaseHostName, host) == null) {
             host.inetAddresses().forEach(address -> {
                 if (!address.isLoopbackAddress()) {
-                    if (addressToName.size() >= MAX_ADDRESSES && !addressToName.containsKey(address)) {
+                    if (addressToName.size() >= host.context.config().maxAddresses()
+                            && !addressToName.containsKey(address)) {
                         simulator.exitSimulation(
                                 Simulator.ExitReason.INTERNAL_ERROR,
                                 new Simulator.SimulationError("Maximum number of addresses reached"));

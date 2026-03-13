@@ -30,9 +30,18 @@ class NetworkTest {
     @Test
     void testPartition() throws Exception {
         var simulator = mock(Simulator.class);
-        var network = new Network(simulator);
+        var config = SimulatorConfig.DEFAULT;
+        var network = new Network(simulator, config);
+        var context = new SimulationContext(simulator, config, null, null, null, null, network, null, null);
+
         var nodeA = mock(Node.class);
         var nodeB = mock(Node.class);
+
+        var contextField = Node.class.getDeclaredField("context");
+        contextField.setAccessible(true);
+        contextField.set(nodeA, context);
+        contextField.set(nodeB, context);
+
         var ipA = InetAddress.ofLiteral("10.0.0.1");
         var ipB = InetAddress.ofLiteral("10.0.0.2");
 

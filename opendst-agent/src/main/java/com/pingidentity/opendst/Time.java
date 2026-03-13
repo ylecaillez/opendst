@@ -68,17 +68,18 @@ public final class Time {
      * Responsible for virtual time progression and task scheduling.
      */
     static final class Scheduler {
-        private static final int MAX_TASKS = 10_000;
 
         private final Simulator simulator;
+        private final SimulatorConfig config;
         private final ConsoleCapture logger;
         private final PriorityQueue<ScheduledTask> tasks = new PriorityQueue<>();
         private Instant now;
         private long taskId;
 
-        Scheduler(Instant startTime, Simulator simulator, ConsoleCapture logger) {
+        Scheduler(Instant startTime, Simulator simulator, SimulatorConfig config, ConsoleCapture logger) {
             this.now = startTime;
             this.simulator = simulator;
+            this.config = config;
             this.logger = logger;
         }
 
@@ -144,7 +145,7 @@ public final class Time {
             if (at.isBefore(now)) {
                 simulator.exitSimulation(INTERNAL_ERROR, new SimulationError("Cannot schedule a task in the past"));
             }
-            if (tasks.size() >= MAX_TASKS) {
+            if (tasks.size() >= config.maxTasks()) {
                 simulator.exitSimulation(INTERNAL_ERROR, new SimulationError("Maximum task queue size reached"));
             }
             var queuedTask = new ScheduledTask(node, at, task, taskId++);

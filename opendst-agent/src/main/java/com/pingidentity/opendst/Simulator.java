@@ -111,16 +111,17 @@ public final class Simulator {
         this.plan = requireNonNull(plan);
 
         // Build all components — each takes only its direct dependencies
+        var config = SimulatorConfig.fromSystemProperties();
         var random = new Randomness.Source(this, plan.segments());
         var faults = plan.faults() != null ? plan.faults() : new Faults.Config();
         var hasher = new StateHasher();
         var logger = new ConsoleCapture(this, traceAuditor, System.out);
-        var network = new Network(this);
+        var network = new Network(this, config);
         var faultInjector = new Faults.Injector(this, faults);
-        var scheduler = new Time.Scheduler(START_TIME, this, logger);
+        var scheduler = new Time.Scheduler(START_TIME, this, config, logger);
 
         // Assemble the immutable context last — passed only to Node
-        this.context = new SimulationContext(this, scheduler, random, faults, hasher, network, faultInjector, logger);
+        this.context = new SimulationContext(this, config, scheduler, random, faults, hasher, network, faultInjector, logger);
 
         logger.logLifecycle("started", START_TIME, 0).log();
     }
