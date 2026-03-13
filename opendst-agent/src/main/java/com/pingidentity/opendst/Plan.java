@@ -29,7 +29,7 @@ public record Plan(List<Segment> segments, Faults.Config faults, int hash) {
     }
 
     public Plan {
-        segments = List.copyOf(segments);
+        segments = segments != null ? List.copyOf(segments) : List.of();
     }
 
     public Plan(List<Segment> segments, Faults.Config faults) {
