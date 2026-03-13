@@ -67,7 +67,7 @@ public final class Commons {
             "-Dkeystore.pkcs12.iterationCount=1",
             "-Dkeystore.pkcs12.keyProtectionIterationCount=1");
 
-    public static final String INSTRUMENTED_WARS_DIR = "instrumented-wars";
+    public static final String INSTRUMENTED_APPS_DIR = "instrumented-apps";
     static final String RUN_DIR_FORMAT = "run-%d";
 
     record SignalEvent(long iteration, Signal signal) {}

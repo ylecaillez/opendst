@@ -27,7 +27,11 @@ import java.util.Map;
 import tools.jackson.databind.JsonNode;
 
 /**
- * Represents a signal emitted by the simulator.
+ * Represents a structured signal emitted by the simulator during a run.
+ *
+ * <p>Signals are deserialized from the child JVM's JSON stdout stream and dispatched
+ * by the parent orchestrator. The four subtypes cover lifecycle events (start/stop),
+ * assertion outcomes, console output, and fault injection notices.
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type", visible = true)
 @JsonSubTypes({

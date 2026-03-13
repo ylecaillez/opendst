@@ -18,9 +18,11 @@ package com.pingidentity.opendst;
 /**
  * Shared constants for the OpenDST Simulator.
  */
-final class Constants {
+public final class Constants {
+    public static final String APPS_DIR_PROPERTY = "opendst.apps-dir";
+
     private Constants() {}
 
-    static final String LOG_SOURCE_SIMULATOR = "simulator";
-    static final String LOG_SOURCE_VHOST = "vhost";
+    public static final String LOG_SOURCE_SIMULATOR = "simulator";
+    public static final String LOG_SOURCE_VHOST = "vhost";
 }

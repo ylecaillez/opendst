@@ -50,13 +50,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.ToLongFunction;
 import java.util.stream.Stream;
 
+import com.pingidentity.opendst.NodeSocketImpl.Binding;
+
 /**
  * Represents an isolated execution environment (a node) within the simulation.
  * <p>
  * A Node provides its own IP address, class loader, and deterministic implementations of JDK APIs.
  */
 public final class Node {
-    static final ThreadLocal<Node> CURRENT = new ThreadLocal<>();
+    public static final ThreadLocal<Node> CURRENT_NODE = new ThreadLocal<>();
 
     final SimulationContext context;
     final String hostName;
@@ -96,26 +98,11 @@ public final class Node {
     }
 
     /**
-     * {@return The Node attached to this thread or null if this thread is not part of a simulation}.
-     *
-     * <p>Must be {@code public} — called from ByteBuddy {@code @Advice} code that is inlined into JDK classes
-     * ({@code java.lang.System}, {@code java.lang.Runtime}, {@code java.time.Clock}, {@code java.util.Random},
-     * {@code java.lang.ThreadBuilders}, {@code java.lang.VirtualThread}, etc.).
-     */
-    public static Node currentNodeOrNull() {
-        var node = CURRENT.get();
-        if (node == null) {
-            CURRENT.remove();
-        }
-        return node;
-    }
-
-    /**
      * {@return The Node attached to this thread}.
      * @throws IllegalStateException if this thread is not part of a simulation.
      */
     static Node currentNodeOrThrow() {
-        var node = currentNodeOrNull();
+        var node = CURRENT_NODE.get();
         if (node == null) {
             throw new IllegalStateException(format(
                     "This operation cannot be performed from the thread '%s' as it is not part of a simulation",
@@ -176,7 +163,7 @@ public final class Node {
     }
 
     @SuppressWarnings({"deprecation", "removal"})
-    NodeSocketImpl.Binding bindSocket(InetAddress address, int port, SocketImpl socket, boolean reuseAddress)
+    Binding bindSocket(InetAddress address, int port, SocketImpl socket, boolean reuseAddress)
             throws BindException {
         return netInterfaces.bind(address, port, socket, reuseAddress);
     }
@@ -201,7 +188,7 @@ public final class Node {
                                     "Max number of virtual threads reached for machine '" + hostName + "'"));
         }
         virtualThreads.add(thread);
-        setThreadLocal(thread, CURRENT, this);
+        setThreadLocal(thread, CURRENT_NODE, this);
         thread.setUncaughtExceptionHandler(this::uncaughtExceptionHandler);
         thread.setContextClassLoader(classLoader);
     }
@@ -213,8 +200,8 @@ public final class Node {
      */
     void startNode(Callable<Void> scenario) {
         requireNonNull(scenario);
-        var originalNode = CURRENT.get();
-        CURRENT.set(this);
+        var originalNode = CURRENT_NODE.get();
+        CURRENT_NODE.set(this);
         try {
             ofVirtual().name(hostName + "-main").start(() -> {
                 try {
@@ -240,7 +227,7 @@ public final class Node {
                 }
             });
         } finally {
-            CURRENT.set(originalNode);
+            CURRENT_NODE.set(originalNode);
         }
     }
 
@@ -381,7 +368,7 @@ public final class Node {
             return socket;
         }
 
-        NodeSocketImpl.Binding bind(InetAddress address, int port, SocketImpl socket, boolean reuseAddress)
+        Binding bind(InetAddress address, int port, SocketImpl socket, boolean reuseAddress)
                 throws BindException {
             for (int i = EPHEMERAL_RANGE_START; port == 0 && i < EPHEMERAL_RANGE_END; i++) {
                 if (!boundSockets.containsKey(toHostPort(address, i))) {
@@ -397,13 +384,13 @@ public final class Node {
                     anyHostPort.add(hostPort);
                 }
                 anyHostPort.forEach(hostPort -> boundSockets.put(hostPort, socket));
-                return new NodeSocketImpl.Binding(
+                return new Binding(
                         address, port, () -> anyHostPort.forEach(hp -> boundSockets.remove(hp, socket)));
             } else if (isLocal(address)) {
                 var hostPort = toHostPort(address, port);
                 checkNotInUse(hostPort, reuseAddress);
                 boundSockets.put(hostPort, socket);
-                return new NodeSocketImpl.Binding(address, port, () -> boundSockets.remove(hostPort));
+                return new Binding(address, port, () -> boundSockets.remove(hostPort));
             } else {
                 throw new BindException("Cannot assign requested address");
             }

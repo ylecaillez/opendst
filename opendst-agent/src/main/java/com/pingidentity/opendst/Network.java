@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Node.currentNodeOrNull;
+import static com.pingidentity.opendst.Node.CURRENT_NODE;
 import static java.util.Locale.ROOT;
 import static java.util.Objects.requireNonNull;
 import static net.bytebuddy.asm.Advice.to;
@@ -25,6 +25,7 @@ import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.returns;
 import static net.bytebuddy.matcher.ElementMatchers.takesNoArguments;
 
+import java.io.IOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
@@ -42,6 +43,10 @@ import java.util.Set;
 import java.util.stream.Stream;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.asm.Advice;
+import net.bytebuddy.asm.Advice.Enter;
+import net.bytebuddy.asm.Advice.OnMethodEnter;
+import net.bytebuddy.asm.Advice.OnMethodExit;
+import net.bytebuddy.asm.Advice.Return;
 
 /**
  * Functional module for network simulation and instrumentation.
@@ -65,8 +70,9 @@ public final class Network {
     private static final int MAX_ADDRESSES = 256;
 
     private final Simulator simulator;
-    private final Map<InetAddress, String> addressToName = new HashMap<>();
-    private final Map<String, Node> nameToNode = new HashMap<>();
+    private final Map<InetAddress, String> addressToName = new HashMap<>(MAX_ADDRESSES);
+    private final Map<String, Node> nameToNode = new HashMap<>(MAX_NODES);
+    // Not yet wired — reserved for planned network partition fault injection.
     private final Map<String, Set<String>> partitions = new HashMap<>();
 
     /**
@@ -200,16 +206,16 @@ public final class Network {
                 @Override
                 public Stream<InetAddress> lookupByName(String host, LookupPolicy lookupPolicy)
                         throws UnknownHostException {
-                    var node = currentNodeOrNull();
-                    return (node != null)
+                    var node = CURRENT_NODE.get();
+                    return node != null
                             ? node.context.network().lookupByName(host)
                             : builtinResolver.lookupByName(host, lookupPolicy);
                 }
 
                 @Override
                 public String lookupByAddress(byte[] addr) throws UnknownHostException {
-                    var node = currentNodeOrNull();
-                    return (node != null)
+                    var node = CURRENT_NODE.get();
+                    return node != null
                             ? node.context.network().lookupByAddress(InetAddress.getByAddress(addr))
                             : builtinResolver.lookupByAddress(addr);
                 }
@@ -224,22 +230,19 @@ public final class Network {
 
     @Intercepts("java.net.InetAddress#getLocalHost()")
     public static final class InetAddressGetLocalHost {
-        @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
+        @OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
         public static InetAddress onEnter() {
-            var node = currentNodeOrNull();
+            var node = CURRENT_NODE.get();
             return node != null ? node.getLocalHost() : null;
         }
 
-        @Advice.OnMethodExit
-        public static void onExit(
-                @Advice.Return(readOnly = false) InetAddress returned, @Advice.Enter InetAddress simulatedAddress) {
+        @OnMethodExit
+        public static void onExit(@Return(readOnly = false) InetAddress returned, @Enter InetAddress simulatedAddress) {
             if (simulatedAddress != null) {
                 returned = simulatedAddress;
             }
         }
     }
-
-    private static boolean factoryInstalled = false;
 
     /**
      * Installs JVM-global socket factories and ByteBuddy advice for network interception.
@@ -249,24 +252,15 @@ public final class Network {
      * platform socket implementation otherwise (for JDK-internal and bootstrap code).
      */
     @SuppressWarnings({"deprecation", "removal"})
-    static AgentBuilder instrument(AgentBuilder agent) {
-        if (!factoryInstalled) {
-            try {
-                Socket.setSocketImplFactory(() -> {
-                    var node = currentNodeOrNull();
-                    return node != null ? node.newSocketImpl(false) : createPlatformSocketImpl(false);
-                });
-                ServerSocket.setSocketFactory(() -> {
-                    var node = currentNodeOrNull();
-                    return node != null ? node.newSocketImpl(true) : createPlatformSocketImpl(true);
-                });
-                factoryInstalled = true;
-            } catch (Throwable e) {
-                throw new Simulator.SimulationError(
-                        "Failed to install socket factories — " + "network isolation cannot be guaranteed", e);
-            }
-        }
-
+    static AgentBuilder instrument(AgentBuilder agent) throws IOException {
+        Socket.setSocketImplFactory(() -> {
+            var node = CURRENT_NODE.get();
+            return node != null ? node.newSocketImpl(false) : createPlatformSocketImpl(false);
+        });
+        ServerSocket.setSocketFactory(() -> {
+            var node = CURRENT_NODE.get();
+            return node != null ? node.newSocketImpl(true) : createPlatformSocketImpl(true);
+        });
         return agent.type(named("java.net.InetAddress"))
                 .transform((builder, _, _, _, _) -> builder.visit(to(InetAddressGetLocalHost.class)
                         .on(named("getLocalHost")

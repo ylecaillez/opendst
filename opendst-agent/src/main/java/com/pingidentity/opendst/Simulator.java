@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Node.currentNodeOrNull;
+import static com.pingidentity.opendst.Node.CURRENT_NODE;
 import static com.pingidentity.opendst.Node.currentNodeOrThrow;
 import static com.pingidentity.opendst.Simulator.ExitReason.INTERNAL_ERROR;
 import static com.pingidentity.opendst.Simulator.ExitReason.PLAN_OK;
@@ -182,7 +182,7 @@ public final class Simulator {
     }
 
     private static void checkSimulationState() {
-        if (currentNodeOrNull() != null) {
+        if (Node.CURRENT_NODE.get() != null) {
             throw new IllegalStateException(format(
                     "The carrier thread '%s' is already running a simulation",
                     currentThread().getName()));
@@ -238,7 +238,7 @@ public final class Simulator {
     }
 
     void exitSimulation(ExitReason reason, Throwable cause) {
-        Node.CURRENT.remove();
+        CURRENT_NODE.remove();
         flushLogs();
 
         int actualHash = context.hasher().getHash();
@@ -346,7 +346,7 @@ public final class Simulator {
 
     private void run(Callable<Void> scenario) throws Throwable {
         var bootstrapNode = new Node(context, getSystemClassLoader(), "simulator", "127.0.0.1");
-        Node.CURRENT.set(bootstrapNode);
+        CURRENT_NODE.set(bootstrapNode);
         bootstrapNode.startNode(scenario);
         context.scheduler().run();
         flushLogs();

@@ -15,6 +15,7 @@
  */
 package com.pingidentity.opendst.runner;
 
+import static com.pingidentity.opendst.Constants.APPS_DIR_PROPERTY;
 import static com.pingidentity.opendst.runner.Commons.JAVA_BASE_OPTIONS;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.Commons.deleteRecursively;
@@ -60,7 +61,7 @@ final class TestExecutor {
 
     /** JVM launch configuration for child processes. */
     record JvmConfig(
-            Path instrumentedWarsDir,
+            Path instrumentedAppsDir,
             String agentJarPath,
             String jvmArguments,
             String debugArgs,
@@ -314,7 +315,7 @@ final class TestExecutor {
         command.addAll(List.of(
                 "-javaagent:%s".formatted(jvm.agentJarPath()),
                 "-Djava.io.tmpdir=%s".formatted(runTmpDir),
-                "-Dopendst.wars-dir=%s".formatted(jvm.instrumentedWarsDir())));
+                "-D%s=%s".formatted(APPS_DIR_PROPERTY, jvm.instrumentedAppsDir())));
         var spy = jvm.logSpy() != null
                 ? jvm.logSpy()
                 : runBaseDir.resolve("simulator.log").toFile();

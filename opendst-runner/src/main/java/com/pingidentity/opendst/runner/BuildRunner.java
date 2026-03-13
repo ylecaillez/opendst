@@ -29,6 +29,7 @@ import com.pingidentity.opendst.runner.Orchestrator.GuidedOrchestrator;
 import com.pingidentity.opendst.runner.Orchestrator.ReplayOrchestrator;
 import com.pingidentity.opendst.runner.TestExecutor.JvmConfig;
 import com.pingidentity.opendst.runner.TestExecutor.RunConfig;
+import java.io.File;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -72,7 +73,7 @@ public final class BuildRunner implements Callable<Integer> {
     private boolean failFast;
 
     @Option(
-            names = "--forkCount",
+            names = "--fork-count",
             description = "Number of concurrent simulation forks (default: availableProcessors - 1)",
             defaultValue = "-1")
     private int forkCount;
@@ -143,7 +144,7 @@ public final class BuildRunner implements Callable<Integer> {
         var logger = ofConsole();
         var faultsConfig = toFaultsConfig(config.faults());
 
-        var instrumentedWarsDir = deploymentDir.resolve("apps");
+        var instrumentedAppsDir = deploymentDir.resolve("apps");
         var agentJarPath = deploymentDir
                 .resolve("system/opendst-agent.jar")
                 .toAbsolutePath()
@@ -153,7 +154,7 @@ public final class BuildRunner implements Callable<Integer> {
         var effectiveJvmArgs = jvmArgs != null ? jvmArgs : config.jvmArguments();
 
         var jvmConfig = new JvmConfig(
-                instrumentedWarsDir, agentJarPath, effectiveJvmArgs, null, null, DeploymentRunner.class.getName());
+                instrumentedAppsDir, agentJarPath, effectiveJvmArgs, null, null, DeploymentRunner.class.getName());
 
         // Replay mode: load a saved plan and execute it once
         boolean isReplay = planFile != null;
@@ -214,7 +215,7 @@ public final class BuildRunner implements Callable<Integer> {
         var jars = systemDir.listFiles((_, name) -> name.endsWith(".jar"));
         if (jars != null) {
             for (var jar : jars) {
-                sb.append(java.io.File.pathSeparatorChar).append(jar.getAbsolutePath());
+                sb.append(File.pathSeparatorChar).append(jar.getAbsolutePath());
             }
         }
         return sb.toString();

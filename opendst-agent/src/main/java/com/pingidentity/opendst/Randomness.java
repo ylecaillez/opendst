@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Node.currentNodeOrNull;
+import static com.pingidentity.opendst.Node.CURRENT_NODE;
 import static net.bytebuddy.asm.Advice.to;
 import static net.bytebuddy.asm.MemberSubstitution.relaxed;
 import static net.bytebuddy.matcher.ElementMatchers.any;
@@ -117,11 +117,11 @@ public final class Randomness {
     }
 
     /** Overrides {@code java.util.ImmutableCollections#SALT32L}. */
-    @SuppressWarnings("JavadocMethod")
+    @SuppressWarnings("MissingJavadocMethod")
     @Intercepts("java.util.ImmutableCollections#SALT32L")
     public static long immutableCollectionsSalt32l()
             throws IllegalAccessException, ClassNotFoundException, NoSuchFieldException {
-        var node = currentNodeOrNull();
+        var node = CURRENT_NODE.get();
         if (node != null) {
             return node.immutableCollectionsSalt32l();
         }
@@ -131,11 +131,11 @@ public final class Randomness {
     }
 
     /** Overrides {@code java.util.ImmutableCollections#REVERSE}. */
-    @SuppressWarnings("JavadocMethod")
+    @SuppressWarnings("MissingJavadocMethod")
     @Intercepts("java.util.ImmutableCollections#REVERSE")
     public static boolean immutableCollectionsReverse()
             throws IllegalAccessException, ClassNotFoundException, NoSuchFieldException {
-        var node = currentNodeOrNull();
+        var node = CURRENT_NODE.get();
         if (node != null) {
             return node.immutableCollectionsReverse();
         }
@@ -150,7 +150,7 @@ public final class Randomness {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return CURRENT_NODE.get();
         }
     }
 
@@ -160,7 +160,7 @@ public final class Randomness {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return CURRENT_NODE.get();
         }
 
         @OnMethodExit
@@ -178,7 +178,7 @@ public final class Randomness {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return CURRENT_NODE.get();
         }
 
         @OnMethodExit
@@ -198,7 +198,7 @@ public final class Randomness {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return CURRENT_NODE.get();
         }
 
         @OnMethodExit
@@ -218,7 +218,7 @@ public final class Randomness {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return CURRENT_NODE.get();
         }
 
         @OnMethodExit
@@ -236,7 +236,7 @@ public final class Randomness {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter(@This RandomGenerator self) {
-            return self instanceof Source ? null : currentNodeOrNull();
+            return self instanceof Source ? null : CURRENT_NODE.get();
         }
 
         @OnMethodExit
@@ -256,7 +256,7 @@ public final class Randomness {
         public static Node onEnter(@This Random self) {
             // To prevent stack-overflow, call the original implementation for Source.
             // ThreadLocalRandom next(int) original implementation delegates to getSeed() which is already overridden.
-            return self instanceof Source || self instanceof ThreadLocalRandom ? null : currentNodeOrNull();
+            return self instanceof Source || self instanceof ThreadLocalRandom ? null : CURRENT_NODE.get();
         }
 
         @OnMethodExit
@@ -276,7 +276,7 @@ public final class Randomness {
         public static Node onEnter(@This Random self) {
             // To prevent stack-overflow, call the original implementation for Source.
             // ThreadLocalRandom next(int) original implementation delegates to getSeed() which is already overridden.
-            return self instanceof Source ? null : currentNodeOrNull();
+            return self instanceof Source ? null : CURRENT_NODE.get();
         }
 
         @OnMethodExit
@@ -296,7 +296,7 @@ public final class Randomness {
         public static Node onEnter(@This Random self) {
             // To prevent stack-overflow, call the original implementation for Source.
             // ThreadLocalRandom next(int) original implementation delegates to getSeed() which is already overridden.
-            return self instanceof Source ? null : currentNodeOrNull();
+            return self instanceof Source ? null : CURRENT_NODE.get();
         }
 
         @OnMethodExit

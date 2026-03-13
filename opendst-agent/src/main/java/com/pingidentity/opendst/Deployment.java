@@ -15,6 +15,7 @@
  */
 package com.pingidentity.opendst;
 
+import static com.pingidentity.opendst.Constants.APPS_DIR_PROPERTY;
 import static com.pingidentity.opendst.Simulator.startNode;
 import static java.lang.ClassLoader.getPlatformClassLoader;
 import static java.lang.System.getProperty;
@@ -41,7 +42,7 @@ import java.util.Map;
  * Each service is associated with an image that describes the war directory and the main class to run.
  */
 public final class Deployment {
-    private static final Path WARS_DIR = Path.of(getProperty("opendst.wars-dir", "wars"));
+    private static final Path APPS_DIR = Path.of(getProperty(APPS_DIR_PROPERTY, "apps"));
 
     private final Map<String, Image> images = new HashMap<>();
     private final Map<String, Service> services;
@@ -60,7 +61,7 @@ public final class Deployment {
 
     private Deployment(List<Image> images, List<Service> services) throws IOException {
         for (var image : images) {
-            var cp = classPath(WARS_DIR.resolve(image.warDir()).resolve("WEB-INF"));
+            var cp = classPath(APPS_DIR.resolve(image.warDir()).resolve("WEB-INF"));
             var extra = image.classPath();
             var combined = new URL[cp.length + extra.length];
             System.arraycopy(cp, 0, combined, 0, cp.length);

@@ -16,12 +16,8 @@
 package com.pingidentity.opendst;
 
 import static java.time.Duration.ZERO;
-import static java.time.Duration.between;
 import static java.time.Duration.ofMillis;
 import static java.time.Duration.ofNanos;
-import static java.time.Instant.EPOCH;
-import static java.time.Instant.now;
-import static java.util.Arrays.asList;
 import static java.util.Map.entry;
 import static java.util.concurrent.ThreadLocalRandom.current;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -29,8 +25,6 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import java.net.BindException;
 import java.net.InetAddress;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -81,11 +75,7 @@ public final class Faults {
     static final class Injector {
         private final Simulator simulator;
         private final Faults.Config faults;
-        private final Map<InetAddress, Instant> clogSendUntil = new HashMap<>();
-        private final Map<InetAddress, Instant> clogReceiveUntil = new HashMap<>();
-        private final Map<Entry<InetAddress, InetAddress>, Instant> clogPairUntil = new HashMap<>();
         private final Map<Entry<InetAddress, InetAddress>, Duration> clogPairLatency = new HashMap<>();
-        private final Map<Entry<InetAddress, InetAddress>, Instant> disconnectPairUntil = new HashMap<>();
 
         Injector(Simulator simulator, Faults.Config faults) {
             this.simulator = simulator;
@@ -120,27 +110,16 @@ public final class Faults {
                 return ofNanos(halfLatency().toNanos() / 10);
             }
             var pair = entry(from, to);
-            var now = now();
             var halfLatency = halfLatency();
-            return between(
-                    now,
-                    latest(
-                            now.plus(halfLatency.plus(maxOptional(clogPairLatency.get(pair)))),
-                            clogPairUntil.getOrDefault(pair, EPOCH),
-                            clogSendUntil.getOrDefault(from, EPOCH),
-                            clogReceiveUntil.getOrDefault(to, EPOCH)));
+            return halfLatency.plus(maxOptional(clogPairLatency.get(pair)));
         }
 
         private Duration maxOptional(Duration durationOrNull) {
             return durationOrNull != null ? ZERO.compareTo(durationOrNull) > 0 ? ZERO : durationOrNull : ZERO;
         }
 
-        private Instant latest(Instant... instants) {
-            return Collections.max(asList(instants));
-        }
-
         boolean isDisconnected(InetAddress from, InetAddress to) {
-            return disconnectPairUntil.getOrDefault(entry(from, to), EPOCH).isAfter(now());
+            return false;
         }
 
         private Duration halfLatency() {

@@ -15,6 +15,7 @@
  */
 package com.pingidentity.opendst.runner;
 
+import static com.pingidentity.opendst.Constants.APPS_DIR_PROPERTY;
 import static com.pingidentity.opendst.Deployment.Image.image;
 import static com.pingidentity.opendst.Deployment.Service.service;
 import static com.pingidentity.opendst.Simulator.deploy;
@@ -31,9 +32,13 @@ import static tools.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRI
 import static tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.pingidentity.opendst.Constants;
 import com.pingidentity.opendst.Deployment.Image;
 import com.pingidentity.opendst.Deployment.Service;
 import com.pingidentity.opendst.api.TraceAuditor;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
@@ -88,17 +93,18 @@ public final class DeploymentRunner {
 
             for (var entry : descriptor.services().entrySet()) {
                 var serviceName = entry.getKey();
-                var svc = entry.getValue();
+                var serviceDescriptor = entry.getValue();
                 // appDir(serviceName) returns the apps/ subdirectory for this service's source
-                var appDir = Path.of(svc.appDir(serviceName));
-                images.add(image(serviceName, appDir, svc.className(), extraClasspath));
-                services.add(service(serviceName, serviceName, getByName(svc.ip()), svc.argsArray()));
+                var appDir = Path.of(serviceDescriptor.appDir(serviceName));
+                images.add(image(serviceName, appDir, serviceDescriptor.className(), extraClasspath));
+                services.add(service(serviceName, serviceName, getByName(serviceDescriptor.ip()),
+                                     serviceDescriptor.argsArray()));
             }
 
-            // Set the wars-dir property to point to the apps/ directory inside the extraction.
-            // This must happen before Deployment class initialization reads the wars-dir property.
+            // Set the apps-dir property to point to the apps/ directory inside the extraction.
+            // This must happen before Deployment class initialization reads the apps-dir property.
             var appsDir = deploymentDir.resolve("apps");
-            setProperty("opendst.wars-dir", appsDir.toAbsolutePath().toString());
+            setProperty(APPS_DIR_PROPERTY, appsDir.toAbsolutePath().toString());
 
             // Resolve trace auditor if specified. The trace auditor is self-contained: its source
             // is identified by its own appDir() (from dir/artifact), not by referencing a service.
@@ -145,7 +151,7 @@ public final class DeploymentRunner {
      * @param appsDir  the root {@code apps/} directory inside the extraction
      * @param appDir   the subdirectory name under {@code apps/} (e.g., {@code opendst-testapp})
      */
-    private static URLClassLoader nodeClassLoader(Path appsDir, String appDir) throws java.io.IOException {
+    private static URLClassLoader nodeClassLoader(Path appsDir, String appDir) throws IOException {
         var webInfDir = appsDir.resolve(appDir).resolve("WEB-INF");
         var urls = new ArrayList<URL>();
 
@@ -157,8 +163,8 @@ public final class DeploymentRunner {
                         .forEach(p -> {
                             try {
                                 urls.add(p.toUri().toURL());
-                            } catch (java.net.MalformedURLException e) {
-                                throw new java.io.UncheckedIOException(e);
+                            } catch (MalformedURLException e) {
+                                throw new UncheckedIOException(e);
                             }
                         });
             }
@@ -226,7 +232,7 @@ public final class DeploymentRunner {
              * Returns the {@code apps/} subdirectory name for this service's source.
              *
              * <ul>
-             *   <li>{@code dir} set — last path component (e.g., {@code target/wars/foo} &rarr; {@code foo})</li>
+             *   <li>{@code dir} set — last path component (e.g., {@code target/apps/foo} &rarr; {@code foo})</li>
              *   <li>{@code artifact} set — {@code artifactId-version} parsed from the GAV coordinate</li>
              *   <li>Neither — falls back to the given {@code serviceName}</li>
              * </ul>

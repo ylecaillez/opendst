@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Node.currentNodeOrNull;
+import static com.pingidentity.opendst.Node.CURRENT_NODE;
 import static com.pingidentity.opendst.Node.currentNodeOrThrow;
 import static com.pingidentity.opendst.Simulator.ExitReason.INTERNAL_ERROR;
 import static com.pingidentity.opendst.Simulator.ExitReason.PLAN_FAILED;
@@ -105,7 +105,7 @@ public final class Time {
         }
 
         private void executeTask(ScheduledTask task) {
-            Node.CURRENT.set(task.node);
+            CURRENT_NODE.set(task.node);
             currentThread().setContextClassLoader(task.node.classLoader);
             setOut(task.node.console);
             setErr(task.node.console);
@@ -114,7 +114,7 @@ public final class Time {
                 task.run();
                 task.node.purgeAndUnblockVirtualThreads();
             } finally {
-                Node.CURRENT.remove();
+                CURRENT_NODE.remove();
             }
         }
 
@@ -253,7 +253,7 @@ public final class Time {
         @OnMethodExit
         @SuppressWarnings("MissingJavadocMethod")
         public static void intercept(@Advice.Origin Method method, @Return(readOnly = false) long out) {
-            var node = currentNodeOrNull();
+            var node = CURRENT_NODE.get();
             out = node != null
                     ? "currentTimeMillis".equals(method.getName()) ? node.currentTimeMillis() : node.nanoTime()
                     : "currentTimeMillis".equals(method.getName()) ? RealTime.currentTimeMillis() : RealTime.nanoTime();
@@ -266,7 +266,7 @@ public final class Time {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return CURRENT_NODE.get();
         }
 
         @OnMethodExit

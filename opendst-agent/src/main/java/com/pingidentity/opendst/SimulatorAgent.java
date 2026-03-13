@@ -26,6 +26,7 @@ import static java.lang.classfile.Opcode.INVOKESTATIC;
 import static java.util.Map.entry;
 import static net.bytebuddy.matcher.ElementMatchers.none;
 
+import java.io.IOException;
 import java.lang.classfile.ClassFile;
 import java.lang.classfile.ClassTransform;
 import java.lang.classfile.CodeBuilder;
@@ -75,7 +76,7 @@ public final class SimulatorAgent {
      * @param agentArgs       Arguments for the agent, not used here.
      * @param instrumentation The instrumentation instance to use for transforming classes.
      */
-    public static void premain(String agentArgs, Instrumentation instrumentation) {
+    public static void premain(String agentArgs, Instrumentation instrumentation) throws IOException {
         AgentBuilder agent = new Default()
                 .disableClassFormatChanges()
                 .enableNativeMethodPrefix("native")

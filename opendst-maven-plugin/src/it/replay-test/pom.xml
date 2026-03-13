@@ -8,9 +8,7 @@
         <version>@project.version@</version>
     </parent>
 
-    <artifactId>opendst-testapp</artifactId>
-    <name>OpenDST Test App</name>
-    <packaging>war</packaging>
+    <artifactId>replay-test</artifactId>
 
     <build>
         <plugins>
@@ -21,23 +19,6 @@
                 <configuration>
                     <release>25</release>
                 </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-war-plugin</artifactId>
-                <version>3.4.0</version>
-                <configuration>
-                    <failOnMissingWebXml>false</failOnMissingWebXml>
-                    <webappDirectory>${project.build.directory}/apps/${project.artifactId}</webappDirectory>
-                </configuration>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>exploded</goal>
-                        </goals>
-                    </execution>
-                </executions>
             </plugin>
             <plugin>
                 <groupId>@project.groupId@</groupId>

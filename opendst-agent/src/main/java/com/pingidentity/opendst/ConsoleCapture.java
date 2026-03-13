@@ -121,23 +121,19 @@ final class ConsoleCapture {
         }
     }
 
-    public InternalLogger logLifecycle(String message, Instant time, long iteration) {
+    InternalLogger logLifecycle(String message, Instant time, long iteration) {
         return new InternalLogger("lifecycle", message, null, time, iteration);
     }
 
-    public InternalLogger logAssert(String message, String vhost, Instant time, long iteration) {
+    InternalLogger logAssert(String message, String vhost, Instant time, long iteration) {
         return new InternalLogger("assert", message, vhost, time, iteration);
     }
 
-    public InternalLogger logFault(String message, Instant time, long iteration) {
-        return new InternalLogger("fault", message, null, time, iteration);
-    }
-
-    public final class InternalLogger {
+    final class InternalLogger {
         private final JsonGenerator generator;
         private final String message;
 
-        public InternalLogger(String type, String message, String vhost, Instant time, long iteration) {
+        InternalLogger(String type, String message, String vhost, Instant time, long iteration) {
             this.message = message;
             // NOTE: vhost might be null for some low-level simulator's message.
             var gen = JSON_LOGGER
@@ -156,31 +152,31 @@ final class ConsoleCapture {
                     .writeStringProperty("at", time.toString());
         }
 
-        public InternalLogger withPOJO(String name, Object value) {
+        InternalLogger withPOJO(String name, Object value) {
             if (value != null) {
                 generator.writePOJOProperty(name, value);
             }
             return this;
         }
 
-        public InternalLogger withString(String name, String value) {
+        InternalLogger withString(String name, String value) {
             if (value != null) {
                 this.generator.writeStringProperty(name, value);
             }
             return this;
         }
 
-        public InternalLogger withNumber(String name, long value) {
+        InternalLogger withNumber(String name, long value) {
             this.generator.writeNumberProperty(name, value);
             return this;
         }
 
-        public InternalLogger withBoolean(String name, boolean value) {
+        InternalLogger withBoolean(String name, boolean value) {
             this.generator.writeBooleanProperty(name, value);
             return this;
         }
 
-        public void log() {
+        void log() {
             generator.writeEndObject().writeEndObject().close();
             out.write('\n');
             simulator.hash(message);

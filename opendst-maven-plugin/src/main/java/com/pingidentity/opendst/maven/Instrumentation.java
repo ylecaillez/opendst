@@ -64,7 +64,7 @@ import java.util.stream.Stream;
  */
 final class Instrumentation {
     private final Path basePath;
-    private final Path instrumentedWarsDir;
+    private final Path instrumentedAppsDir;
     private final ExecutorService executor;
     private final OpenDstLogger logger;
 
@@ -79,9 +79,9 @@ final class Instrumentation {
         }
     }
 
-    Instrumentation(Path basePath, Path instrumentedWarsDir, ExecutorService executor, OpenDstLogger logger) {
+    Instrumentation(Path basePath, Path instrumentedAppsDir, ExecutorService executor, OpenDstLogger logger) {
         this.basePath = basePath;
-        this.instrumentedWarsDir = instrumentedWarsDir;
+        this.instrumentedAppsDir = instrumentedAppsDir;
         this.executor = executor;
         this.logger = logger;
     }
@@ -93,7 +93,7 @@ final class Instrumentation {
 
     /**
      * Instruments test classes from {@code target/test-classes/} and bundles them into
-     * {@code instrumentedWarsDir/test-classes.jar}.
+     * {@code instrumentedAppsDir/test-classes.jar}.
      *
      * <p>This method should be called once, before instrumenting application sources.
      * Test classes are shared across all images.
@@ -105,14 +105,14 @@ final class Instrumentation {
     Set<Assertion> instrumentTestClasses() throws IOException {
         logger.raw().info("Instrumenting test classes");
         var discovered = newAssertionSet();
-        createDirectories(instrumentedWarsDir);
+        createDirectories(instrumentedAppsDir);
         var urls = collectClasspath(null);
         try (var projectLoader = new URLClassLoader(urls, getClass().getClassLoader())) {
             var classFile = newClassFile(projectLoader);
             instrumentClassesFolder(
                     classFile,
                     basePath.resolve("target/test-classes"),
-                    instrumentedWarsDir.resolve("test-classes.jar"),
+                    instrumentedAppsDir.resolve("test-classes.jar"),
                     discovered);
         }
         return discovered;
@@ -120,7 +120,7 @@ final class Instrumentation {
 
     /**
      * Instruments an exploded application directory (e.g., an unpacked WAR or artifact)
-     * and writes the instrumented output under {@code instrumentedWarsDir/<appName>/}.
+     * and writes the instrumented output under {@code instrumentedAppsDir/<appName>/}.
      *
      * <p>The source directory is expected to contain a {@code WEB-INF/} layout with
      * {@code classes/}, {@code lib/}, and optionally {@code fs/}.
@@ -134,11 +134,11 @@ final class Instrumentation {
     Set<Assertion> instrumentAppDir(String appName, Path sourceDir) throws IOException {
         logger.raw().info("Instrumenting app directory '%s' from %s".formatted(appName, sourceDir));
         var discovered = newAssertionSet();
-        createDirectories(instrumentedWarsDir);
+        createDirectories(instrumentedAppsDir);
         var urls = collectClasspath(sourceDir);
         try (var projectLoader = new URLClassLoader(urls, getClass().getClassLoader())) {
             var classFile = newClassFile(projectLoader);
-            var outputDir = instrumentedWarsDir.resolve(appName);
+            var outputDir = instrumentedAppsDir.resolve(appName);
             instrumentApplicationDirectory(classFile, sourceDir, outputDir, discovered);
         }
         return discovered;
@@ -146,11 +146,11 @@ final class Instrumentation {
 
     /**
      * Instruments project classes from {@code target/classes/} and runtime dependency JARs,
-     * placing the output under {@code instrumentedWarsDir/<appName>/WEB-INF/}.
+     * placing the output under {@code instrumentedAppsDir/<appName>/WEB-INF/}.
      *
      * <p>Used when the project does <em>not</em> use {@code maven-war-plugin}. The source
      * directories ({@code target/classes/}, {@code target/test-classes/}) are read but never
-     * modified; instrumented output is written entirely to {@code instrumentedWarsDir}.
+     * modified; instrumented output is written entirely to {@code instrumentedAppsDir}.
      *
      * @param appName        the application name (typically the Maven artifactId), used as
      *                       the directory name under {@code apps/} in the output JAR
@@ -162,13 +162,13 @@ final class Instrumentation {
     Set<Assertion> instrumentClasses(String appName, List<Path> dependencyJars) throws IOException {
         logger.raw().info("Instrumenting classes for %s".formatted(appName));
         var discovered = newAssertionSet();
-        createDirectories(instrumentedWarsDir);
+        createDirectories(instrumentedAppsDir);
         var urls = collectClasspath(null);
         try (var projectLoader = new URLClassLoader(urls, getClass().getClassLoader())) {
             var classFile = newClassFile(projectLoader);
 
             // Instrument target/classes/ → <appName>/WEB-INF/classes.jar
-            var webInfDir = instrumentedWarsDir.resolve(appName).resolve("WEB-INF");
+            var webInfDir = instrumentedAppsDir.resolve(appName).resolve("WEB-INF");
             instrumentClassesFolder(
                     classFile, basePath.resolve("target/classes"), webInfDir.resolve("classes.jar"), discovered);
 

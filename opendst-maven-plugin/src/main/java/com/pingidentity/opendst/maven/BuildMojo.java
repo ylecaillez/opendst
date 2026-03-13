@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst.maven;
 
-import static com.pingidentity.opendst.runner.Commons.INSTRUMENTED_WARS_DIR;
+import static com.pingidentity.opendst.runner.Commons.INSTRUMENTED_APPS_DIR;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.Commons.deleteRecursively;
 import static java.lang.Runtime.getRuntime;
@@ -137,16 +137,16 @@ public class BuildMojo extends AbstractMojo {
 
         // 3. Resolve external artifacts and instrument all unique sources
         var opendstBasePath = basePath.resolve("target").resolve("opendst");
-        var instrumentedWarsDir = opendstBasePath.resolve(INSTRUMENTED_WARS_DIR);
+        var instrumentedAppsDir = opendstBasePath.resolve(INSTRUMENTED_APPS_DIR);
         try {
-            deleteRecursively(basePath, instrumentedWarsDir);
+            deleteRecursively(basePath, instrumentedAppsDir);
         } catch (IOException e) {
-            throw new MojoExecutionException("Failed to clean instrumented wars directory", e);
+            throw new MojoExecutionException("Failed to clean instrumented apps directory", e);
         }
 
         Set<Assertion> discoveredProperties;
         try {
-            discoveredProperties = resolveAndInstrument(basePath, enrichedDescriptor, instrumentedWarsDir);
+            discoveredProperties = resolveAndInstrument(basePath, instrumentedAppsDir);
         } catch (ArtifactResolutionException e) {
             throw new MojoFailureException("Failed to resolve external artifact: " + e.getMessage(), e);
         } catch (Instrumentation.AssertionValidationException e) {
@@ -157,7 +157,7 @@ public class BuildMojo extends AbstractMojo {
 
         // 4. Build the self-contained JAR
         try {
-            buildJar(basePath, instrumentedWarsDir, agentJarPath, enrichedDescriptor, discoveredProperties);
+            buildJar(instrumentedAppsDir, agentJarPath, enrichedDescriptor, discoveredProperties);
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to build self-contained JAR", e);
         }
@@ -230,8 +230,7 @@ public class BuildMojo extends AbstractMojo {
      *   <li><b>current project</b> — {@code target/classes/} plus runtime dependency JARs</li>
      * </ul>
      */
-    private Set<Assertion> resolveAndInstrument(
-            Path basePath, DeploymentDescriptor enrichedDescriptor, Path instrumentedWarsDir)
+    private Set<Assertion> resolveAndInstrument(Path basePath, Path instrumentedAppsDir)
             throws IOException, ArtifactResolutionException, MojoFailureException {
         var logger = new OpenDstLogger(mavenLogSink());
 
@@ -275,7 +274,7 @@ public class BuildMojo extends AbstractMojo {
         }
 
         try (var executor = newFixedThreadPool(getRuntime().availableProcessors() * 2)) {
-            var instrumentation = new Instrumentation(basePath, instrumentedWarsDir, executor, logger);
+            var instrumentation = new Instrumentation(basePath, instrumentedAppsDir, executor, logger);
             var allDiscovered = Instrumentation.newAssertionSet();
 
             // Instrument test classes once (shared across all sources)
@@ -437,12 +436,11 @@ public class BuildMojo extends AbstractMojo {
      * </pre>
      */
     private void buildJar(
-            Path basePath,
-            Path instrumentedWarsDir,
+            Path instrumentedAppsDir,
             Path agentJarPath,
             DeploymentDescriptor enrichedDescriptor,
             Set<Assertion> discoveredProperties)
-            throws IOException, MojoFailureException {
+            throws IOException {
         createDirectories(outputJar.toPath().getParent());
 
         var manifest = new Manifest();
@@ -462,7 +460,7 @@ public class BuildMojo extends AbstractMojo {
             addSystemJars(jos);
 
             // 4. apps/ — instrumented application artifacts
-            addInstrumentedApps(jos, instrumentedWarsDir);
+            addInstrumentedApps(jos, instrumentedAppsDir);
 
             // 5. deployment.yaml — enriched descriptor (serialized from object, not raw file)
             addEntry(jos, "deployment.yaml", serializeDescriptor(enrichedDescriptor));
@@ -586,13 +584,13 @@ public class BuildMojo extends AbstractMojo {
         };
     }
 
-    private void addInstrumentedApps(JarOutputStream jos, Path instrumentedWarsDir) throws IOException {
-        if (!exists(instrumentedWarsDir)) {
+    private void addInstrumentedApps(JarOutputStream jos, Path instrumentedAppsDir) throws IOException {
+        if (!exists(instrumentedAppsDir)) {
             return;
         }
-        try (var stream = walk(instrumentedWarsDir)) {
+        try (var stream = walk(instrumentedAppsDir)) {
             for (var p : stream.filter(Files::isRegularFile).toList()) {
-                var relativePath = instrumentedWarsDir.relativize(p).toString().replace('\\', '/');
+                var relativePath = instrumentedAppsDir.relativize(p).toString().replace('\\', '/');
                 addEntry(jos, "apps/" + relativePath, readAllBytes(p));
             }
         }

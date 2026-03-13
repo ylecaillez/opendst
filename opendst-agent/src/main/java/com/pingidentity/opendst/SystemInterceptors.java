@@ -15,7 +15,6 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Node.currentNodeOrNull;
 import static net.bytebuddy.asm.Advice.to;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
@@ -78,7 +77,7 @@ public final class SystemInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return Node.CURRENT_NODE.get();
         }
 
         @OnMethodExit
@@ -96,7 +95,7 @@ public final class SystemInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return Node.CURRENT_NODE.get();
         }
 
         @OnMethodExit
@@ -115,7 +114,7 @@ public final class SystemInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return Node.CURRENT_NODE.get();
         }
 
         @OnMethodExit
@@ -144,7 +143,7 @@ public final class SystemInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return Node.CURRENT_NODE.get();
         }
     }
 
@@ -154,7 +153,7 @@ public final class SystemInterceptors {
         @SuppressWarnings("MissingJavadocMethod")
         @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return Node.CURRENT_NODE.get();
         }
 
         @SuppressWarnings("MissingJavadocMethod")
@@ -172,7 +171,7 @@ public final class SystemInterceptors {
         @SuppressWarnings("MissingJavadocMethod")
         @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return Node.CURRENT_NODE.get();
         }
 
         @SuppressWarnings("MissingJavadocMethod")
@@ -193,11 +192,11 @@ public final class SystemInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return Node.CURRENT_NODE.get();
         }
 
         @OnMethodExit
-        @SuppressWarnings({"MissingJavadocMethod"})
+        @SuppressWarnings("MissingJavadocMethod")
         public static void onExit(@Enter Node node, @Argument(value = 0) int exitCode) {
             if (node != null) {
                 node.exit(exitCode);
@@ -213,7 +212,7 @@ public final class SystemInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return currentNodeOrNull();
+            return Node.CURRENT_NODE.get();
         }
     }
 }

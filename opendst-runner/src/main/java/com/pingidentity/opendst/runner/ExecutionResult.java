@@ -28,6 +28,10 @@ import java.util.List;
 import java.util.Map;
 import tools.jackson.databind.JsonNode;
 
+/**
+ * Tracks the outcome of a single simulation run, including assertion results,
+ * per-segment hashes, and the final run hash used for flakiness detection.
+ */
 final class ExecutionResult {
 
     record TrackedAssertion(
@@ -84,7 +88,7 @@ final class ExecutionResult {
         return segmentHashes;
     }
 
-    public boolean isInteresting() {
+    boolean isInteresting() {
         return interesting;
     }
 
