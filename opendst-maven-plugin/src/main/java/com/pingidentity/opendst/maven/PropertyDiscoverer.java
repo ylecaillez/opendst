@@ -148,8 +148,8 @@ final class PropertyDiscoverer {
 
         if (message == null || message.isEmpty()) {
             throw new Instrumentation.AssertionValidationException(
-                    "Invalid OpenDST assertion in %s.%s: message must be a string literal for Assert.%s%s"
-                            .formatted(className, methodName, name, type.displayDescriptor()));
+                    "Invalid OpenDST assertion in %s.%s (line %d): message must be a string literal for Assert.%s%s"
+                            .formatted(className, methodName, line, name, type.displayDescriptor()));
         }
         var kind = name.startsWith("sometimes") || name.equals("reachable") ? SOMETIMES : ALWAYS;
         discovered.add(new Assertion(kind, message, className, line));

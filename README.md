@@ -37,6 +37,10 @@ When running inside a simulation:
 *   **Randomness:** `ThreadLocalRandom`, `SecureRandom`, and `Random` are seeded deterministically.
 *   **Network:** Network interactions are simulated with a virtual IP stack, supporting programmable latency, partitions, and connection resets.
 
+## Determinism & Isolation
+
+OpenDST aims for strict determinism, but some JDK APIs are not yet isolated or fully instrumented. For an exhaustive list of known gaps (including File I/O and certain system properties), see [KNOWN_GAPS.md](KNOWN_GAPS.md).
+
 ## Usage
 
 ### Prerequisites

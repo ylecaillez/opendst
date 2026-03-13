@@ -184,7 +184,7 @@ public final class Assert {
     public static void alwaysSome(Map<String, Boolean> conditions, String message, Map<String, Object> details) {}
 
     /**
-     * Similar to sometimes(x && y && ...), but provides individual proposition visibility.
+     * Similar to sometimes(x &amp;&amp; y &amp;&amp; ...), but provides individual proposition visibility.
      *
      * @param conditions a map of proposition names to their boolean values
      * @param message    a descriptive label for the assertion
