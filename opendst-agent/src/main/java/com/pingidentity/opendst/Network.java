@@ -189,6 +189,21 @@ public final class Network {
         return unreachable == null || !unreachable.contains(to);
     }
 
+    public void partition(String from, String to) {
+        partitions.computeIfAbsent(from.toLowerCase(ROOT), _ -> new java.util.HashSet<>())
+                .add(to.toLowerCase(ROOT));
+    }
+
+    public void heal(String from, String to) {
+        var unreachable = partitions.get(from.toLowerCase(ROOT));
+        if (unreachable != null) {
+            unreachable.remove(to.toLowerCase(ROOT));
+            if (unreachable.isEmpty()) {
+                partitions.remove(from.toLowerCase(ROOT));
+            }
+        }
+    }
+
     Map<String, Node> nodes() {
         return nameToNode;
     }

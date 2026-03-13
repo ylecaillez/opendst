@@ -233,7 +233,9 @@ public final class BuildRunner implements Callable<Integer> {
                         DurationUtils.parse(faults.network().latencyFast()),
                         DurationUtils.parse(faults.network().latencySlow()),
                         faults.network().cloggingProbability(),
-                        DurationUtils.parse(faults.network().cloggingLatencyMaximum()))
+                        DurationUtils.parse(faults.network().cloggingLatencyMaximum()),
+                        0.001,
+                        0.001)
                 : new Faults.Config.NetworkConfig();
         return new Faults.Config(net);
     }

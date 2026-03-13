@@ -200,6 +200,17 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             public int read(byte[] b, int off, int len) throws IOException {
                 requireNonNull(b);
                 checkFromIndexSize(off, len, b.length);
+                node.faultInjector().onNetworkReceive();
+                var timeout = node.faultInjector().onNetworkTimeout();
+                if (!timeout.isZero()) {
+                    try {
+                        sleep(timeout);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new InterruptedIOException();
+                    }
+                    throw new SocketTimeoutException("OpenDST read timeout");
+                }
                 for (; ; ) {
                     int readable = min(len, Math.toIntExact(receivedBytes.get() - readBytes.get()));
                     assert readable >= 0 && readable <= receiveBuffer.size() && readable <= len;
@@ -266,6 +277,17 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             public void write(byte[] b, int off, int len) throws IOException {
                 requireNonNull(b);
                 checkFromIndexSize(off, len, b.length);
+                node.faultInjector().onNetworkSend();
+                var timeout = node.faultInjector().onNetworkTimeout();
+                if (!timeout.isZero()) {
+                    try {
+                        sleep(timeout);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new InterruptedIOException();
+                    }
+                    throw new SocketTimeoutException("OpenDST write timeout");
+                }
                 for (int bytesWritten, totalWritten = 0; totalWritten < len; totalWritten += bytesWritten) {
                     if (closed) {
                         throw new SocketException("Socket is closed");

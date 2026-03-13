@@ -47,6 +47,7 @@
     <bytebuddy.version>1.18.3</bytebuddy.version>
     <spotbugs-annotations.version>4.9.1</spotbugs-annotations.version>
     <picocli.version>4.7.7</picocli.version>
+    <mockito.version>5.15.2</mockito.version>
     <maven.version>3.9.12</maven.version>
     <maven-plugin-tools.version>3.15.2</maven-plugin-tools.version>
   </properties>
@@ -64,6 +65,13 @@
         <groupId>org.junit</groupId>
         <artifactId>junit-bom</artifactId>
         <version>${junit.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-bom</artifactId>
+        <version>${mockito.version}</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>

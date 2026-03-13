@@ -24,6 +24,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 import java.net.BindException;
 import java.net.InetAddress;
+import java.net.SocketException;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -52,7 +53,10 @@ public final class Faults {
 
                 double cloggingProbability,
 
-                Duration cloggingLatencyMaximum) {
+                Duration cloggingLatencyMaximum,
+
+                double connectionResetProbability,
+                double timeoutProbability) {
 
             public NetworkConfig() {
                 this(
@@ -64,7 +68,11 @@ public final class Faults {
 
                         // Clogging
                         0.5,
-                        ofMillis(100));
+                        ofMillis(100),
+
+                        // Reset & Timeout
+                        0.001,
+                        0.001);
             }
         }
     }
@@ -91,9 +99,40 @@ public final class Faults {
             if (!reuseAddress
                     && simulator.isReady()
                     && faults.network().enabled()
-                    && current().nextInt(1000) == 0) {
+                    && current().nextDouble() < 0.001) {
                 throw new BindException("OpenDST network-address-reuse");
             }
+        }
+
+        /**
+         * Hook called before a network send operation.
+         */
+        void onNetworkSend() throws SocketException {
+            if (simulator.isReady() && faults.network().enabled()) {
+                if (current().nextDouble() < faults.network().connectionResetProbability()) {
+                    throw new SocketException("Connection reset");
+                }
+            }
+        }
+
+        /**
+         * Hook called before a network receive operation.
+         */
+        void onNetworkReceive() throws SocketException {
+            if (simulator.isReady() && faults.network().enabled()) {
+                if (current().nextDouble() < faults.network().connectionResetProbability()) {
+                    throw new SocketException("Connection reset");
+                }
+            }
+        }
+
+        Duration onNetworkTimeout() {
+            if (simulator.isReady() && faults.network().enabled()) {
+                if (current().nextDouble() < faults.network().timeoutProbability()) {
+                    return ofMillis(10_000);
+                }
+            }
+            return ZERO;
         }
 
         Duration setPairLatencyIfNotSet(InetAddress from, InetAddress to, Duration duration) {
