@@ -148,11 +148,11 @@ Available CLI options:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--duration` | 100000 | Maximum simulation duration in milliseconds |
-| `--stagnation-limit` | 100 | Stop after N iterations without new coverage |
+| `--duration` | 100000 | Maximum number of simulation steps per execution |
+| `--stagnation-limit` | 100 | Stop after N executions without new coverage |
 | `--branch-probability` | 0.7 | Probability of branching to explore a new path |
 | `--replay-probability` | 0.05 | Probability of replaying a previous trace |
-| `--forkCount` | max(1, CPUs - 1) | Number of concurrent simulation forks |
+| `--fork-count` | max(1, CPUs - 1) | Number of concurrent simulation forks |
 | `--working-dir` | (JAR name sans `.jar`) | Persistent working directory for deployment, runs, and reports |
 | `--fail-fast` | false | Stop on first assertion failure |
 | `--jvm-args` | (from POM) | JVM arguments for child processes |
