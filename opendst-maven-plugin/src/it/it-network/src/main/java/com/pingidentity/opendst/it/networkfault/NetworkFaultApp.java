@@ -30,6 +30,7 @@ import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -91,7 +92,6 @@ public final class NetworkFaultApp {
                 }
 
                 try {
-                    if (listenerId == 0) Signals.ready();
                     listenerId++;
 
                     int acceptsBeforeRestart =
@@ -234,49 +234,169 @@ public final class NetworkFaultApp {
             }
             String host = args[0];
             int port = parseInt(args[1]);
-            var rng = ThreadLocalRandom.current();
 
-            for (int i = 0; i < 200; i++) {
-                TracingSocket ts;
-                if (rng.nextInt(3) == 0) {
-                    // new Socket(host, port) — creates and
-                    // connects in one call
-                    Assert.reachable(
-                            "client-direct-connect", null);
-                    try {
-                        ts = TracingSocket.wrapConnected(
-                                new Socket(host, port));
-                        Assert.reachable(
-                                "client-open", null);
-                    } catch (IOException e) {
-                        rethrowPartition(e);
-                        continue;
-                    }
-                } else {
-                    // new Socket() — unbound, must connect
-                    Assert.reachable(
-                            "client-unbound", null);
-                    ts = TracingSocket.wrapUnconnected(
-                            new Socket());
-                }
+            var openSockets = new ArrayList<TracingSocket>();
 
+            // Connect one socket before enabling fault
+            // injection. No faults are active yet, so the
+            // only failure mode is the server not having
+            // bound yet (race at simulation start). Retry
+            // with sleep(100) to yield to the scheduler
+            // until the server is ready.
+            for (;;) {
                 try {
-                    randomClientActions(
-                            ts, host, port, rng);
-                } finally {
+                    var probe = TracingSocket.wrapConnected(
+                            new Socket(host, port));
+                    probe.getOutputStream()
+                            .write("liveness-probe"
+                                    .getBytes());
+                    // Signal the server that no more data
+                    // will be written. Without this, the
+                    // server's echo() strategy blocks
+                    // forever waiting for the next read.
+                    // The socket stays open for reading
+                    // (drain phase) but the output half
+                    // is closed.
+                    probe.shutdownOutput();
+                    openSockets.add(probe);
+                    break;
+                } catch (IOException e) {
+                    sleep(100);
+                }
+            }
+
+            // Enable fault injection. From this point on,
+            // the chaos loop exercises safety monitors
+            // under realistic network faults.
+            Signals.ready();
+
+            // Chaos loop: spawn each socket interaction in
+            // its own thread so one blocked read/connect
+            // does not prevent the rest from making progress.
+            // The server also handles connections one at a
+            // time, so concurrent clients naturally queue
+            // in the server's backlog.
+            for (int i = 0; i < 200; i++) {
+                final int iteration = i;
+                Thread.startVirtualThread(() -> {
+                    var tlr = ThreadLocalRandom.current();
+                    TracingSocket ts;
+                    if (tlr.nextInt(3) == 0) {
+                        // new Socket(host, port) — creates
+                        // and connects in one call
+                        Assert.reachable(
+                                "client-direct-connect",
+                                null);
+                        try {
+                            ts = TracingSocket.wrapConnected(
+                                    new Socket(host, port));
+                            Assert.reachable(
+                                    "client-open", null);
+                        } catch (IOException e) {
+                            return;
+                        }
+                    } else {
+                        // new Socket() — unbound, must
+                        // connect later via random actions
+                        Assert.reachable(
+                                "client-unbound", null);
+                        ts = TracingSocket.wrapUnconnected(
+                                new Socket());
+                    }
+
                     try {
-                        ts.close();
-                    } catch (IOException ignored) {}
+                        randomClientActions(
+                                ts, host, port, tlr);
+                    } catch (IOException e) {
+                        // network-partition — thread exits
+                    } finally {
+                        try {
+                            ts.close();
+                        } catch (IOException ignored) {}
+                    }
+                });
+            }
+
+            // Let the chaos threads run for 30 seconds of
+            // simulated time. Some may still be blocked on
+            // reads or connects when this sleep returns —
+            // that is expected. The client proceeds to the
+            // drain phase regardless.
+            sleep(30_000);
+
+            // Best-effort liveness probes: connect a few
+            // more sockets and leave them open for the drain
+            // phase. These supplement the guaranteed pre-chaos
+            // probe above. Some may fail if the server is
+            // still processing chaos-loop connections — that
+            // is expected and silently tolerated.
+
+            for (int i = 0; i < 10; i++) {
+                try {
+                    var ts = TracingSocket.wrapConnected(
+                            new Socket(host, port));
+                    ts.getOutputStream()
+                            .write("liveness-probe"
+                                    .getBytes());
+                    ts.shutdownOutput();
+                    openSockets.add(ts);
+                } catch (IOException e) {
+                    rethrowPartition(e);
+                }
+            }
+
+            // Close half of the kept-open sockets without
+            // draining. Their own delivery obligation is
+            // NOT excused — only the peer's obligation to
+            // deliver to them is (ExcusePeerObligation).
+            int half = openSockets.size() / 2;
+            for (int i = 0; i < half; i++) {
+                try {
+                    openSockets.get(i).close();
+                } catch (IOException ignored) {}
+                openSockets.set(i, null);
+            }
+
+            // Drain the other half: read until EOF or
+            // IOException. This gives the liveness monitors
+            // a chance to observe fulfilled delivery
+            // obligations on non-excused sockets.
+            //
+            // EOF means all peer data was delivered and
+            // shutdownOutput() propagated cleanly.
+            // IOException means the connection was disrupted;
+            // data received so far is a valid prefix
+            // (enforced by DataIntegrity).
+            for (TracingSocket ts : openSockets) {
+                if (ts == null) continue;
+                try {
+                    ts.delegate().setSoTimeout(5000);
+                    byte[] buf = new byte[1024];
+                    Assert.sometimes(
+                            ts.getInputStream()
+                                    .read(buf) != -1,
+                            "drain-received-data", null);
+                    while (ts.getInputStream()
+                            .read(buf) != -1) {}
+                    Assert.reachable(
+                            "drain-completed-eof", null);
+                } catch (IOException e) {
+                    Assert.reachable(
+                            "drain-completed-ioexception",
+                            null);
                 }
             }
 
             // Signal liveness check: all client operations
-            // are complete, sockets are closed. The marker
-            // flows through the console capture pipeline to
+            // are complete, remaining sockets are drained.
+            // The marker flows through the console capture
+            // pipeline to
             // NetworkFaultTraceAuditor.checkLiveness().
             System.out.println(
                     new TraceEvents.TestCompleted()
                             .serialize());
+            Assert.reachable(
+                    "liveness-checked", null);
         }
     }
 
@@ -341,7 +461,7 @@ public final class NetworkFaultApp {
         int steps = rng.nextInt(2, 6);
         for (int s = 0;
              s < steps && !ts.isClosed(); s++) {
-            switch (rng.nextInt(5)) {
+            switch (rng.nextInt(6)) {
                 case 0 -> {
                     try {
                         out.write("pong".getBytes());
@@ -383,6 +503,17 @@ public final class NetworkFaultApp {
                         rethrowPartition(e);
                     }
                 }
+                case 5 -> {
+                    try {
+                        int avail =
+                                in.available();
+                        Assert.reachable(
+                                "server-available",
+                                null);
+                    } catch (IOException e) {
+                        rethrowPartition(e);
+                    }
+                }
             }
         }
     }
@@ -402,7 +533,7 @@ public final class NetworkFaultApp {
         int steps = rng.nextInt(2, 11);
         for (int s = 0;
              s < steps && !ts.isClosed(); s++) {
-            switch (rng.nextInt(7)) {
+            switch (rng.nextInt(8)) {
                 case 0 -> {
                     try {
                         ts.delegate().bind(
@@ -465,6 +596,17 @@ public final class NetworkFaultApp {
                 case 6 -> {
                     try {
                         ts.close();
+                    } catch (IOException e) {
+                        rethrowPartition(e);
+                    }
+                }
+                case 7 -> {
+                    try {
+                        int avail =
+                                ts.getInputStream()
+                                        .available();
+                        Assert.reachable(
+                                "client-available", null);
                     } catch (IOException e) {
                         rethrowPartition(e);
                     }

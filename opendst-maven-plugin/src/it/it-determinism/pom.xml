@@ -8,7 +8,8 @@
         <version>@project.version@</version>
     </parent>
 
-    <artifactId>replay-test</artifactId>
+    <artifactId>it-determinism</artifactId>
+    <name>OpenDST IT - Determinism</name>
 
     <build>
         <plugins>

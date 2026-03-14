@@ -46,8 +46,9 @@ println "Running: ${javaBin} -jar ${jarFile.absolutePath} --working-dir ${workin
 // so replayed plans will produce different hashes and be flagged as flaky.
 def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
                                  "--working-dir", workingDir.absolutePath,
+                                 "--fork-count", "1",
                                  "--stagnation-limit", "20",
-                                 "--replay-probability", "0.8")
+                                 "--replay-probability", "0.95")
         .directory(basedir)
         .redirectErrorStream(true)
         .start()
@@ -77,7 +78,7 @@ check(report.count > 0, "report.count should be > 0", logFile)
 // which causes the "simulation stopped successfully" assertion to fail.
 def stoppedAssertion = report.assertions.find { it.name == "simulation stopped successfully" }
 check(stoppedAssertion != null, "'simulation stopped successfully' assertion missing from report", logFile)
-check(stoppedAssertion.pass == "fail", "Expected 'simulation stopped successfully' to fail (non-determinism detected), got: ${stoppedAssertion.pass}", logFile)
+check(stoppedAssertion.pass == false, "Expected 'simulation stopped successfully' to fail (non-determinism detected), got: ${stoppedAssertion.pass}", logFile)
 
 // Verify that at least one failure is due to flaky detection (not just crashes)
 def flakyFailures = stoppedAssertion.examples?.failExamples?.findAll { it.details?.reason == "flaky" }

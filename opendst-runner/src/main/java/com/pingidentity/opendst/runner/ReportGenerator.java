@@ -48,7 +48,7 @@ final class ReportGenerator {
         this.startTime = Instant.now();
     }
 
-    private record AssertionState(String name, String pass, Examples examples) {}
+    private record AssertionState(String name, boolean pass, Examples examples) {}
 
     private record Example(Path planFile, long iteration, JsonNode details) {}
 
@@ -122,13 +122,13 @@ final class ReportGenerator {
                 // fail: always(), sometimes() (mustHit — must be reached at least once)
                 // pass: alwaysOrUnreachable(), unreachable()
                 state.add(
-                        new AssertionState(assertion.message(), assertion.kind().mustHit() ? "fail" : "pass", hit));
+                        new AssertionState(assertion.message(), !assertion.kind().mustHit(), hit));
             } else if (SOMETIMES.equals(assertion.kind())) {
-                state.add(new AssertionState(assertion.message(), hit.passCount() == 0 ? "fail" : "pass", hit));
+                state.add(new AssertionState(assertion.message(), hit.passCount() > 0, hit));
             } else if (hit.failCount() > 0) {
-                state.add(new AssertionState(assertion.message(), "fail", hit));
+                state.add(new AssertionState(assertion.message(), false, hit));
             } else {
-                state.add(new AssertionState(assertion.message(), "pass", hit));
+                state.add(new AssertionState(assertion.message(), true, hit));
             }
         }
         JSON_MAPPER

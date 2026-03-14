@@ -99,7 +99,7 @@ public final class Faults {
             if (!reuseAddress
                     && simulator.isReady()
                     && faults.network().enabled()
-                    && current().nextDouble() < 0.001) {
+                    && current().nextDouble() < 0.05) {
                 throw new BindException("OpenDST network-address-reuse");
             }
         }
@@ -169,7 +169,7 @@ public final class Faults {
             if (a <= probabilityFastNanos) {
                 long scaledA = Math.max(1, (a * precision) / probabilityFastNanos);
                 return ofNanos((config.networkLatencyMinimum().toNanos() * (precision - scaledA)
-                                + (config.networkLatencyFast().toNanos() / scaledA))
+                                + (config.networkLatencyFast().toNanos() * precision / scaledA))
                         / (2 * probabilityFastNanos));
             }
             long scaledA = ((a - probabilityFastNanos) * precision) / (precision - probabilityFastNanos);

@@ -106,11 +106,11 @@ assert reportAssertions.containsKey("invariant") :
     "assertion 'invariant' not found in report: ${reportAssertions.keySet()}"
 
 // level-1 is a reachable assertion — it should pass since ValidAssertionApp always hits it
-assert reportAssertions["level-1"] == "pass" :
+assert reportAssertions["level-1"] == true :
     "assertion 'level-1' should pass, got: ${reportAssertions['level-1']}"
 
 // invariant is always(true, ...) — should pass
-assert reportAssertions["invariant"] == "pass" :
+assert reportAssertions["invariant"] == true :
     "assertion 'invariant' should pass, got: ${reportAssertions['invariant']}"
 
 println "All verifications passed — build JAR runs successfully and produces correct report."

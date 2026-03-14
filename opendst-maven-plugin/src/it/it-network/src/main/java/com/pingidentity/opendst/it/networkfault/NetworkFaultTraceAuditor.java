@@ -16,13 +16,119 @@
 package com.pingidentity.opendst.it.networkfault;
 
 import com.pingidentity.opendst.api.TraceAuditor;
+import generatedOutput.pobserve.PMachines;
+import pobserve.runtime.Monitor;
+import pobserve.runtime.events.PEvent;
+
+import java.util.List;
 
 /**
- * Basic trace auditor for the network fault IT.
+ * Trace auditor that validates TCP socket semantics using
+ * PObserve-generated monitors compiled from the P formal
+ * specification.
+ *
+ * <p>Trace events are emitted by the socket decorators
+ * ({@link TracingSocket}, {@link TracingServerSocket}) and
+ * validated here against 10 P spec monitors:
+ *
+ * <ul>
+ *   <li><b>Safety:</b> DataIntegrity, NoWriteAfterClose,
+ *       NoPhantomData, IOExceptionOnClosedSocket,
+ *       NoWriteAfterShutdownOutput,
+ *       NoReadAfterShutdownInput,
+ *       AvailableConsistency</li>
+ *   <li><b>Liveness:</b> DeliveryLiveness, EOFLiveness,
+ *       GracefulShutdownIntegrity</li>
+ * </ul>
+ *
+ * <p>Safety violations throw immediately (unchecked
+ * {@code PAssertionFailureException} from the monitor).
+ * Liveness is checked when the {@code TestCompleted} marker
+ * event is received — any monitor stuck in a hot state is
+ * a liveness violation.
  */
-public final class NetworkFaultTraceAuditor implements TraceAuditor {
+public final class NetworkFaultTraceAuditor
+        implements TraceAuditor {
+
+    private final List<Monitor<?>> monitors = List.of(
+            new PMachines.DataIntegrity.Supplier().get(),
+            new PMachines.NoWriteAfterClose.Supplier().get(),
+            new PMachines.NoPhantomData.Supplier().get(),
+            new PMachines.IOExceptionOnClosedSocket
+                    .Supplier().get(),
+            new PMachines.DeliveryLiveness.Supplier().get(),
+            new PMachines.EOFLiveness.Supplier().get(),
+            new PMachines.NoWriteAfterShutdownOutput
+                    .Supplier().get(),
+            new PMachines.NoReadAfterShutdownInput
+                    .Supplier().get(),
+            new PMachines.AvailableConsistency
+                    .Supplier().get(),
+            new PMachines.GracefulShutdownIntegrity
+                    .Supplier().get());
+
+    private final TraceEventParser parser =
+            new TraceEventParser();
+
     @Override
     public void process(Log log) throws Throwable {
-        // No-op for now, basic connectivity check is done by the app assertions.
+        TraceEvents.TraceEvent event =
+                TraceEvents.parse(log.message());
+        if (event == null) return;
+
+        if (event instanceof TraceEvents.TestCompleted) {
+            checkLiveness();
+            return;
+        }
+
+        PEvent<?> pEvent = parser.toPObserveEvent(event);
+        if (pEvent == null) return;
+
+        // Dispatch to every monitor that observes this event
+        // type. Safety violations propagate immediately as
+        // unchecked PAssertionFailureException.
+        for (Monitor<?> monitor : monitors) {
+            if (monitor.getEventTypes()
+                    .contains(pEvent.getClass())) {
+                try {
+                    monitor.accept(pEvent);
+                } catch (RuntimeException ex) {
+                    throw new AssertionError(
+                            "Monitor "
+                            + monitor.getClass()
+                                    .getSimpleName()
+                            + " failed on event: "
+                            + log.message()
+                            + " from host " + log.host()
+                            + " at iteration "
+                            + log.iteration(), ex);
+                }
+            }
+        }
+    }
+
+    /**
+     * Checks liveness monitors for hot-state violations.
+     *
+     * <p>PObserve liveness monitors use hot/cold states. A
+     * monitor stuck in a hot state at test end means a
+     * liveness property was violated (e.g., data was written
+     * but never delivered). Since the {@code State.Temperature}
+     * enum has no public getter, we check the state name
+     * against the known hot-state names from the P spec.
+     */
+    private void checkLiveness() {
+        for (Monitor<?> monitor : monitors) {
+            String state = monitor.getCurrentState().name();
+            if ("PendingDelivery".equals(state)
+                    || "PendingEOFDelivery".equals(state)
+                    || "PendingGracefulDelivery"
+                            .equals(state)) {
+                throw new AssertionError(
+                        "Liveness violation: "
+                        + monitor.getClass().getSimpleName()
+                        + " stuck in hot state " + state);
+            }
+        }
     }
 }

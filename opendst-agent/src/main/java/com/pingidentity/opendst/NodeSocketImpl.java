@@ -157,7 +157,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             var latency = node.faultInjector()
                     .setPairLatencyIfNotSet(
                             peerAddress,
-                            address,
+                            binding.address(),
                             ofNanos((node.faults()
                                                     .network()
                                                     .cloggingLatencyMaximum()
@@ -257,8 +257,12 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
     @Override
     protected void shutdownOutput() {
         isOutputShutdown = true;
-        // Unblock local write() and peer read() so that it can returns -1 if all bytes have been read
-        peer.writtenBytes.signal();
+        // Unblock local write() and peer read() so that it can returns -1 if all bytes have been read.
+        // peer is null if shutdownOutput() is called on an unconnected socket. In practice, the JDK's
+        // Socket class guards against this (throws SocketException), but we defend against it here.
+        if (peer != null) {
+            peer.writtenBytes.signal();
+        }
     }
 
     private int availableSendBufferForPeer() {
@@ -342,8 +346,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                     // TCP RST: local side shut down input, but peer keeps writing.
                     // The data arriving is discarded and RST propagates back to the peer
                     // after a network round-trip delay.
-                    // Note: no DataDiscarded trace here — the discard is NOT silent because
-                    // RST notifies the peer. DataDiscarded is reserved for truly silent losses.
+                    // The discard is not silent: RST notifies the peer.
                     var rstDelay = node.faultInjector()
                             .networkSendDelay(binding.address(), peer.address, stableConnection);
                     sleep(rstDelay);
@@ -465,7 +468,9 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
         } else if (isServer && optID == SO_REUSEADDR) {
             return soReuseAddr;
         } else if (isServer && optID == SO_RCVBUF) {
-            return sendBufferSize;
+            // Return a reasonable default; sendBufferSize is not meaningful for server sockets
+            // as it is only set during connect()/accept(). 65536 matches typical JDK defaults.
+            return 65536;
         } else if (!isServer && optID == SO_LINGER) {
             return soLinger;
         } else if (optID == SO_BINDADDR) {
@@ -599,7 +604,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
         }
 
         private int size() {
-            return buffer.size() * CHUNK_SIZE - readPos;
+            return buffer.isEmpty() ? 0 : (buffer.size() - 1) * CHUNK_SIZE + writePos - readPos;
         }
 
         void read(byte[] b, int offset, int len) {

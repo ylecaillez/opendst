@@ -8,7 +8,8 @@
         <version>@project.version@</version>
     </parent>
 
-    <artifactId>flaky-test</artifactId>
+    <artifactId>it-flaky</artifactId>
+    <name>OpenDST IT - Flaky</name>
 
     <build>
         <plugins>

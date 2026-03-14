@@ -136,7 +136,7 @@ public class BuildMojo extends AbstractMojo {
         var agentJarPath = extractAgentJar(basePath);
 
         // 3. Resolve external artifacts and instrument all unique sources
-        var opendstBasePath = basePath.resolve("target").resolve("opendst");
+        var opendstBasePath = basePath.resolve("target").resolve("opendst-package");
         var instrumentedAppsDir = opendstBasePath.resolve(INSTRUMENTED_APPS_DIR);
         try {
             deleteRecursively(basePath, instrumentedAppsDir);
@@ -323,7 +323,7 @@ public class BuildMojo extends AbstractMojo {
         var resolved = repositorySystem.resolveArtifact(session.getRepositorySession(), request);
 
         var stagingDir =
-                basePath.resolve("target").resolve("opendst").resolve("staging").resolve(appDir);
+                basePath.resolve("target").resolve("opendst-package").resolve("staging").resolve(appDir);
         unpackArchive(resolved.getArtifact().getFile().toPath(), stagingDir);
         return stagingDir;
     }
@@ -401,7 +401,7 @@ public class BuildMojo extends AbstractMojo {
             if (is == null) {
                 throw new MojoFailureException("Could not find embedded opendst-agent.jar");
             }
-            var agentJar = basePath.resolve("target").resolve("opendst").resolve("opendst-agent.jar");
+            var agentJar = basePath.resolve("target").resolve("opendst-package").resolve("opendst-agent.jar");
             createDirectories(agentJar.getParent());
             copy(is, agentJar, REPLACE_EXISTING);
             return agentJar;

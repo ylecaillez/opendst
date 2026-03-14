@@ -368,10 +368,13 @@ public final class Node {
 
         Binding bind(InetAddress address, int port, SocketImpl socket, boolean reuseAddress)
                 throws BindException {
-            for (int i = EPHEMERAL_RANGE_START; port == 0 && i < EPHEMERAL_RANGE_END; i++) {
-                if (!boundSockets.containsKey(toHostPort(address, i))) {
-                    port = i;
-                }
+            // Find a free ephemeral port when port == 0.
+            // When binding to a wildcard address (0.0.0.0),
+            // the port must be free on ALL local addresses,
+            // not just the wildcard key (which is never
+            // stored in boundSockets).
+            if (port == 0) {
+                port = findEphemeralPort(address);
             }
             if (address.isAnyLocalAddress()) {
                 // Check that the port is available on all addresses
@@ -399,6 +402,36 @@ public final class Node {
             if (boundSockets.containsKey(hostPort)) {
                 throw new BindException("Address already in use");
             }
+        }
+
+        /**
+         * Finds the first free ephemeral port. For
+         * wildcard addresses, the port must be available
+         * on ALL local interfaces.
+         */
+        private int findEphemeralPort(
+                InetAddress address) throws BindException {
+            var checkAddresses =
+                    address.isAnyLocalAddress()
+                            ? addresses
+                            : Set.of(address
+                                    .getHostAddress());
+            for (int i = EPHEMERAL_RANGE_START;
+                 i < EPHEMERAL_RANGE_END; i++) {
+                boolean free = true;
+                for (var a : checkAddresses) {
+                    if (boundSockets.containsKey(
+                            toHostPort(a, i))) {
+                        free = false;
+                        break;
+                    }
+                }
+                if (free) {
+                    return i;
+                }
+            }
+            throw new BindException(
+                    "No ephemeral ports available");
         }
 
         private static String toHostPort(InetAddress address, int port) {

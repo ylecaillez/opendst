@@ -9,6 +9,7 @@
     </parent>
 
     <artifactId>it-network</artifactId>
+    <name>OpenDST IT - Network</name>
 
     <build>
         <plugins>
@@ -18,7 +19,70 @@
                 <version>3.14.1</version>
                 <configuration>
                     <release>25</release>
+                    <!-- Override parent's -Xlint:all to suppress warnings from PObserve-generated code -->
+                    <compilerArgs>
+                        <arg>-Xlint:all,-serial,-dangling-doc-comments,-this-escape</arg>
+                        <arg>-Werror</arg>
+                    </compilerArgs>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>pobserve-generate</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>p</executable>
+                            <workingDirectory>${project.basedir}/src/specs/java-socket</workingDirectory>
+                            <arguments>
+                                <argument>compile</argument>
+                                <argument>--mode</argument>
+                                <argument>pobserve</argument>
+                                <argument>-pf</argument>
+                                <argument>JavaSocketTypes.p</argument>
+                                <argument>-pf</argument>
+                                <argument>Specifications.p</argument>
+                                <argument>-pn</argument>
+                                <argument>JavaSocketSpecs</argument>
+                                <argument>-o</argument>
+                                <argument>${project.build.directory}/generated-sources/pobserve</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>pobserve-relocate</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>-c</argument>
+                                <argument>mkdir -p ${project.build.directory}/generated-sources/pobserve/generatedOutput/pobserve &amp;&amp; mv ${project.build.directory}/generated-sources/pobserve/PObserve/*.java ${project.build.directory}/generated-sources/pobserve/generatedOutput/pobserve/</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <id>add-pobserve-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>add-source</goal></goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.build.directory}/generated-sources/pobserve</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>@project.groupId@</groupId>
@@ -46,6 +110,11 @@
         <dependency>
             <groupId>tools.jackson.jr</groupId>
             <artifactId>jackson-jr-objects</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.p-org</groupId>
+            <artifactId>pobserve-commons</artifactId>
+            <version>1.0.0</version>
         </dependency>
     </dependencies>
 </project>

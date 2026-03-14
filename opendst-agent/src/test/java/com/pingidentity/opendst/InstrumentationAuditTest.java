@@ -15,8 +15,6 @@
  */
 package com.pingidentity.opendst;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -30,8 +28,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 
 /**
  * Validates the completeness of OpenDST's JDK instrumentation and generates a compatibility report.
@@ -56,8 +52,12 @@ import org.junit.jupiter.api.Test;
  *
  * <p><b>Output:</b> Generates a Markdown report at {@code target/INSTRUMENTATION.md} detailing the
  * current instrumentation status.
+ *
+ * <p>This test uses the Surefire POJO test runner (no JUnit/TestNG required).
+ * Surefire discovers it by naming convention ({@code *Test}), calls {@code setUp()} before
+ * each test method, and runs all {@code public void testXxx()} methods.
  */
-class InstrumentationAuditTest {
+public class InstrumentationAuditTest {
 
     private Set<String> acknowledgedGaps;
     private final List<AuditResult> auditResults = new ArrayList<>();
@@ -71,8 +71,7 @@ class InstrumentationAuditTest {
             boolean noOp,
             String comment) {}
 
-    @BeforeEach
-    void setUp() throws IOException {
+    public void setUp() throws IOException {
         var resource = InstrumentationAuditTest.class.getResourceAsStream("/known-gaps.txt");
         if (resource == null) {
             acknowledgedGaps = new HashSet<>();
@@ -87,8 +86,7 @@ class InstrumentationAuditTest {
         }
     }
 
-    @Test
-    void runAudit() throws Exception {
+    public void testRunAudit() throws Exception {
         // 1. Audit Advice Redirections (Discovered via @Intercepts annotation)
         auditDiscoveredAdvice();
 
@@ -127,10 +125,11 @@ class InstrumentationAuditTest {
                 .map(r -> r.jdkClass + "#" + r.member)
                 .collect(Collectors.toList());
 
-        assertTrue(
-                unknownGaps.isEmpty(),
-                "New gaps detected in instrumentation! Please implement them or add to known-gaps.txt if they are intentional: "
-                        + unknownGaps);
+        if (!unknownGaps.isEmpty()) {
+            throw new AssertionError(
+                    "New gaps detected in instrumentation! Please implement them or add to known-gaps.txt if they are intentional: "
+                            + unknownGaps);
+        }
     }
 
     private void auditDiscoveredAdvice() throws Exception {
@@ -168,9 +167,10 @@ class InstrumentationAuditTest {
             }
         }
 
-        assertTrue(
-                missingAnnotations.isEmpty(),
-                "The following advice classes are missing the @Intercepts annotation: " + missingAnnotations);
+        if (!missingAnnotations.isEmpty()) {
+            throw new AssertionError(
+                    "The following advice classes are missing the @Intercepts annotation: " + missingAnnotations);
+        }
     }
 
     private void addAdviceResult(Intercepts annotation, String source) {

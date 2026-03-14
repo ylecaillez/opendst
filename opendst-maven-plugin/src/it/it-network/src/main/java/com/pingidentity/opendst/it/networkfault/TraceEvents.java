@@ -210,20 +210,6 @@ public final class TraceEvents {
         }
     }
 
-    /** Data was silently discarded because the peer's input
-     *  was already shut down. */
-    public record DataDiscarded(
-            String socket, int byteCount
-    ) implements TraceEvent {
-        @Override
-        public String serialize() {
-            return toJson("DataDiscarded", Map.of(
-                    "socket", socket,
-                    "byteCount",
-                    String.valueOf(byteCount)));
-        }
-    }
-
     /** The available() method was queried on a socket. */
     public record AvailableQueried(
             String socket, int reportedCount
@@ -301,10 +287,6 @@ public final class TraceEvents {
             case "ShutdownInputCompleted" ->
                     new ShutdownInputCompleted(
                             str(map, "socket"));
-            case "DataDiscarded" ->
-                    new DataDiscarded(
-                            str(map, "socket"),
-                            integer(map, "byteCount"));
             case "AvailableQueried" ->
                     new AvailableQueried(
                             str(map, "socket"),
