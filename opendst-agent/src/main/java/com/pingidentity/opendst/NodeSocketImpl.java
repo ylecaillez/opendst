@@ -29,7 +29,6 @@ import static java.util.Objects.checkFromIndexSize;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.ThreadLocalRandom.current;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 import java.io.Closeable;
 import java.io.FileDescriptor;
@@ -522,8 +521,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                                                 * current().nextInt(1000))
                                         / 1000));
                 acceptedLocalSocket.sendBufferSize = toIntExact(max(
-                        current().nextLong(0, 5_000_000),
-                        25 * (MILLISECONDS.toMicros(2) + NANOSECONDS.toMicros(latency.toNanos()))));
+                        current().nextLong(0, 5_000_000), 25_000 * (2 + latency.toMillis())));
                 acceptedLocalSocket.receiveBuffer = new NetBuffer();
 
                 startVirtualThread(new FutureTask<>(acceptedLocalSocket::receiver))

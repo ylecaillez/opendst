@@ -141,7 +141,11 @@ public final class Faults {
         }
 
         Duration networkSendDelay(InetAddress from, InetAddress to, boolean stableConnection) {
-            return stableConnection ? halfLatency().dividedBy(10) : halfLatency();
+            if (stableConnection) {
+                return ofNanos(halfLatency().toNanos() / 10);
+            }
+            var halfLatency = halfLatency();
+            return halfLatency.plus(maxOptional(clogPairLatency.get(entry(from, to))));
         }
 
         Duration networkReceiveDelay(InetAddress from, InetAddress to, boolean stableConnection) {

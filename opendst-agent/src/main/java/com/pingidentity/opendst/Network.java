@@ -70,7 +70,7 @@ public final class Network {
     private final Simulator simulator;
     private final Map<InetAddress, String> addressToName;
     private final Map<String, Node> nameToNode;
-    // Not yet wired — reserved for planned network partition fault injection.
+    // Per-node reachability overrides for network partition fault injection.
     private final Map<String, Set<String>> partitions = new HashMap<>();
 
     /**

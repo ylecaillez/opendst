@@ -83,9 +83,9 @@ public final class Node {
         if (hostName.isBlank()) {
             throw new IllegalArgumentException("hostName cannot be blank");
         }
-        assert localIpAddress != null;
+        requireNonNull(localIpAddress);
 
-        this.hostName = hostName.toLowerCase();
+        this.hostName = hostName.toLowerCase(java.util.Locale.ROOT);
         this.salt32l = context.random().nextLong() & 0xFFFF_FFFFL;
         this.reverse = (salt32l & 1) == 0;
         this.console = new PrintStream(context.logger().newLogWriter(hostName), true);

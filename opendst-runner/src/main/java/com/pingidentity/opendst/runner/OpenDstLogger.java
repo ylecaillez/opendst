@@ -163,26 +163,6 @@ public final class OpenDstLogger {
             return this;
         }
 
-        LogBuilder withExpectedHash(int hash) {
-            attributes.put("expected-hash", HEX.toHexDigits(hash));
-            return this;
-        }
-
-        LogBuilder withCurrentHash(int hash) {
-            attributes.put("current-hash", HEX.toHexDigits(hash));
-            return this;
-        }
-
-        LogBuilder withCode(int code) {
-            attributes.put("code", String.valueOf(code));
-            return this;
-        }
-
-        LogBuilder withLastLog(Object lastLog) {
-            attributes.put("last-log", String.valueOf(lastLog));
-            return this;
-        }
-
         void log() {
             var sb = new StringBuilder();
             if ("run".equals(kind)) {
