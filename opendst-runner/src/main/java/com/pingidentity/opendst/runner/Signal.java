@@ -22,6 +22,7 @@ import com.pingidentity.opendst.runner.Signal.AssertSignal;
 import com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType;
 import com.pingidentity.opendst.runner.Signal.ConsoleSignal;
 import com.pingidentity.opendst.runner.Signal.FaultSignal;
+import com.pingidentity.opendst.runner.Signal.GuidanceSignal;
 import com.pingidentity.opendst.runner.Signal.LifecycleSignal;
 import java.util.Map;
 import tools.jackson.databind.JsonNode;
@@ -30,17 +31,19 @@ import tools.jackson.databind.JsonNode;
  * Represents a structured signal emitted by the simulator during a run.
  *
  * <p>Signals are deserialized from the child JVM's JSON stdout stream and dispatched
- * by the parent orchestrator. The four subtypes cover lifecycle events (start/stop),
- * assertion outcomes, console output, and fault injection notices.
+ * by the parent orchestrator. The five subtypes cover lifecycle events (start/stop),
+ * assertion outcomes, guidance data for comparative assertions, console output,
+ * and fault injection notices.
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type", visible = true)
 @JsonSubTypes({
     @JsonSubTypes.Type(value = Signal.LifecycleSignal.class, name = "lifecycle"),
     @JsonSubTypes.Type(value = Signal.AssertSignal.class, name = "assert"),
+    @JsonSubTypes.Type(value = Signal.GuidanceSignal.class, name = "guidance"),
     @JsonSubTypes.Type(value = Signal.ConsoleSignal.class, name = "stdout"),
     @JsonSubTypes.Type(value = Signal.FaultSignal.class, name = "fault")
 })
-public sealed interface Signal permits ConsoleSignal, AssertSignal, FaultSignal, LifecycleSignal {
+public sealed interface Signal permits ConsoleSignal, AssertSignal, GuidanceSignal, FaultSignal, LifecycleSignal {
     SignalType type();
 
     String message();
@@ -48,6 +51,7 @@ public sealed interface Signal permits ConsoleSignal, AssertSignal, FaultSignal,
     enum SignalType {
         LIFECYCLE("lifecycle"),
         ASSERT("assert"),
+        GUIDANCE("guidance"),
         CONSOLE("stdout"),
         FAULT("fault");
 
@@ -81,28 +85,8 @@ public sealed interface Signal permits ConsoleSignal, AssertSignal, FaultSignal,
         }
     }
 
-    record AssertSignal(
-            AssertType kind, String message, boolean condition, Map<String, Object> guidance, JsonNode details)
+    record AssertSignal(AssertType kind, String message, boolean condition, JsonNode details)
             implements Signal {
-
-        /**
-         * Returns the distance-to-violation for comparative assertions, or {@code NaN} if not applicable.
-         *
-         * <p>For comparative assertions, guidance contains {@code left} and {@code right} values.
-         * The distance is {@code |left - right|}, representing how far the assertion is from being violated.
-         * A smaller distance means the system is closer to a counter-example.
-         */
-        double distanceToViolation() {
-            if (guidance == null) {
-                return Double.NaN;
-            }
-            var left = guidance.get("left");
-            var right = guidance.get("right");
-            if (left instanceof Number l && right instanceof Number r) {
-                return Math.abs(l.doubleValue() - r.doubleValue());
-            }
-            return Double.NaN;
-        }
 
         public enum AssertType {
             ALWAYS("always", true),
@@ -141,6 +125,40 @@ public sealed interface Signal permits ConsoleSignal, AssertSignal, FaultSignal,
         @Override
         public SignalType type() {
             return SignalType.ASSERT;
+        }
+    }
+
+    /**
+     * Guidance data emitted alongside comparative assertions (e.g. {@code alwaysLessThan}).
+     *
+     * <p>Carries the {@code left} and {@code right} operand values so the orchestrator
+     * can compute how far the assertion is from being violated and steer exploration
+     * toward narrower distances.
+     */
+    record GuidanceSignal(String message, Map<String, Object> guidance) implements Signal {
+
+        /**
+         * Returns the distance-to-violation, or {@code NaN} if not applicable.
+         *
+         * <p>The distance is {@code |left - right|}, representing how far the assertion
+         * is from being violated. A smaller distance means the system is closer to
+         * a counter-example.
+         */
+        double distanceToViolation() {
+            if (guidance == null) {
+                return Double.NaN;
+            }
+            var left = guidance.get("left");
+            var right = guidance.get("right");
+            if (left instanceof Number l && right instanceof Number r) {
+                return Math.abs(l.doubleValue() - r.doubleValue());
+            }
+            return Double.NaN;
+        }
+
+        @Override
+        public SignalType type() {
+            return SignalType.GUIDANCE;
         }
     }
 

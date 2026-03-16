@@ -124,6 +124,7 @@ final class ExecutionResult {
                     assertSignal.message(), assertSignal.condition(),
                     signal.iteration(), assertSignal.details());
         }
+        // GuidanceSignals are handled by the orchestrator only; no tracking needed here.
         return false;
     }
 

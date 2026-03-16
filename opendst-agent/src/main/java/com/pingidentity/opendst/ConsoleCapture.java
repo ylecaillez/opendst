@@ -122,19 +122,30 @@ final class ConsoleCapture {
     }
 
     InternalLogger logLifecycle(String message, Instant time, long iteration) {
-        return new InternalLogger("lifecycle", message, null, time, iteration);
+        return new InternalLogger("lifecycle", message, null, time, iteration, true);
     }
 
     InternalLogger logAssert(String message, String vhost, Instant time, long iteration) {
-        return new InternalLogger("assert", message, vhost, time, iteration);
+        return new InternalLogger("assert", message, vhost, time, iteration, true);
+    }
+
+    /**
+     * Creates a guidance logger. Guidance signals carry distance-to-violation data for
+     * the orchestrator but must NOT affect the deterministic state hash — they are
+     * framework-internal metadata, not application-observable behavior.
+     */
+    InternalLogger logGuidance(String message, String vhost, Instant time, long iteration) {
+        return new InternalLogger("guidance", message, vhost, time, iteration, false);
     }
 
     final class InternalLogger {
         private final JsonGenerator generator;
         private final String message;
+        private final boolean hashOnLog;
 
-        InternalLogger(String type, String message, String vhost, Instant time, long iteration) {
+        InternalLogger(String type, String message, String vhost, Instant time, long iteration, boolean hashOnLog) {
             this.message = message;
+            this.hashOnLog = hashOnLog;
             // NOTE: vhost might be null for some low-level simulator's message.
             var gen = JSON_LOGGER
                     .createGenerator(out)
@@ -179,7 +190,9 @@ final class ConsoleCapture {
         void log() {
             generator.writeEndObject().writeEndObject().close();
             out.write('\n');
-            simulator.hash(message);
+            if (hashOnLog) {
+                simulator.hash(message);
+            }
         }
     }
 

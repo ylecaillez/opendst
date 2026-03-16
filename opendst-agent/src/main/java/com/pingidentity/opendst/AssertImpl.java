@@ -32,14 +32,14 @@ public final class AssertImpl {
     public static void always(boolean condition, String message, Map<String, Object> details) {
         requireNonNull(message);
         var node = currentNodeOrThrow();
-        log(node, "always", message, condition, details, null);
+        log(node, "always", message, condition, details);
     }
 
     @Intercepts("com.pingidentity.opendst.api.Assert#alwaysOrUnreachable(boolean,String,java.util.Map)")
     public static void alwaysOrUnreachable(boolean condition, String message, Map<String, Object> details) {
         requireNonNull(message);
         var node = currentNodeOrThrow();
-        log(node, "alwaysOrUnreachable", message, condition, details, null);
+        log(node, "alwaysOrUnreachable", message, condition, details);
     }
 
     @Intercepts("com.pingidentity.opendst.api.Assert#unreachable(String,java.util.Map)")
@@ -53,7 +53,7 @@ public final class AssertImpl {
     public static void sometimes(boolean condition, String message, Map<String, Object> details) {
         requireNonNull(message);
         var node = currentNodeOrThrow();
-        log(node, "sometimes", message, condition, details, null);
+        log(node, "sometimes", message, condition, details);
     }
 
     @Intercepts("com.pingidentity.opendst.api.Assert#reachable(String,java.util.Map)")
@@ -68,7 +68,8 @@ public final class AssertImpl {
             T left, T right, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
         boolean condition = left.compareTo(right) > 0;
-        log(node, "always", message, condition, details, Map.of("left", left, "right", right));
+        log(node, "always", message, condition, details);
+        logGuidance(node, message, Map.of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.api.Assert#alwaysGreaterThanOrEqualTo(Number,Number,String,java.util.Map)")
@@ -76,7 +77,8 @@ public final class AssertImpl {
             T left, T right, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
         boolean condition = left.compareTo(right) >= 0;
-        log(node, "always", message, condition, details, Map.of("left", left, "right", right));
+        log(node, "always", message, condition, details);
+        logGuidance(node, message, Map.of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.api.Assert#alwaysLessThan(Number,Number,String,java.util.Map)")
@@ -84,7 +86,8 @@ public final class AssertImpl {
             T left, T right, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
         boolean condition = left.compareTo(right) < 0;
-        log(node, "always", message, condition, details, Map.of("left", left, "right", right));
+        log(node, "always", message, condition, details);
+        logGuidance(node, message, Map.of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.api.Assert#alwaysLessThanOrEqualTo(Number,Number,String,java.util.Map)")
@@ -92,35 +95,40 @@ public final class AssertImpl {
             T left, T right, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
         boolean condition = left.compareTo(right) <= 0;
-        log(node, "always", message, condition, details, Map.of("left", left, "right", right));
+        log(node, "always", message, condition, details);
+        logGuidance(node, message, Map.of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.api.Assert#sometimesGreaterThan(Number,Number,String,java.util.Map)")
     public static <T extends Number & Comparable<T>> void sometimesGreaterThan(
             T left, T right, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
-        log(node, "sometimes", message, left.compareTo(right) > 0, details, Map.of("left", left, "right", right));
+        log(node, "sometimes", message, left.compareTo(right) > 0, details);
+        logGuidance(node, message, Map.of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.api.Assert#sometimesGreaterThanOrEqualTo(Number,Number,String,java.util.Map)")
     public static <T extends Number & Comparable<T>> void sometimesGreaterThanOrEqualTo(
             T left, T right, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
-        log(node, "sometimes", message, left.compareTo(right) >= 0, details, Map.of("left", left, "right", right));
+        log(node, "sometimes", message, left.compareTo(right) >= 0, details);
+        logGuidance(node, message, Map.of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.api.Assert#sometimesLessThan(Number,Number,String,java.util.Map)")
     public static <T extends Number & Comparable<T>> void sometimesLessThan(
             T left, T right, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
-        log(node, "sometimes", message, left.compareTo(right) < 0, details, Map.of("left", left, "right", right));
+        log(node, "sometimes", message, left.compareTo(right) < 0, details);
+        logGuidance(node, message, Map.of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.api.Assert#sometimesLessThanOrEqualTo(Number,Number,String,java.util.Map)")
     public static <T extends Number & Comparable<T>> void sometimesLessThanOrEqualTo(
             T left, T right, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
-        log(node, "sometimes", message, left.compareTo(right) <= 0, details, Map.of("left", left, "right", right));
+        log(node, "sometimes", message, left.compareTo(right) <= 0, details);
+        logGuidance(node, message, Map.of("left", left, "right", right));
     }
 
     // --- Grouped ---
@@ -129,28 +137,33 @@ public final class AssertImpl {
     public static void alwaysSome(Map<String, Boolean> conditions, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
         boolean overall = conditions.values().stream().anyMatch(b -> b);
-        log(node, "always", message, overall, details, Map.of("conditions", conditions));
+        log(node, "always", message, overall, details);
+        logGuidance(node, message, Map.of("conditions", conditions));
     }
 
     @Intercepts("com.pingidentity.opendst.api.Assert#sometimesAll(java.util.Map,String,java.util.Map)")
     public static void sometimesAll(Map<String, Boolean> conditions, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
         boolean overall = conditions.values().stream().allMatch(b -> b);
-        log(node, "sometimes", message, overall, details, Map.of("conditions", conditions));
+        log(node, "sometimes", message, overall, details);
+        logGuidance(node, message, Map.of("conditions", conditions));
     }
 
+    /** Emits an assertion verdict — "condition was true/false". */
     private static void log(
-            Node node,
-            String kind,
-            String message,
-            boolean condition,
-            Map<String, Object> details,
-            Map<String, Object> guidance) {
+            Node node, String kind, String message, boolean condition, Map<String, Object> details) {
         node.logger()
                 .logAssert(message, node.hostName, node.instant(), node.random().iteration())
                 .withString("kind", kind)
                 .withBoolean("condition", condition)
                 .withPOJO("details", details)
+                .log();
+    }
+
+    /** Emits a guidance signal — "how close to violation". Does not affect the deterministic hash. */
+    private static void logGuidance(Node node, String message, Map<String, Object> guidance) {
+        node.logger()
+                .logGuidance(message, node.hostName, node.instant(), node.random().iteration())
                 .withPOJO("guidance", guidance)
                 .log();
     }

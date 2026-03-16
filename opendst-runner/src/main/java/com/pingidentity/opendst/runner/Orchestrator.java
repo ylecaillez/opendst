@@ -22,6 +22,7 @@ import com.pingidentity.opendst.Plan;
 import com.pingidentity.opendst.Plan.Segment;
 import com.pingidentity.opendst.runner.Commons.SignalEvent;
 import com.pingidentity.opendst.runner.Signal.AssertSignal;
+import com.pingidentity.opendst.runner.Signal.GuidanceSignal;
 import com.pingidentity.opendst.runner.Signal.LifecycleSignal;
 import java.util.ArrayList;
 import java.util.List;
@@ -227,12 +228,56 @@ interface Orchestrator {
                     segmentHashes.add(lifecycle.hash());
                     return false;
                 }
+
+                // Guidance signals: track distance-to-violation for comparative assertions.
+                // This is separate from assert handling — guidance never touches prefixes or hit counts.
+                if (event.signal() instanceof GuidanceSignal guidanceSignal) {
+                    return handleGuidance(guidanceSignal, event.iteration());
+                }
+
                 if (!(event.signal() instanceof AssertSignal assertSignal)) {
                     return false;
                 }
-                var label = event.signal().message();
+                return handleAssert(assertSignal, event.iteration());
+            }
+
+            /**
+             * Handles guidance signals by tracking the minimum distance-to-violation per signal.
+             * Returns {@code true} if the distance narrowed (interesting for the orchestrator).
+             */
+            private boolean handleGuidance(GuidanceSignal guidanceSignal, long iteration) {
+                double distance = guidanceSignal.distanceToViolation();
+                if (Double.isNaN(distance)) {
+                    return false;
+                }
+                var label = guidanceSignal.message();
+                var improved = new AtomicBoolean(false);
+                signalMinDistance.compute(label, (_, currentDistance) -> {
+                    if (currentDistance == null || distance < currentDistance) {
+                        improved.set(currentDistance != null);
+                        return distance;
+                    }
+                    return currentDistance;
+                });
+                if (improved.get()) {
+                    logger.signal("narrowed")
+                            .withSeed(plan.segments().getLast().seed())
+                            .withIteration(iteration)
+                            .withDistance(distance)
+                            .withSignal(label)
+                            .log();
+                    return true;
+                }
+                return false;
+            }
+
+            /**
+             * Handles assert signals: tracks hit counts per condition, discovers new signals,
+             * and saves prefixes for the minority-condition balancing strategy.
+             */
+            private boolean handleAssert(AssertSignal assertSignal, long iteration) {
+                var label = assertSignal.message();
                 boolean condition = assertSignal.condition();
-                long iteration = event.iteration();
                 // Ensure per-signal state exists
                 var state = signalState.computeIfAbsent(label, _ -> new ConditionPrefixes());
 
@@ -254,33 +299,8 @@ interface Orchestrator {
                     interesting = true;
                 }
 
-                // Track distance-to-violation for comparative assertions
-                boolean distanceNarrowed = false;
-                double distance = assertSignal.distanceToViolation();
-                if (!Double.isNaN(distance)) {
-                    var improved = new AtomicBoolean(false);
-                    signalMinDistance.compute(label, (_, currentDistance) -> {
-                        if (currentDistance == null || distance < currentDistance) {
-                            improved.set(currentDistance != null);
-                            return distance;
-                        }
-                        return currentDistance;
-                    });
-                    if (improved.get()) {
-                        logger.signal("narrowed")
-                                .withSeed(plan.segments().getLast().seed())
-                                .withIteration(iteration)
-                                .withDistance(distance)
-                                .withSignal(label)
-                                .log();
-                        interesting = true;
-                        distanceNarrowed = true;
-                    }
-                }
-
                 // Save prefix under the appropriate condition slot
                 var prefixSegments = buildPrefix(iteration);
-                final boolean updateForDistance = distanceNarrowed;
                 synchronized (state) {
                     var existing = condition ? state.truePrefix : state.falsePrefix;
                     if (existing == null) {
@@ -293,8 +313,8 @@ interface Orchestrator {
                         interesting = true;
                     } else {
                         long existingTotal = existing.getLast().iteration();
-                        if (iteration < existingTotal || updateForDistance) {
-                            // Shorter path or closer to violation
+                        if (iteration < existingTotal) {
+                            // Shorter path to same condition outcome — replace prefix
                             logger.signal("improved")
                                     .withSeed(plan.segments().getLast().seed())
                                     .withIteration(iteration)
