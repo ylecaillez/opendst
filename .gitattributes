@@ -1,0 +1,25 @@
+# Normalize line endings to LF on commit
+* text=auto
+
+# Explicitly declare text files
+*.java text
+*.xml text
+*.yml text
+*.yaml text
+*.properties text
+*.md text
+*.txt text
+*.groovy text
+
+# Shell scripts must use LF
+*.sh text eol=lf
+mvnw text eol=lf
+
+# Windows batch files must use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files
+*.jar binary
+*.war binary
+*.class binary

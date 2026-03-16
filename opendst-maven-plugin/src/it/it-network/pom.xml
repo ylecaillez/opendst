@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.pingidentity.opendst</groupId>
+        <artifactId>opendst</artifactId>
+        <version>@project.version@</version>
+    </parent>
+
+    <artifactId>it-network</artifactId>
+    <name>OpenDST IT - Network</name>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.14.1</version>
+                <configuration>
+                    <release>25</release>
+                    <!-- Override parent's -Xlint:all to suppress warnings from PObserve-generated code -->
+                    <compilerArgs>
+                        <arg>-Xlint:all,-serial,-dangling-doc-comments,-this-escape</arg>
+                        <arg>-Werror</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+            <!-- PObserve sources are pre-generated in src/generated/. To regenerate,
+                 install the P compiler and run: p compile - -mode pobserve -pf JavaSocketTypes.p
+                 -pf Specifications.p -pn JavaSocketSpecs -o <output-dir>
+                 from src/specs/java-socket/, then copy PObserve/*.java to
+                 src/generated/generatedOutput/pobserve/. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <id>add-pobserve-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>add-source</goal></goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.basedir}/src/generated</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>@project.groupId@</groupId>
+                <artifactId>@project.artifactId@</artifactId>
+                <version>@project.version@</version>
+                <executions>
+                    <execution>
+                        <goals><goal>build</goal></goals>
+                        <configuration>
+                            <descriptor>${project.basedir}/deployment.yaml</descriptor>
+                            <jvmArguments>-XX:TieredStopAtLevel=1 -Xms64m -Xmx64m</jvmArguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.pingidentity.opendst</groupId>
+            <artifactId>opendst-sdk</artifactId>
+            <version>@project.version@</version>
+        </dependency>
+        <dependency>
+            <groupId>tools.jackson.jr</groupId>
+            <artifactId>jackson-jr-objects</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.p-org</groupId>
+            <artifactId>pobserve-commons</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+    </dependencies>
+</project>
