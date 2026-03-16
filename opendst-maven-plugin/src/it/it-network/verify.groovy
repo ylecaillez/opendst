@@ -115,7 +115,8 @@ println "Using stagnation limit: ${stagnationLimit}"
 
 def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
                                  "--working-dir", workingDir.absolutePath,
-                                 "--stagnation-limit", stagnationLimit)
+                                 "--stagnation-limit", stagnationLimit,
+                                 "--mode", "validate")
         .directory(basedir)
         .redirectErrorStream(true)
         .start()
