@@ -111,6 +111,35 @@ final class ReportGenerator {
         return false;
     }
 
+    /**
+     * Returns {@code true} if all assertions are currently in a passing state.
+     *
+     * <p>An assertion is passing when:
+     * <ul>
+     *   <li>{@code ALWAYS} — hit at least once with zero failures</li>
+     *   <li>{@code ALWAYS_OR_UNREACHABLE} — either never hit (vacuous pass) or zero failures</li>
+     *   <li>{@code SOMETIMES} — at least one pass observed</li>
+     * </ul>
+     */
+    boolean allPassed() {
+        for (var assertion : assertions) {
+            var hit = examples.get(assertion.message());
+            if (hit == null || (hit.passCount() == 0 && hit.failCount() == 0)) {
+                // Never hit — only passes if mustHit is false (e.g. ALWAYS_OR_UNREACHABLE)
+                if (assertion.kind().mustHit()) {
+                    return false;
+                }
+            } else if (SOMETIMES.equals(assertion.kind())) {
+                if (hit.passCount() == 0) {
+                    return false;
+                }
+            } else if (hit.failCount() > 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     record ReportState(int count, String duration, List<AssertionState> assertions) {}
 
     public synchronized void generate(Path reportFile) {

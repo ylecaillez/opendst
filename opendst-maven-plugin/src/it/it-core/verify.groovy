@@ -86,7 +86,7 @@ def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
                                  "--working-dir", workingDir.absolutePath,
                                  "--stagnation-limit", "500",
                                  "--replay-probability", "0.01",
-                                 "--fail-fast")
+                                 "--mode", "verify")
         .directory(basedir)
         .redirectErrorStream(true)
         .start()
@@ -100,10 +100,10 @@ process.inputStream.eachLine { line ->
 
 def exitCode = process.waitFor()
 
-// --fail-fast: the TraceAuditor detects "Bug reached!" and throws, causing the simulation
+// --mode verify: the TraceAuditor detects "Bug reached!" and throws, causing the simulation
 // to stop with reason=failure. This makes the "simulation stopped successfully" ALWAYS assertion
-// fail, so --fail-fast exits with code 1. That is the expected outcome.
-check(exitCode == 1, "Expected exit code 1 (--fail-fast with bug found), got: ${exitCode}", logFile)
+// fail, so --mode verify exits with code 1. That is the expected outcome.
+check(exitCode == 1, "Expected exit code 1 (--mode verify with bug found), got: ${exitCode}", logFile)
 
 // Verify the report was produced
 def reportFile = new File(workingDir, "report/report.json")

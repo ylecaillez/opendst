@@ -69,14 +69,35 @@ public final class BuildRunner implements Callable<Integer> {
     @Parameters(index = "0", hidden = true, description = "Working directory (set by Bootstrap)")
     private Path workingDir;
 
-    @Option(names = "--fail-fast", description = "Stop on first assertion failure")
-    private boolean failFast;
+    /**
+     * Controls the exploration stopping strategy.
+     *
+     * <ul>
+     *   <li>{@code EXPLORE} — run until the stagnation limit is reached (default)</li>
+     *   <li>{@code VALIDATE} — stop early when all assertions are passing,
+     *       after at least {@code stagnation-limit} executions for confidence</li>
+     *   <li>{@code VERIFY} — stop immediately on first assertion failure</li>
+     * </ul>
+     */
+    public enum RunMode {
+        EXPLORE,
+        VALIDATE,
+        VERIFY
+    }
+
+    @Option(
+            names = "--mode",
+            description = "Exploration strategy: explore (default), validate, verify",
+            defaultValue = "EXPLORE")
+    private RunMode mode;
 
     @Option(
             names = "--fork-count",
-            description = "Number of concurrent simulation forks (default: availableProcessors - 1)",
-            defaultValue = "-1")
-    private int forkCount;
+            description =
+                    "Number of concurrent simulation forks. Supports a 'C' suffix for CPU-relative"
+                        + " values (e.g. '1C' = all cores, '0.5C' = half). Plain integers are used"
+                        + " as-is. Default: max(1, CPUs/2 - 1)")
+    private String forkCountSpec;
 
     @Option(names = "--duration", description = "Maximum simulation duration in milliseconds", defaultValue = "100000")
     private long duration;
@@ -106,14 +127,14 @@ public final class BuildRunner implements Callable<Integer> {
     private String jvmArgs;
 
     public static void main(String[] args) {
-        exit(new CommandLine(new BuildRunner()).execute(args));
+        var cmd = new CommandLine(new BuildRunner());
+        cmd.setCaseInsensitiveEnumValuesAllowed(true);
+        exit(cmd.execute(args));
     }
 
     @Override
     public Integer call() throws Exception {
-        if (forkCount <= 0) {
-            forkCount = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
-        }
+        int forkCount = resolveForkCount(forkCountSpec);
 
         // Derive directory layout from working directory
         var deploymentDir = workingDir.resolve("deployment");
@@ -167,7 +188,7 @@ public final class BuildRunner implements Callable<Integer> {
             orchestrator = new GuidedOrchestrator(logger, duration, branchProbability, faultsConfig);
         }
 
-        var runConfig = new RunConfig(isReplay ? 0 : replayProbability, isReplay, stagnationLimit, forkCount, failFast);
+        var runConfig = new RunConfig(isReplay ? 0 : replayProbability, isReplay, stagnationLimit, forkCount, mode);
 
         // TestExecutor uses testClass/testMethod as child JVM args.
         // For DeploymentRunner, we pass the deployment dir path so the child knows where to find deployment.yaml.
@@ -200,6 +221,29 @@ public final class BuildRunner implements Callable<Integer> {
             return 1;
         }
         return 0;
+    }
+
+    /**
+     * Resolves the {@code --fork-count} specification into a concrete thread count.
+     *
+     * <p>Accepts three forms:
+     * <ul>
+     *   <li>{@code null} or empty — default: {@code max(1, availableProcessors/2 - 1)}</li>
+     *   <li>A plain integer (e.g. {@code "4"}) — used as-is, clamped to min 1</li>
+     *   <li>A CPU-relative value with {@code C} suffix (e.g. {@code "0.5C"}) —
+     *       {@code max(1, floor(multiplier * availableProcessors))}</li>
+     * </ul>
+     */
+    private static int resolveForkCount(String spec) {
+        int cores = Runtime.getRuntime().availableProcessors();
+        if (spec == null || spec.isEmpty()) {
+            return Math.max(1, cores / 2 - 1);
+        }
+        if (spec.endsWith("C") || spec.endsWith("c")) {
+            double multiplier = Double.parseDouble(spec.substring(0, spec.length() - 1));
+            return Math.max(1, (int) (multiplier * cores));
+        }
+        return Math.max(1, Integer.parseInt(spec));
     }
 
     /**

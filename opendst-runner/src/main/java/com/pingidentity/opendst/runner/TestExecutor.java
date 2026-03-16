@@ -31,6 +31,7 @@ import static java.util.concurrent.ThreadLocalRandom.current;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.pingidentity.opendst.Plan;
+import com.pingidentity.opendst.runner.BuildRunner.RunMode;
 import com.pingidentity.opendst.runner.Commons.SignalEvent;
 import com.pingidentity.opendst.runner.Orchestrator.ExecutionPlan;
 import java.io.BufferedReader;
@@ -70,7 +71,8 @@ final class TestExecutor {
 
     /** Execution loop control parameters. */
     record RunConfig(
-            double replayProbability, boolean isDebugOrReplay, int stagnationLimit, int forkCount, boolean failFast) {}
+            double replayProbability, boolean isDebugOrReplay, int stagnationLimit, int forkCount,
+            BuildRunner.RunMode mode) {}
 
     private final Path reportDir;
     private final Path runsDir;
@@ -85,7 +87,7 @@ final class TestExecutor {
     private final AtomicInteger runSequence = new AtomicInteger();
     private final AtomicInteger lastInterestingRun = new AtomicInteger();
     private final Queue<Plan> pastPlans = new ArrayBlockingQueue<>(10);
-    private volatile boolean failureDetected;
+    private volatile boolean earlyExit;
 
     TestExecutor(
             Path reportDir,
@@ -124,7 +126,7 @@ final class TestExecutor {
 
     private Void runLoop(int count, ReportGenerator reportGenerator) throws IOException, InterruptedException {
         for (; ; ) {
-            if (failureDetected) {
+            if (earlyExit) {
                 return null;
             }
             var executionPlan = getNewExecutionPlanOrReplay();
@@ -181,9 +183,14 @@ final class TestExecutor {
             // Run directory is ephemeral — clean up after capturing any interesting artifacts
             deleteRecursively(runsDir, runBaseDir);
 
-            if (runConfig.failFast() && reportGenerator.hasFailures()) {
-                logger.raw().info("Assertion failure detected — stopping (--fail-fast)");
-                failureDetected = true;
+            if (runConfig.mode() == RunMode.VERIFY && reportGenerator.hasFailures()) {
+                logger.raw().info("Assertion failure detected — stopping (--mode verify)");
+                earlyExit = true;
+            } else if (runConfig.mode() == RunMode.VALIDATE
+                    && runCount >= runConfig.stagnationLimit()
+                    && reportGenerator.allPassed()) {
+                logger.raw().info("All assertions passing — stopping (--mode validate)");
+                earlyExit = true;
             }
 
             if (executionResult.isInteresting()) {
