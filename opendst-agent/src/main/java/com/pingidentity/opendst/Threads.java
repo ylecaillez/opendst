@@ -234,23 +234,27 @@ public final class Threads {
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long)}. */
     @SuppressWarnings({"MissingJavadocMethod", "unused"})
     public static Thread newThread(ThreadGroup group, Runnable target, String name, long stackSize) {
-        return CURRENT_NODE.get() != null ? ofVirtual().name(name).unstarted(target) : new Thread(group, target, name, stackSize);
+        return CURRENT_NODE.get() != null
+                ? ofVirtual().name(name).unstarted(target)
+                : new Thread(group, target, name, stackSize);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long, boolean)}. */
     @SuppressWarnings({"MissingJavadocMethod", "unused"})
     public static Thread newThread(
             ThreadGroup group, Runnable target, String name, long stackSize, boolean inheritThreadLocal) {
-        return CURRENT_NODE.get() != null ? ofVirtual().name(name).unstarted(target)
-                                          : new Thread(group, target, name, stackSize, inheritThreadLocal);
+        return CURRENT_NODE.get() != null
+                ? ofVirtual().name(name).unstarted(target)
+                : new Thread(group, target, name, stackSize, inheritThreadLocal);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, String, int, Runnable, long)} . */
     @SuppressWarnings({"MissingJavadocMethod", "unused"})
     public static Thread newThread(
             ThreadGroup group, String name, int characteristics, Runnable target, long stackSize) {
-        return CURRENT_NODE.get() != null ? ofVirtual().name(name).unstarted(target)
-                                          : Internals.newThread(group, name, characteristics, target, stackSize);
+        return CURRENT_NODE.get() != null
+                ? ofVirtual().name(name).unstarted(target)
+                : Internals.newThread(group, name, characteristics, target, stackSize);
     }
 
     /** Overrides {@code java.lang.ThreadBuilders#newVirtualThread(Executor, String, int, Runnable)}. */

@@ -93,13 +93,15 @@ public final class BuildRunner implements Callable<Integer> {
 
     @Option(
             names = "--fork-count",
-            description =
-                    "Number of concurrent simulation forks. Supports a 'C' suffix for CPU-relative"
-                        + " values (e.g. '1C' = all cores, '0.5C' = half). Plain integers are used"
-                        + " as-is. Default: max(1, CPUs/2 - 1)")
+            description = "Number of concurrent simulation forks. Supports a 'C' suffix for CPU-relative"
+                    + " values (e.g. '1C' = all cores, '0.5C' = half). Plain integers are used"
+                    + " as-is. Default: max(1, CPUs/2 - 1)")
     private String forkCountSpec;
 
-    @Option(names = "--duration", description = "Maximum simulation duration in milliseconds", defaultValue = "100000")
+    @Option(
+            names = "--duration",
+            description = "Maximum number of simulation steps per execution",
+            defaultValue = "100000")
     private long duration;
 
     @Option(

@@ -322,8 +322,10 @@ public class BuildMojo extends AbstractMojo {
         var request = new ArtifactRequest(artifact, project.getRemoteProjectRepositories(), null);
         var resolved = repositorySystem.resolveArtifact(session.getRepositorySession(), request);
 
-        var stagingDir =
-                basePath.resolve("target").resolve("opendst-package").resolve("staging").resolve(appDir);
+        var stagingDir = basePath.resolve("target")
+                .resolve("opendst-package")
+                .resolve("staging")
+                .resolve(appDir);
         unpackArchive(resolved.getArtifact().getFile().toPath(), stagingDir);
         return stagingDir;
     }

@@ -191,7 +191,8 @@ public final class Network {
     }
 
     public void partition(String from, String to) {
-        partitions.computeIfAbsent(from.toLowerCase(ROOT), _ -> new java.util.HashSet<>())
+        partitions
+                .computeIfAbsent(from.toLowerCase(ROOT), _ -> new java.util.HashSet<>())
                 .add(to.toLowerCase(ROOT));
     }
 

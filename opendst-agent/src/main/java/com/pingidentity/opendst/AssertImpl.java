@@ -150,8 +150,7 @@ public final class AssertImpl {
     }
 
     /** Emits an assertion verdict — "condition was true/false". */
-    private static void log(
-            Node node, String kind, String message, boolean condition, Map<String, Object> details) {
+    private static void log(Node node, String kind, String message, boolean condition, Map<String, Object> details) {
         node.logger()
                 .logAssert(message, node.hostName, node.instant(), node.random().iteration())
                 .withString("kind", kind)
@@ -163,7 +162,8 @@ public final class AssertImpl {
     /** Emits a guidance signal — "how close to violation". Does not affect the deterministic hash. */
     private static void logGuidance(Node node, String message, Map<String, Object> guidance) {
         node.logger()
-                .logGuidance(message, node.hostName, node.instant(), node.random().iteration())
+                .logGuidance(
+                        message, node.hostName, node.instant(), node.random().iteration())
                 .withPOJO("guidance", guidance)
                 .log();
     }

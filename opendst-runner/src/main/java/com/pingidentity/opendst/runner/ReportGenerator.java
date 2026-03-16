@@ -150,8 +150,8 @@ final class ReportGenerator {
                 // Never hit at runtime.
                 // fail: always(), sometimes() (mustHit — must be reached at least once)
                 // pass: alwaysOrUnreachable(), unreachable()
-                state.add(
-                        new AssertionState(assertion.message(), !assertion.kind().mustHit(), hit));
+                state.add(new AssertionState(
+                        assertion.message(), !assertion.kind().mustHit(), hit));
             } else if (SOMETIMES.equals(assertion.kind())) {
                 state.add(new AssertionState(assertion.message(), hit.passCount() > 0, hit));
             } else if (hit.failCount() > 0) {

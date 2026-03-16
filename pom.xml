@@ -22,6 +22,8 @@
 
   <developers>
     <developer>
+      <id>pingidentity</id>
+      <name>Ping Identity Corporation</name>
       <organization>Ping Identity Corporation</organization>
       <organizationUrl>https://www.pingidentity.com</organizationUrl>
     </developer>
@@ -48,6 +50,8 @@
     <picocli.version>4.7.7</picocli.version>
     <maven.version>3.9.12</maven.version>
     <maven-plugin-tools.version>3.15.2</maven-plugin-tools.version>
+    <spotless.ratchet.ref>origin/main</spotless.ratchet.ref>
+    <spotless.license-header.path>${maven.multiModuleProjectDirectory}/license-header</spotless.license-header.path>
   </properties>
 
   <dependencyManagement>
@@ -113,7 +117,7 @@
           <artifactId>spotless-maven-plugin</artifactId>
           <version>3.2.1</version>
           <configuration>
-            <ratchetFrom>origin/main</ratchetFrom>
+            <ratchetFrom>${spotless.ratchet.ref}</ratchetFrom>
             <formats>
               <format>
                 <includes>
@@ -137,7 +141,7 @@
                 <formatJavadoc>false</formatJavadoc>
               </palantirJavaFormat>
               <licenseHeader>
-                <file>${maven.multiModuleProjectDirectory}/license-header</file>
+                <file>${spotless.license-header.path}</file>
               </licenseHeader>
             </java>
           </configuration>
@@ -212,6 +216,19 @@
                 </requireMavenVersion>
               </rules>
             </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>spotless-check</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
           </execution>
         </executions>
       </plugin>

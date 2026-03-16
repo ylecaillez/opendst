@@ -121,7 +121,8 @@ public final class Simulator {
         var scheduler = new Time.Scheduler(START_TIME, this, config, logger);
 
         // Assemble the immutable context last — passed only to Node
-        this.context = new SimulationContext(this, config, scheduler, random, faults, hasher, network, faultInjector, logger);
+        this.context =
+                new SimulationContext(this, config, scheduler, random, faults, hasher, network, faultInjector, logger);
 
         logger.logLifecycle("started", START_TIME, 0).log();
     }

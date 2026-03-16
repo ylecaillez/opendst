@@ -70,8 +70,7 @@ interface Orchestrator {
             final AtomicInteger falseHits = new AtomicInteger();
         }
 
-        GuidedOrchestrator(OpenDstLogger logger, long duration, double branchProbability,
-                Faults.Config faultsConfig) {
+        GuidedOrchestrator(OpenDstLogger logger, long duration, double branchProbability, Faults.Config faultsConfig) {
             this.logger = logger;
             this.duration = duration;
             this.branchProbability = branchProbability;

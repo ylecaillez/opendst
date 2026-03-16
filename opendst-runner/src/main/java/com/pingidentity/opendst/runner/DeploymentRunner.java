@@ -32,7 +32,6 @@ import static tools.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRI
 import static tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.pingidentity.opendst.Constants;
 import com.pingidentity.opendst.Deployment.Image;
 import com.pingidentity.opendst.Deployment.Service;
 import com.pingidentity.opendst.api.TraceAuditor;
@@ -97,8 +96,8 @@ public final class DeploymentRunner {
                 // appDir(serviceName) returns the apps/ subdirectory for this service's source
                 var appDir = Path.of(serviceDescriptor.appDir(serviceName));
                 images.add(image(serviceName, appDir, serviceDescriptor.className(), extraClasspath));
-                services.add(service(serviceName, serviceName, getByName(serviceDescriptor.ip()),
-                                     serviceDescriptor.argsArray()));
+                services.add(service(
+                        serviceName, serviceName, getByName(serviceDescriptor.ip()), serviceDescriptor.argsArray()));
             }
 
             // Set the apps-dir property to point to the apps/ directory inside the extraction.

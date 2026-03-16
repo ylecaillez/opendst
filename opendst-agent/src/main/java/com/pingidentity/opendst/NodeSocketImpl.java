@@ -86,6 +86,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
     private boolean isInputShutdown;
     /** Set by the local sender() when the peer's shutdownInput() causes an RST to propagate back. */
     private volatile boolean connectionResetByPeer;
+
     private int soTimeout;
 
     private Object soLinger;
@@ -346,8 +347,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                     // The data arriving is discarded and RST propagates back to the peer
                     // after a network round-trip delay.
                     // The discard is not silent: RST notifies the peer.
-                    var rstDelay = node.faultInjector()
-                            .networkSendDelay(binding.address(), peer.address, stableConnection);
+                    var rstDelay =
+                            node.faultInjector().networkSendDelay(binding.address(), peer.address, stableConnection);
                     sleep(rstDelay);
                     peer.connectionResetByPeer = true;
                     // Unblock peer's write() which may be waiting on receivedBytes (send buffer full)
@@ -520,8 +521,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                                                         .toNanos()
                                                 * current().nextInt(1000))
                                         / 1000));
-                acceptedLocalSocket.sendBufferSize = toIntExact(max(
-                        current().nextLong(0, 5_000_000), 25_000 * (2 + latency.toMillis())));
+                acceptedLocalSocket.sendBufferSize =
+                        toIntExact(max(current().nextLong(0, 5_000_000), 25_000 * (2 + latency.toMillis())));
                 acceptedLocalSocket.receiveBuffer = new NetBuffer();
 
                 startVirtualThread(new FutureTask<>(acceptedLocalSocket::receiver))

@@ -155,6 +155,7 @@ Available CLI options:
 | `--fork-count` | max(1, CPUs/2 - 1) | Number of concurrent simulation forks. Supports `C` suffix (e.g. `1C`, `0.5C`) |
 | `--working-dir` | (JAR name sans `.jar`) | Persistent working directory for deployment, runs, and reports |
 | `--mode` | explore | Exploration strategy: `explore` (run until stagnation), `validate` (stop when all assertions pass after stagnation-limit runs), `verify` (stop on first failure) |
+| `--plan` | (none) | Replay a saved plan file instead of exploring |
 | `--jvm-args` | (from POM) | JVM arguments for child processes |
 
 The working directory has the following structure:

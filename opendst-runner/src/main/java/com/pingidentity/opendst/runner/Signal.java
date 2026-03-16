@@ -85,8 +85,7 @@ public sealed interface Signal permits ConsoleSignal, AssertSignal, GuidanceSign
         }
     }
 
-    record AssertSignal(AssertType kind, String message, boolean condition, JsonNode details)
-            implements Signal {
+    record AssertSignal(AssertType kind, String message, boolean condition, JsonNode details) implements Signal {
 
         public enum AssertType {
             ALWAYS("always", true),

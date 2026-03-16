@@ -18,19 +18,14 @@ package com.pingidentity.opendst;
 /**
  * Global configuration and resource limits for the OpenDST simulator.
  */
-public record SimulatorConfig(
-        int maxNodes,
-        int maxAddresses,
-        int maxTasks,
-        int maxVirtualThreadsPerNode
-) {
+public record SimulatorConfig(int maxNodes, int maxAddresses, int maxTasks, int maxVirtualThreadsPerNode) {
     /** Default configuration with sane limits. */
     public static final SimulatorConfig DEFAULT = new SimulatorConfig(
-            100,    // maxNodes
-            256,    // maxAddresses
+            100, // maxNodes
+            256, // maxAddresses
             10_000, // maxTasks
-            1000    // maxVirtualThreadsPerNode
-    );
+            1000 // maxVirtualThreadsPerNode
+            );
 
     /**
      * Creates a configuration by reading system properties, falling back to defaults.
@@ -40,7 +35,6 @@ public record SimulatorConfig(
                 Integer.getInteger("opendst.maxNodes", DEFAULT.maxNodes),
                 Integer.getInteger("opendst.maxAddresses", DEFAULT.maxAddresses),
                 Integer.getInteger("opendst.maxTasks", DEFAULT.maxTasks),
-                Integer.getInteger("opendst.maxVirtualThreadsPerNode", DEFAULT.maxVirtualThreadsPerNode)
-        );
+                Integer.getInteger("opendst.maxVirtualThreadsPerNode", DEFAULT.maxVirtualThreadsPerNode));
     }
 }

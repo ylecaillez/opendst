@@ -71,7 +71,10 @@ final class TestExecutor {
 
     /** Execution loop control parameters. */
     record RunConfig(
-            double replayProbability, boolean isDebugOrReplay, int stagnationLimit, int forkCount,
+            double replayProbability,
+            boolean isDebugOrReplay,
+            int stagnationLimit,
+            int forkCount,
             BuildRunner.RunMode mode) {}
 
     private final Path reportDir;

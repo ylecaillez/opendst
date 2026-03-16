@@ -29,6 +29,7 @@ import static java.net.InetAddress.getLoopbackAddress;
 import static java.time.temporal.ChronoUnit.NANOS;
 import static java.util.Objects.requireNonNull;
 
+import com.pingidentity.opendst.NodeSocketImpl.Binding;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.BindException;
@@ -49,8 +50,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.ToLongFunction;
 import java.util.stream.Stream;
-
-import com.pingidentity.opendst.NodeSocketImpl.Binding;
 
 /**
  * Represents an isolated execution environment (a node) within the simulation.
@@ -161,8 +160,7 @@ public final class Node {
     }
 
     @SuppressWarnings({"deprecation", "removal"})
-    Binding bindSocket(InetAddress address, int port, SocketImpl socket, boolean reuseAddress)
-            throws BindException {
+    Binding bindSocket(InetAddress address, int port, SocketImpl socket, boolean reuseAddress) throws BindException {
         return netInterfaces.bind(address, port, socket, reuseAddress);
     }
 
@@ -366,8 +364,7 @@ public final class Node {
             return socket;
         }
 
-        Binding bind(InetAddress address, int port, SocketImpl socket, boolean reuseAddress)
-                throws BindException {
+        Binding bind(InetAddress address, int port, SocketImpl socket, boolean reuseAddress) throws BindException {
             // Find a free ephemeral port when port == 0.
             // When binding to a wildcard address (0.0.0.0),
             // the port must be free on ALL local addresses,
@@ -385,8 +382,7 @@ public final class Node {
                     anyHostPort.add(hostPort);
                 }
                 anyHostPort.forEach(hostPort -> boundSockets.put(hostPort, socket));
-                return new Binding(
-                        address, port, () -> anyHostPort.forEach(hp -> boundSockets.remove(hp, socket)));
+                return new Binding(address, port, () -> anyHostPort.forEach(hp -> boundSockets.remove(hp, socket)));
             } else if (isLocal(address)) {
                 var hostPort = toHostPort(address, port);
                 checkNotInUse(hostPort, reuseAddress);
@@ -409,19 +405,12 @@ public final class Node {
          * wildcard addresses, the port must be available
          * on ALL local interfaces.
          */
-        private int findEphemeralPort(
-                InetAddress address) throws BindException {
-            var checkAddresses =
-                    address.isAnyLocalAddress()
-                            ? addresses
-                            : Set.of(address
-                                    .getHostAddress());
-            for (int i = EPHEMERAL_RANGE_START;
-                 i < EPHEMERAL_RANGE_END; i++) {
+        private int findEphemeralPort(InetAddress address) throws BindException {
+            var checkAddresses = address.isAnyLocalAddress() ? addresses : Set.of(address.getHostAddress());
+            for (int i = EPHEMERAL_RANGE_START; i < EPHEMERAL_RANGE_END; i++) {
                 boolean free = true;
                 for (var a : checkAddresses) {
-                    if (boundSockets.containsKey(
-                            toHostPort(a, i))) {
+                    if (boundSockets.containsKey(toHostPort(a, i))) {
                         free = false;
                         break;
                     }
@@ -430,8 +419,7 @@ public final class Node {
                     return i;
                 }
             }
-            throw new BindException(
-                    "No ephemeral ports available");
+            throw new BindException("No ephemeral ports available");
         }
 
         private static String toHostPort(InetAddress address, int port) {

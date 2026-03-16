@@ -87,6 +87,13 @@
                         <extraArtifact>com.pingidentity.opendst:opendst-agent:${project.version}:jar</extraArtifact>
                         <extraArtifact>com.pingidentity.opendst:opendst-sdk:${project.version}:jar</extraArtifact>
                     </extraArtifacts>
+                    <properties>
+                        <!-- IT projects inherit spotless from the parent POM but run
+                             outside the main git working tree, so disable ratcheting
+                             and resolve the license-header from the real project root. -->
+                        <spotless.ratchet.ref></spotless.ratchet.ref>
+                        <spotless.license-header.path>${maven.multiModuleProjectDirectory}/license-header</spotless.license-header.path>
+                    </properties>
                     <skipInvocation>${skipTests}</skipInvocation>
                 </configuration>
                 <executions>
