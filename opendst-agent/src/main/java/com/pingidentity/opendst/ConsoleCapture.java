@@ -23,8 +23,8 @@ import static java.nio.file.Files.createDirectories;
 import static tools.jackson.jr.ob.JSON.Feature.FLUSH_AFTER_WRITE_VALUE;
 
 import com.pingidentity.opendst.Simulator.SimulationError;
-import com.pingidentity.opendst.api.TraceAuditor;
-import com.pingidentity.opendst.api.TraceAuditor.Log;
+import com.pingidentity.opendst.sdk.TraceAuditor;
+import com.pingidentity.opendst.sdk.TraceAuditor.Log;
 import java.io.ByteArrayOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;

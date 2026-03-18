@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst.testapp;
 
-import com.pingidentity.opendst.api.TraceAuditor;
+import com.pingidentity.opendst.sdk.TraceAuditor;
 
 /**
  * Trace auditor that detects when the secret sequence bug is reached.

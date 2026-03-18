@@ -105,7 +105,7 @@ public final class Randomness {
                     assert nextIteration > iteration;
                     setSeed(segment.seed());
                 } catch (NoSuchElementException e) {
-                    this.simulator.exitSimulation(Simulator.ExitReason.PLAN_OK, null);
+                    this.simulator.exitSimulation(Simulator.ExitReason.PLAN_OK);
                     throw new Simulator.SimulationError("Plan exhausted");
                 }
             }

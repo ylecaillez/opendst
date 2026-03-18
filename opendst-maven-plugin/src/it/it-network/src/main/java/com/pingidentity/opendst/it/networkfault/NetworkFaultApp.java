@@ -20,8 +20,8 @@ import static java.lang.System.err;
 import static java.lang.System.exit;
 import static java.lang.Thread.sleep;
 
-import com.pingidentity.opendst.api.Assert;
-import com.pingidentity.opendst.api.Signals;
+import com.pingidentity.opendst.sdk.Assert;
+import com.pingidentity.opendst.sdk.Signals;
 
 import java.io.IOException;
 import java.io.InputStream;

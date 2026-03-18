@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst.it.validassertion;
 
-import com.pingidentity.opendst.api.Assert;
+import com.pingidentity.opendst.sdk.Assert;
 
 /**
  * A simple application with valid assertions.

@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst.it.networkfault;
 
-import com.pingidentity.opendst.api.TraceAuditor;
+import com.pingidentity.opendst.sdk.TraceAuditor;
 import generatedOutput.pobserve.PMachines;
 import pobserve.runtime.Monitor;
 import pobserve.runtime.events.PEvent;

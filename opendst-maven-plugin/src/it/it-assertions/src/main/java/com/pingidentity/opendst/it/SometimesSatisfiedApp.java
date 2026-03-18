@@ -17,8 +17,8 @@ package com.pingidentity.opendst.it;
 
 import java.util.concurrent.ThreadLocalRandom;
 
-import com.pingidentity.opendst.api.Assert;
-import com.pingidentity.opendst.api.Signals;
+import com.pingidentity.opendst.sdk.Assert;
+import com.pingidentity.opendst.sdk.Signals;
 
 /**
  * Tests a {@code sometimes} assertion that should be satisfied across

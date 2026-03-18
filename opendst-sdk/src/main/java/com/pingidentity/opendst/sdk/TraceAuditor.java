@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst.api;
+package com.pingidentity.opendst.sdk;
 
 import java.time.Instant;
 

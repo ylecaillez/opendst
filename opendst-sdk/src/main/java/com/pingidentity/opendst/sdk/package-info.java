@@ -19,13 +19,13 @@
  *
  * <p>This package contains all types a user needs to write deterministic simulation tests:
  * <ul>
- *   <li>{@link com.pingidentity.opendst.api.Assert} — property assertions (invariants and liveness)</li>
- *   <li>{@link com.pingidentity.opendst.api.Signals} — simulation lifecycle signals</li>
- *   <li>{@link com.pingidentity.opendst.api.TraceAuditor} — real-time log observation</li>
+ *   <li>{@link com.pingidentity.opendst.sdk.Assert} — property assertions (invariants and liveness)</li>
+ *   <li>{@link com.pingidentity.opendst.sdk.Signals} — simulation lifecycle signals</li>
+ *   <li>{@link com.pingidentity.opendst.sdk.TraceAuditor} — real-time log observation</li>
  * </ul>
  *
  * <p>At compile time, users depend only on this module ({@code opendst-sdk}). At runtime, the
  * OpenDST Maven plugin injects the engine ({@code opendst-agent}) and a Java agent that rewrites
  * stub call sites to their engine implementations.
  */
-package com.pingidentity.opendst.api;
+package com.pingidentity.opendst.sdk;

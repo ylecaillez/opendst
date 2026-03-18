@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst.it.invalidassertion;
 
-import com.pingidentity.opendst.api.Assert;
+import com.pingidentity.opendst.sdk.Assert;
 
 /**
  * An application with an invalid assertion.

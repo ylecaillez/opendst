@@ -34,7 +34,7 @@ import static tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROP
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.pingidentity.opendst.Deployment.Image;
 import com.pingidentity.opendst.Deployment.Service;
-import com.pingidentity.opendst.api.TraceAuditor;
+import com.pingidentity.opendst.sdk.TraceAuditor;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.MalformedURLException;

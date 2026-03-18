@@ -22,7 +22,7 @@ import static java.lang.System.out;
 import static java.lang.Thread.sleep;
 import static java.util.Objects.requireNonNull;
 
-import com.pingidentity.opendst.api.Assert;
+import com.pingidentity.opendst.sdk.Assert;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;

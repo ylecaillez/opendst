@@ -15,8 +15,8 @@
  */
 package com.pingidentity.opendst.it;
 
-import com.pingidentity.opendst.api.Assert;
-import com.pingidentity.opendst.api.Signals;
+import com.pingidentity.opendst.sdk.Assert;
+import com.pingidentity.opendst.sdk.Signals;
 
 /**
  * An application containing an {@code always} assertion in dead code.
