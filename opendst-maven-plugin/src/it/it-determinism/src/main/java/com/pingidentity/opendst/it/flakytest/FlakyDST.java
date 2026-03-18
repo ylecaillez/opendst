@@ -26,7 +26,7 @@ import com.pingidentity.opendst.Time.RealTime;
  * {@link RealTime#currentTimeMillis()} bypasses the simulator's virtual clock
  * and returns the real system time, which differs across simulation runs.
  * This causes the execution hash to change on replay, which the framework
- * must detect and report as {@code FLAKY}.
+ * must detect and report as a non-determinism property violation.
  */
 public class FlakyDST {
     public static void main(String[] args) {

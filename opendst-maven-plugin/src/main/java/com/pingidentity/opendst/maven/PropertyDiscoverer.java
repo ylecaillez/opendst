@@ -41,14 +41,14 @@ import java.util.Set;
  * <p>OpenDST requires a complete, static catalog of all reachable properties before any simulation
  * begins. This allows the orchestrator to track coverage and generate heatmaps accurately.
  * To ensure this catalog is static, this class enforces that the {@code message} argument of
- * every {@link com.pingidentity.opendst.api.Assert} call is a <b>string literal</b>.
+ * every {@link com.pingidentity.opendst.sdk.Assert} call is a <b>string literal</b>.
  *
  * <p>The discovery works by performing lightweight symbolic stack tracking per method to resolve
  * the string literal argument at each Assert call site.
  */
 final class PropertyDiscoverer {
 
-    private static final String ASSERT_OWNER = "com/pingidentity/opendst/api/Assert";
+    private static final String ASSERT_OWNER = "com/pingidentity/opendst/sdk/Assert";
 
     private PropertyDiscoverer() {}
 

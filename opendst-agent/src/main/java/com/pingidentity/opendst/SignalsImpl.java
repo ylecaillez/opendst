@@ -20,14 +20,14 @@ import static com.pingidentity.opendst.Node.currentNodeOrThrow;
 /**
  * OpenDST SDK Implementation.
  */
-@Intercepts("com.pingidentity.opendst.api.Signals")
+@Intercepts("com.pingidentity.opendst.sdk.Signals")
 public final class SignalsImpl {
 
     /**
      * Signals that the workload is ready to start receiving faults.
      * Use this after initialization to ensure deterministic startup.
      */
-    @Intercepts("com.pingidentity.opendst.api.Signals#ready()")
+    @Intercepts("com.pingidentity.opendst.sdk.Signals#ready()")
     public static void ready() {
         currentNodeOrThrow().context.simulator().onReady();
     }

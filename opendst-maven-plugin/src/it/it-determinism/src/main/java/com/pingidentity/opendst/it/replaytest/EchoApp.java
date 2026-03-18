@@ -20,7 +20,7 @@ import static java.lang.System.err;
 import static java.lang.System.exit;
 import static java.lang.System.out;
 
-import com.pingidentity.opendst.api.Assert;
+import com.pingidentity.opendst.sdk.Assert;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
