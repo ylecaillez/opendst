@@ -15,7 +15,6 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Simulator.ExitReason.INTERNAL_ERROR;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.lang.Math.toIntExact;
@@ -487,10 +486,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
     public void accept(SocketImpl socket) throws IOException {
         if (!(socket instanceof NodeSocketImpl acceptedLocalSocket)) {
             node.simulator()
-                    .exitSimulation(
-                            INTERNAL_ERROR,
-                            new Simulator.SimulationError("The accepted local socket is not a NodeSocketImpl: '%s'"
-                                    .formatted(socket.toString())));
+                    .reportInternalError(new Simulator.SimulationError(
+                            "The accepted local socket is not a NodeSocketImpl: '%s'".formatted(socket.toString())));
             throw new IOException("Not a NodeSocketImpl");
         }
         try {

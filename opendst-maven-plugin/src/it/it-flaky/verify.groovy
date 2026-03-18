@@ -73,22 +73,24 @@ check(reportFile.length() > 0, "report.json is empty", logFile)
 def report = new JsonSlurper().parseText(reportFile.text)
 check(report.count > 0, "report.count should be > 0", logFile)
 
-// The "simulation stopped successfully" assertion should have failures with reason "flaky".
-// When the Simulator detects a hash mismatch during replay, it exits with reason "flaky",
-// which causes the "simulation stopped successfully" assertion to fail.
-def stoppedAssertion = report.assertions.find { it.name == "simulation stopped successfully" }
-check(stoppedAssertion != null, "'simulation stopped successfully' assertion missing from report", logFile)
-check(stoppedAssertion.pass == false, "Expected 'simulation stopped successfully' to fail (non-determinism detected), got: ${stoppedAssertion.pass}", logFile)
+// The "no internal error" assertion should have failures due to non-determinism.
+// When the Simulator detects a hash mismatch during replay, it emits a "non-determinism detected"
+// lifecycle signal, which fails the "no internal error" assertion with expectedHash/actualHash details.
+def internalErrorAssertion = report.assertions.find { it.name == "no internal error" }
+check(internalErrorAssertion != null, "'no internal error' assertion missing from report", logFile)
+check(internalErrorAssertion.pass == false, "Expected 'no internal error' to fail (non-determinism detected), got: ${internalErrorAssertion.pass}", logFile)
 
-// Verify that at least one failure is due to flaky detection (not just crashes)
-def flakyFailures = stoppedAssertion.examples?.failExamples?.findAll { it.details?.reason == "flaky" }
-check(flakyFailures != null && flakyFailures.size() > 0,
-      "No flaky failures found — expected at least one replay hash mismatch", logFile)
+// Verify that at least one failure is due to non-determinism detection (has expectedHash/actualHash)
+def nonDetFailures = internalErrorAssertion.examples?.failExamples?.findAll { it.details?.expectedHash != null }
+check(nonDetFailures != null && nonDetFailures.size() > 0,
+      "No non-determinism failures found — expected at least one replay hash mismatch", logFile)
 
-println "Flaky failures detected: ${flakyFailures.size()} replay(s) produced different hashes."
+println "Non-determinism failures detected: ${nonDetFailures.size()} replay(s) produced different hashes."
 
 // Verify that some runs also succeeded (fresh runs should complete normally)
-check(stoppedAssertion.examples?.passCount > 0,
+def terminatedAssertion = report.assertions.find { it.name == "simulation terminated" }
+check(terminatedAssertion != null, "'simulation terminated' assertion missing from report", logFile)
+check(terminatedAssertion.examples?.passCount > 0,
       "Expected some successful runs (fresh exploration), but none found", logFile)
 
 println "All verifications passed — flaky-test correctly detects non-determinism via replay hash mismatch."

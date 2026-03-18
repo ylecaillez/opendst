@@ -140,11 +140,10 @@ interface Orchestrator {
             segments.add(new Segment(seed, branchPoint + explorationLength));
             var exploratoryPlan = new Plan(segments, faultsConfig);
             logger.run("explore")
-                    .withSeed(seed)
+                    .withSignal(explorationKey)
                     .withScore(selected.score())
                     .withStartingAt(branchPoint)
                     .withDuration(explorationLength)
-                    .withSignal(explorationKey)
                     .log();
             return new ExecutionPlan(exploratoryPlan, new GuidanceMonitor(exploratoryPlan));
         }
@@ -260,10 +259,9 @@ interface Orchestrator {
                 });
                 if (improved.get()) {
                     logger.signal("narrowed")
-                            .withSeed(plan.segments().getLast().seed())
+                            .withSignal(label)
                             .withIteration(iteration)
                             .withDistance(distance)
-                            .withSignal(label)
                             .log();
                     return true;
                 }
@@ -291,9 +289,8 @@ interface Orchestrator {
                 boolean interesting = false;
                 if (totalBefore == 0) {
                     logger.signal("found")
-                            .withSeed(plan.segments().getLast().seed())
+                            .withSignal(label)
                             .withIteration(iteration)
-                            .withLabel(label)
                             .log();
                     interesting = true;
                 }
@@ -315,10 +312,9 @@ interface Orchestrator {
                         if (iteration < existingTotal) {
                             // Shorter path to same condition outcome — replace prefix
                             logger.signal("improved")
-                                    .withSeed(plan.segments().getLast().seed())
+                                    .withSignal(label + ":" + condition)
                                     .withIteration(iteration)
                                     .withWas(existingTotal)
-                                    .withSignal(label + ":" + condition)
                                     .log();
                             if (condition) {
                                 state.truePrefix = prefixSegments;

@@ -113,17 +113,14 @@ public final class Network {
     void registerDns(String hostName, Node host) {
         var lowerCaseHostName = hostName.toLowerCase(ROOT);
         if (nameToNode.size() >= SimulationContext.MAX_NODES && !nameToNode.containsKey(lowerCaseHostName)) {
-            simulator.exitSimulation(
-                    Simulator.ExitReason.INTERNAL_ERROR,
-                    new Simulator.SimulationError("Maximum number of nodes reached"));
+            simulator.reportInternalError(new Simulator.SimulationError("Maximum number of nodes reached"));
         }
         if (nameToNode.putIfAbsent(lowerCaseHostName, host) == null) {
             host.inetAddresses().forEach(address -> {
                 if (!address.isLoopbackAddress()) {
                     if (addressToName.size() >= SimulationContext.MAX_ADDRESSES
                             && !addressToName.containsKey(address)) {
-                        simulator.exitSimulation(
-                                Simulator.ExitReason.INTERNAL_ERROR,
+                        simulator.reportInternalError(
                                 new Simulator.SimulationError("Maximum number of addresses reached"));
                     }
                     addressToName.put(address, lowerCaseHostName);

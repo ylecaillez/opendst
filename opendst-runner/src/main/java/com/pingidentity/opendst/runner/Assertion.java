@@ -16,6 +16,7 @@
 package com.pingidentity.opendst.runner;
 
 import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.ALWAYS;
+import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.ALWAYS_OR_UNREACHABLE;
 
 import com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType;
 
@@ -26,7 +27,19 @@ public record Assertion(AssertType kind, String message, String origin, int line
     public static final Assertion SIMULATION_STARTED =
             new Assertion(ALWAYS, "simulation started", "opendst:built-in", 0);
 
-    /** Built-in assertion that passes when the simulation stops with {@code reason=success}. */
-    public static final Assertion SIMULATION_STOPPED_SUCCESSFULLY =
-            new Assertion(ALWAYS, "simulation stopped successfully", "opendst:built-in", 0);
+    /** Built-in assertion that passes when the simulation emits a {@code lifecycle/stopped} signal. */
+    public static final Assertion SIMULATION_TERMINATED =
+            new Assertion(ALWAYS, "simulation terminated", "opendst:built-in", 0);
+
+    /** Built-in assertion that fails when an uncaught exception occurs in user code. */
+    public static final Assertion NO_UNCAUGHT_EXCEPTION =
+            new Assertion(ALWAYS_OR_UNREACHABLE, "no uncaught exception", "opendst:built-in", 0);
+
+    /** Built-in assertion that fails when the TraceAuditor's processLogs() throws. */
+    public static final Assertion NO_TRACE_AUDITOR_EXCEPTION =
+            new Assertion(ALWAYS_OR_UNREACHABLE, "no exception thrown in trace auditor", "opendst:built-in", 0);
+
+    /** Built-in assertion that fails on internal errors or non-determinism. */
+    public static final Assertion NO_INTERNAL_ERROR =
+            new Assertion(ALWAYS_OR_UNREACHABLE, "no internal error", "opendst:built-in", 0);
 }

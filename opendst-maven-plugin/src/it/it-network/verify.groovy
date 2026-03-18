@@ -157,4 +157,7 @@ def failed = reportAssertions.findAll { name, pass -> pass == false }
 assert failed.isEmpty() :
     "The following assertions failed: ${failed.keySet().join(', ')}"
 
+// No runs should have failed — verify no type:fail lines in the output
+check(!output.toString().contains("type:fail"), "Unexpected type:fail in output", logFile)
+
 println "All verifications passed — network-fault-test JAR runs successfully and produces correct report."

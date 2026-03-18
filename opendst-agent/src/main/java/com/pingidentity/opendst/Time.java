@@ -17,8 +17,6 @@ package com.pingidentity.opendst;
 
 import static com.pingidentity.opendst.Node.CURRENT_NODE;
 import static com.pingidentity.opendst.Node.currentNodeOrThrow;
-import static com.pingidentity.opendst.Simulator.ExitReason.INTERNAL_ERROR;
-import static com.pingidentity.opendst.Simulator.ExitReason.PLAN_FAILED;
 import static java.lang.System.setErr;
 import static java.lang.System.setOut;
 import static java.lang.Thread.currentThread;
@@ -74,6 +72,7 @@ public final class Time {
         private final PriorityQueue<ScheduledTask> tasks = new PriorityQueue<>();
         private Instant now;
         private long taskId;
+        private boolean traceAuditorFailed;
 
         Scheduler(Instant startTime, Simulator simulator, ConsoleCapture logger) {
             this.now = startTime;
@@ -95,7 +94,7 @@ public final class Time {
             assert task.node != null;
 
             if (task.runAt.isBefore(now)) {
-                simulator.exitSimulation(INTERNAL_ERROR, new SimulationError("Simulator has gone backward in time"));
+                simulator.reportInternalError(new SimulationError("Simulator has gone backward in time"));
             } else if (!task.skip) {
                 now = task.runAt;
                 executeTask(task);
@@ -120,7 +119,7 @@ public final class Time {
         private void postTaskCleanup(ScheduledTask task) {
             if (!SUCCESS.equals(task.state())) {
                 var throwable = task.exceptionNow();
-                simulator.exitSimulation(INTERNAL_ERROR, new SimulationError("Task failed", throwable));
+                simulator.reportInternalError(new SimulationError("Task failed", throwable));
             }
             if (task.taskId % 100 == 0) {
                 simulator.flushLogs();
@@ -129,7 +128,18 @@ public final class Time {
             try {
                 logger.processLogs();
             } catch (Throwable e) {
-                simulator.exitSimulation(PLAN_FAILED, e);
+                if (!traceAuditorFailed) {
+                    traceAuditorFailed = true;
+                    logger.logLifecycle("trace auditor exception", simulator.instant(), simulator.iteration())
+                            .withString("cause", e.getMessage())
+                            .withPOJO(
+                                    "stacktrace",
+                                    java.util.Arrays.stream(e.getStackTrace())
+                                            .limit(10)
+                                            .map(StackTraceElement::toString)
+                                            .toList())
+                            .log();
+                }
             }
             simulator.checkNodesWaitingList(task.node);
         }
@@ -141,10 +151,10 @@ public final class Time {
         Future<?> scheduleExactlyAt(Node node, Runnable task, Instant at) {
             var current = currentNodeOrThrow();
             if (at.isBefore(now)) {
-                simulator.exitSimulation(INTERNAL_ERROR, new SimulationError("Cannot schedule a task in the past"));
+                simulator.reportInternalError(new SimulationError("Cannot schedule a task in the past"));
             }
             if (tasks.size() >= SimulationContext.MAX_TASKS) {
-                simulator.exitSimulation(INTERNAL_ERROR, new SimulationError("Maximum task queue size reached"));
+                simulator.reportInternalError(new SimulationError("Maximum task queue size reached"));
             }
             var queuedTask = new ScheduledTask(node, at, task, taskId++);
             tasks.add(queuedTask);

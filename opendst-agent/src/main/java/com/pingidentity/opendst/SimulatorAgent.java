@@ -24,7 +24,8 @@ import static java.lang.classfile.Opcode.DUP;
 import static java.lang.classfile.Opcode.INVOKESPECIAL;
 import static java.lang.classfile.Opcode.INVOKESTATIC;
 import static java.util.Map.entry;
-import static net.bytebuddy.matcher.ElementMatchers.none;
+import static net.bytebuddy.matcher.ElementMatchers.nameStartsWith;
+import static net.bytebuddy.matcher.ElementMatchers.not;
 
 import java.io.IOException;
 import java.lang.classfile.ClassFile;
@@ -67,8 +68,8 @@ public final class SimulatorAgent {
 
     static final Map<String, ClassDesc> REDIRECT_MAP = Map.ofEntries(
             entry("java/lang/Thread", THREADS_CLASS),
-            entry("com/pingidentity/opendst/api/Signals", SIGNALS_IMPL_CLASS),
-            entry("com/pingidentity/opendst/api/Assert", ASSERT_IMPL_CLASS));
+            entry("com/pingidentity/opendst/sdk/Signals", SIGNALS_IMPL_CLASS),
+            entry("com/pingidentity/opendst/sdk/Assert", ASSERT_IMPL_CLASS));
 
     /**
      * Installs bytecode transformation.
@@ -86,7 +87,10 @@ public final class SimulatorAgent {
                 .with(RedefinitionStrategy.REDEFINITION)
                 .with(TypeStrategy.Default.REDEFINE)
                 .with(StreamWriting.toSystemError().withErrorsOnly())
-                .ignore(none());
+                .ignore(not(nameStartsWith("java.")
+                        .or(nameStartsWith("jdk."))
+                        .or(nameStartsWith("sun."))
+                        .or(nameStartsWith("javax."))));
 
         agent = Time.instrument(agent);
         agent = SystemInterceptors.instrument(agent);

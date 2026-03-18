@@ -17,7 +17,6 @@ package com.pingidentity.opendst;
 
 import static com.pingidentity.opendst.Node.CURRENT_NODE;
 import static com.pingidentity.opendst.Node.currentNodeOrThrow;
-import static com.pingidentity.opendst.Simulator.ExitReason.INTERNAL_ERROR;
 import static com.pingidentity.opendst.Simulator.ExitReason.PLAN_OK;
 import static com.pingidentity.opendst.SimulatorAgent.AGENT_PROPERTY;
 import static java.lang.Boolean.getBoolean;
@@ -32,7 +31,7 @@ import static java.util.Objects.requireNonNull;
 import com.pingidentity.opendst.Deployment.Image;
 import com.pingidentity.opendst.Deployment.Service;
 import com.pingidentity.opendst.Plan.Segment;
-import com.pingidentity.opendst.api.TraceAuditor;
+import com.pingidentity.opendst.sdk.TraceAuditor;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -58,17 +57,13 @@ import tools.jackson.jr.ob.impl.JSONReader;
 public final class Simulator {
 
     enum ExitReason {
-        PLAN_OK(0, "success"),
-        PLAN_FAILED(1, "failure"),
-        FLAKY(2, "flaky"),
-        INTERNAL_ERROR(3, "internal error");
+        PLAN_OK(0),
+        INTERNAL_ERROR(1);
 
         final int code;
-        final String message;
 
-        ExitReason(int code, String message) {
+        ExitReason(int code) {
             this.code = code;
-            this.message = message;
         }
     }
 
@@ -100,7 +95,7 @@ public final class Simulator {
     static final Set<String> REDIRECT_CONSTRUCTORS_OF = Set.of("java/lang/Thread");
 
     static final Set<String> REDIRECT_STATIC_METHODS_OF =
-            Set.of("com/pingidentity/opendst/api/Signals", "com/pingidentity/opendst/api/Assert");
+            Set.of("com/pingidentity/opendst/sdk/Signals", "com/pingidentity/opendst/sdk/Assert");
 
     static final Instant START_TIME = Instant.ofEpochSecond(1445385600);
 
@@ -212,7 +207,7 @@ public final class Simulator {
         try {
             simulator.run(scenario);
         } catch (Throwable e) {
-            simulator.exitSimulation(ExitReason.PLAN_FAILED, e);
+            simulator.reportInternalError(new SimulationError("Simulation execution failed", e));
         }
     }
 
@@ -224,7 +219,7 @@ public final class Simulator {
      * Called by {@link Randomness.Source} at each segment boundary. Snapshots the current hash,
      * emits a {@code "segment-completed"} lifecycle signal, and checks the departing segment's
      * expected hash. If the expected hash is non-zero and differs from the actual hash, the
-     * simulation exits with {@link ExitReason#FLAKY}.
+     * simulation exits with a non-determinism report.
      *
      * @param departingSegment the segment that just completed
      */
@@ -235,33 +230,25 @@ public final class Simulator {
                 .withNumber("hash", actualHash)
                 .log();
         if (departingSegment.hash() != 0 && departingSegment.hash() != actualHash) {
-            exitSimulation(ExitReason.FLAKY, null);
+            reportNonDeterminism(departingSegment.hash(), actualHash);
         }
     }
 
-    void exitSimulation(ExitReason reason, Throwable cause) {
+    void exitSimulation(ExitReason reason) {
         CURRENT_NODE.remove();
         flushLogs();
 
         int actualHash = hasher.getHash();
-        var realReason = !INTERNAL_ERROR.equals(reason) && plan.hash() != 0 && plan.hash() != actualHash
-                ? ExitReason.FLAKY
-                : reason;
-        var finalLog = context.logger()
-                .logLifecycle("stopped", instant(), iteration())
-                .withString("reason", realReason.message)
-                .withNumber("hash", actualHash);
-        if (cause != null) {
-            var actualCause =
-                    cause instanceof InvocationTargetException && cause.getCause() != null ? cause.getCause() : cause;
-            finalLog = finalLog.withString("cause", actualCause.getMessage())
-                    .withPOJO(
-                            "stacktrace",
-                            stream(actualCause.getStackTrace())
-                                    .limit(10)
-                                    .map(StackTraceElement::toString)
-                                    .toList());
+        // Check for run-level non-determinism before emitting the stopped signal
+        if (!ExitReason.INTERNAL_ERROR.equals(reason) && plan.hash() != 0 && plan.hash() != actualHash) {
+            context.logger()
+                    .logLifecycle("non-determinism detected", instant(), iteration())
+                    .withNumber("expectedHash", plan.hash())
+                    .withNumber("actualHash", actualHash)
+                    .log();
         }
+        var finalLog =
+                context.logger().logLifecycle("stopped", instant(), iteration()).withNumber("hash", actualHash);
         try {
             finalLog.log();
             context.logger().flush();
@@ -273,8 +260,43 @@ public final class Simulator {
                 sleep(60_000);
             } catch (InterruptedException _) {
             }
-            getRuntime().halt(realReason.code);
+            getRuntime().halt(reason.code);
         }
+    }
+
+    /**
+     * Reports an internal error by emitting a lifecycle signal and then terminating the simulation.
+     *
+     * @param cause the error that triggered the internal error
+     */
+    void reportInternalError(SimulationError cause) {
+        context.logger()
+                .logLifecycle("internal error", instant(), iteration())
+                .withString("cause", cause.getMessage())
+                .withPOJO(
+                        "stacktrace",
+                        stream(cause.getStackTrace())
+                                .limit(10)
+                                .map(StackTraceElement::toString)
+                                .toList())
+                .log();
+        exitSimulation(ExitReason.INTERNAL_ERROR);
+    }
+
+    /**
+     * Reports a non-determinism detection by emitting a lifecycle signal with the expected and actual
+     * hash codes, then terminating the simulation.
+     *
+     * @param expectedHash the hash that was expected
+     * @param actualHash   the hash that was actually computed
+     */
+    void reportNonDeterminism(int expectedHash, int actualHash) {
+        context.logger()
+                .logLifecycle("non-determinism detected", instant(), iteration())
+                .withNumber("expectedHash", expectedHash)
+                .withNumber("actualHash", actualHash)
+                .log();
+        exitSimulation(ExitReason.INTERNAL_ERROR);
     }
 
     void flushLogs() {
@@ -352,33 +374,20 @@ public final class Simulator {
         bootstrapNode.startNode(scenario);
         context.scheduler().run();
         flushLogs();
-        if (anyThreadAlive()) {
-            exitSimulation(PLAN_OK, new SimulationError("All remaining threads are blocked"));
-        } else {
-            exitSimulation(PLAN_OK, null);
-        }
-    }
-
-    private boolean anyThreadAlive() {
-        for (var node : context.network().nodes().values()) {
-            for (var thread : node.virtualThreads) {
-                if (thread.isAlive()) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        // When the scheduler's run loop exits but threads are still alive, it means all remaining
+        // threads are blocked (waiting on I/O, locks, etc.). This is a normal simulation outcome
+        // — not an error — since the plan simply ran out of runnable tasks.
+        exitSimulation(PLAN_OK);
     }
 
     void uncaughtExceptionHandler(Node node, Thread thread, Throwable throwable) {
         context.logger()
                 .logLifecycle(
-                        "Uncaught exception", instant(), node.context.random().iteration())
+                        "uncaught exception", instant(), node.context.random().iteration())
                 .withString("vhost", node.hostName)
                 .withString("thread", thread.getName())
                 .withPOJO("exception", throwable)
                 .log();
-        exitSimulation(ExitReason.PLAN_FAILED, throwable);
     }
 
     /**
