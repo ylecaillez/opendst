@@ -28,9 +28,6 @@
                 <executions>
                     <execution>
                         <goals><goal>build</goal></goals>
-                        <configuration>
-                            <descriptor>${project.basedir}/deployment.yaml</descriptor>
-                        </configuration>
                     </execution>
                 </executions>
             </plugin>

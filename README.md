@@ -97,8 +97,8 @@ java -jar target/*-opendst.jar
 Each service is a class with a `public static void main(String[])` entry point. Use the `opendst-sdk` for assertions and lifecycle signals:
 
 ```java
-import com.pingidentity.opendst.api.Assert;
-import com.pingidentity.opendst.api.Signals;
+import com.pingidentity.opendst.sdk.Assert;
+import com.pingidentity.opendst.sdk.Signals;
 import java.io.*;
 import java.net.*;
 
@@ -160,9 +160,6 @@ Configure the Maven plugin with the `build` goal:
     <executions>
         <execution>
             <goals><goal>build</goal></goals>
-            <configuration>
-                <descriptor>${project.basedir}/deployment.yaml</descriptor>
-            </configuration>
         </execution>
     </executions>
 </plugin>
@@ -191,7 +188,7 @@ Available CLI options:
 | `--working-dir` | (JAR name sans `.jar`) | Persistent working directory for deployment, runs, and reports |
 | `--mode` | explore | Exploration strategy: `explore` (run until stagnation), `validate` (stop when all assertions pass after stagnation-limit runs), `verify` (stop on first failure) |
 | `--plan` | (none) | Replay a saved plan file instead of exploring |
-| `--jvm-args` | (from POM) | JVM arguments for child processes |
+| `--extra-jvm-args` | (none) | Additional JVM arguments appended to build-time defaults |
 
 The working directory has the following structure:
 

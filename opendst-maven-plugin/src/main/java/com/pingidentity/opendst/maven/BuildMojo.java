@@ -100,7 +100,7 @@ public class BuildMojo extends AbstractMojo {
     @Parameter(defaultValue = "${plugin}", readonly = true, required = true)
     private PluginDescriptor pluginDescriptor;
 
-    @Parameter(property = "opendst.descriptor", required = true)
+    @Parameter(property = "opendst.descriptor", defaultValue = "${project.basedir}/deployment.yaml")
     private File descriptor;
 
     @Parameter(
