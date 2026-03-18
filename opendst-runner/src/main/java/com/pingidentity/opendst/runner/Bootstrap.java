@@ -63,10 +63,11 @@ public final class Bootstrap {
 
             // 3. Extract into <workingDir>/deployment/ (skip if already present)
             var deploymentDir = workingDir.resolve("deployment");
+            boolean color = System.console() != null;
             if (exists(deploymentDir.resolve("system"))) {
-                err.println("Using existing deployment at: " + deploymentDir);
+                err.println((color ? "\uD83D\uDCE6 " : "") + "Using existing deployment at: " + deploymentDir);
             } else {
-                err.println("Extracting to: " + deploymentDir);
+                err.println((color ? "\uD83D\uDCE6 " : "") + "Extracting to: " + deploymentDir);
                 extractJar(jarPath, deploymentDir);
             }
 

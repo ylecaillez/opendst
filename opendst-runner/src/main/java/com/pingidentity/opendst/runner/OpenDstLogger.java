@@ -27,9 +27,60 @@ import java.util.Map;
  * Provides a builder-style API to emit structured logs. Uses a simple {@link Sink} abstraction
  * instead of Maven's {@code Log} so that the same logger works both inside Maven and
  * in a standalone {@code java -jar} execution.
+ *
+ * <p>When running in a terminal (standalone JAR), output uses ANSI colors and emoji
+ * for visual clarity. When piped, redirected, or running under Maven, plain text is used.
  */
 public final class OpenDstLogger {
     private static final HexFormat HEX = HexFormat.of();
+
+    // ── ANSI escape codes ──────────────────────────────────────────────
+    static final String RESET = "\033[0m";
+    static final String BOLD = "\033[1m";
+    static final String DIM = "\033[2m";
+    static final String RED = "\033[31m";
+    static final String GREEN = "\033[32m";
+    static final String YELLOW = "\033[33m";
+    static final String BLUE = "\033[34m";
+    static final String MAGENTA = "\033[35m";
+    static final String CYAN = "\033[36m";
+
+    // ── Emoji and color mapping for structured log lines ───────────────
+    //
+    // The emoji column is padded to a fixed display width (EMOJI_COL_WIDTH) so that
+    // subsequent columns align regardless of each emoji's actual terminal width.
+    //
+    // Layout: <emoji padded to 2 cols> <space> <type 12col> <attributes...>
+
+    /** Target display width for the emoji column (in terminal columns). */
+    private static final int EMOJI_COL_WIDTH = 2;
+
+    /**
+     * Emoji with its terminal display width. Surrogate-pair emoji (e.g. 🎲) are 2 columns;
+     * simple Unicode symbols (e.g. ⬆) are 1 column.
+     */
+    private record Glyph(String emoji, int displayWidth) {}
+
+    private static final Map<String, Glyph> EMOJI = Map.ofEntries(
+            Map.entry("run:random-walk", new Glyph("\uD83C\uDFB2", 2)), // 🎲
+            Map.entry("run:explore", new Glyph("\uD83D\uDD0D", 2)), // 🔍
+            Map.entry("run:check", new Glyph("\uD83D\uDD01", 2)), // 🔁
+            Map.entry("run:verified", new Glyph("\u2705", 2)), // ✅
+            Map.entry("run:fail", new Glyph("\u274C", 2)), // ❌
+            Map.entry("signal:found", new Glyph("\uD83C\uDD95", 2)), // 🆕
+            Map.entry("signal:narrowed", new Glyph("\uD83D\uDCD0", 2)), // 📐
+            Map.entry("signal:improved", new Glyph("\u2B06\uFE0F", 2)) // ⬆️ (variation selector forces 2-col)
+            );
+
+    private static final Map<String, String> TYPE_COLOR = Map.ofEntries(
+            Map.entry("run:random-walk", CYAN),
+            Map.entry("run:explore", BLUE),
+            Map.entry("run:check", DIM),
+            Map.entry("run:verified", GREEN),
+            Map.entry("run:fail", RED + BOLD),
+            Map.entry("signal:found", GREEN),
+            Map.entry("signal:narrowed", MAGENTA),
+            Map.entry("signal:improved", GREEN));
 
     /** Minimal logging sink that decouples OpenDST from Maven's Log interface. */
     public interface Sink {
@@ -42,6 +93,11 @@ public final class OpenDstLogger {
         void warn(CharSequence content);
 
         void error(CharSequence content);
+
+        /** Whether this sink supports ANSI colors and emoji. */
+        default boolean isColorEnabled() {
+            return false;
+        }
     }
 
     private final Sink sink;
@@ -51,35 +107,55 @@ public final class OpenDstLogger {
     }
 
     /** Creates an OpenDstLogger that writes to stderr, for use outside Maven (e.g. in a built JAR). */
-    static OpenDstLogger ofConsole() {
-        return new OpenDstLogger(new ConsoleSink());
+    static OpenDstLogger ofConsole(boolean debug) {
+        return new OpenDstLogger(new ConsoleSink(debug));
     }
 
-    /** A simple {@link Sink} implementation that writes to stderr. */
+    /**
+     * A {@link Sink} implementation that writes to stderr with optional ANSI colors.
+     *
+     * <p>Color support is auto-detected: enabled when stderr is connected to a real terminal,
+     * disabled when piped or redirected. This avoids ANSI escape sequences in log files.
+     */
     private static final class ConsoleSink implements Sink {
+        private final boolean debug;
+        private final boolean color;
+
+        ConsoleSink(boolean debug) {
+            this.debug = debug;
+            this.color = System.console() != null;
+        }
+
         @Override
         public boolean isDebugEnabled() {
-            return false;
+            return debug;
+        }
+
+        @Override
+        public boolean isColorEnabled() {
+            return color;
         }
 
         @Override
         public void debug(CharSequence content) {
-            // No-op: debug output is suppressed in standalone mode
+            if (debug) {
+                err.println(color ? DIM + content + RESET : "[DEBUG] " + content);
+            }
         }
 
         @Override
         public void info(CharSequence content) {
-            err.println("[INFO] " + content);
+            err.println(color ? content : "[INFO] " + content);
         }
 
         @Override
         public void warn(CharSequence content) {
-            err.println("[WARNING] " + content);
+            err.println(color ? YELLOW + content + RESET : "[WARNING] " + content);
         }
 
         @Override
         public void error(CharSequence content) {
-            err.println("[ERROR] " + content);
+            err.println(color ? RED + BOLD + content + RESET : "[ERROR] " + content);
         }
     }
 
@@ -93,6 +169,14 @@ public final class OpenDstLogger {
 
     public Sink raw() {
         return sink;
+    }
+
+    /**
+     * Wraps a message with the given ANSI color if the underlying sink supports color.
+     * Returns the message unchanged when color is disabled (piped, Maven, etc.).
+     */
+    String colored(String color, String message) {
+        return sink.isColorEnabled() ? color + message + RESET : message;
     }
 
     static final class LogBuilder {
@@ -143,11 +227,6 @@ public final class OpenDstLogger {
             return this;
         }
 
-        LogBuilder withLabel(String label) {
-            attributes.put("label", label);
-            return this;
-        }
-
         LogBuilder withIteration(long iteration) {
             attributes.put("iteration", String.valueOf(iteration));
             return this;
@@ -164,23 +243,89 @@ public final class OpenDstLogger {
         }
 
         void log() {
-            var sb = new StringBuilder();
-            if ("run".equals(kind)) {
-                sb.append(error ? "  run type:" : "   run type:");
+            if (sink.isColorEnabled()) {
+                logColor();
             } else {
-                sb.append("signal type:");
+                logPlain();
             }
+        }
 
-            sb.append("%-11s".formatted(type));
-
-            for (var entry : attributes.entrySet()) {
-                sb.append(" ").append(entry.getKey()).append(":").append(entry.getValue());
-            }
+        /** Plain text format — used when piped, redirected, or under Maven. */
+        private void logPlain() {
+            var sb = new StringBuilder();
+            sb.append("%-12s".formatted(type));
+            appendAttributes(sb, false);
 
             if (error) {
                 sink.error(sb.toString());
             } else {
                 sink.info(sb.toString());
+            }
+        }
+
+        /**
+         * Colored format with emoji — used when stderr is a terminal.
+         *
+         * <p>Layout (column positions measured in terminal columns):
+         * <pre>
+         *   col 0-1: emoji (2 display columns, padded to EMOJI_COL_WIDTH)
+         *   col 2:   space
+         *   col 3-14: type, left-aligned in 12 chars (colored)
+         *   col 15+: key:value pairs (signal first, keys dim, values normal)
+         * </pre>
+         */
+        private void logColor() {
+            var key = kind + ":" + type;
+            var glyph = EMOJI.get(key);
+            var typeColor = TYPE_COLOR.getOrDefault(key, "");
+
+            var sb = new StringBuilder();
+            if (glyph != null) {
+                sb.append(glyph.emoji());
+                sb.append(" ".repeat(Math.max(0, EMOJI_COL_WIDTH - glyph.displayWidth())));
+            } else {
+                sb.append(" ".repeat(EMOJI_COL_WIDTH));
+            }
+            sb.append(' ');
+            sb.append(typeColor).append("%-12s".formatted(type)).append(RESET);
+            appendAttributes(sb, true);
+
+            // Use info() even for errors — we already have per-element coloring
+            sink.info(sb.toString());
+        }
+
+        /** Maximum display width for the {@code signal} value in colored mode. */
+        private static final int SIGNAL_MAX_WIDTH = 40;
+
+        /**
+         * Appends key:value pairs to the output. The {@code "signal"} attribute is always
+         * emitted first (if present). In colored mode, keys are dim and signal values are
+         * truncated to {@link #SIGNAL_MAX_WIDTH} characters.
+         */
+        private void appendAttributes(StringBuilder sb, boolean colored) {
+            // Emit "signal" first if present
+            var signal = attributes.get("signal");
+            if (signal != null) {
+                appendAttribute(sb, "signal", signal, colored);
+            }
+            for (var entry : attributes.entrySet()) {
+                if ("signal".equals(entry.getKey())) {
+                    continue; // already emitted
+                }
+                appendAttribute(sb, entry.getKey(), entry.getValue(), colored);
+            }
+        }
+
+        private void appendAttribute(StringBuilder sb, String key, String value, boolean colored) {
+            sb.append(' ');
+            if (colored) {
+                if ("signal".equals(key) && value.length() > SIGNAL_MAX_WIDTH) {
+                    value = value.substring(0, SIGNAL_MAX_WIDTH - 3) + "...";
+                }
+                sb.append(DIM).append(key).append(':').append(RESET);
+                sb.append(value);
+            } else {
+                sb.append(key).append(':').append(value);
             }
         }
     }
