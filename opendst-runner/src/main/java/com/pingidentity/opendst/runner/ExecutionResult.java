@@ -18,9 +18,12 @@ package com.pingidentity.opendst.runner;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion.newFailAssertion;
 import static com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion.newPassAssertion;
+import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.ALWAYS;
+import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.ALWAYS_OR_UNREACHABLE;
 
 import com.pingidentity.opendst.runner.Commons.SignalEvent;
 import com.pingidentity.opendst.runner.Signal.AssertSignal;
+import com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType;
 import com.pingidentity.opendst.runner.Signal.LifecycleSignal;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,6 +38,7 @@ import tools.jackson.databind.JsonNode;
 final class ExecutionResult {
 
     record TrackedAssertion(
+            AssertType kind,
             String name,
             int passCount,
             long firstPassIteration,
@@ -43,16 +47,17 @@ final class ExecutionResult {
             long firstFailIteration,
             JsonNode firstFailDetails) {
 
-        static TrackedAssertion newPassAssertion(String name, long iteration, JsonNode details) {
-            return new TrackedAssertion(name, 1, iteration, details, 0, -1, null);
+        static TrackedAssertion newPassAssertion(AssertType kind, String name, long iteration, JsonNode details) {
+            return new TrackedAssertion(kind, name, 1, iteration, details, 0, -1, null);
         }
 
-        static TrackedAssertion newFailAssertion(String name, long iteration, JsonNode details) {
-            return new TrackedAssertion(name, 0, -1, null, 1, iteration, details);
+        static TrackedAssertion newFailAssertion(AssertType kind, String name, long iteration, JsonNode details) {
+            return new TrackedAssertion(kind, name, 0, -1, null, 1, iteration, details);
         }
 
         TrackedAssertion pass() {
             return new TrackedAssertion(
+                    kind,
                     name,
                     passCount + 1,
                     firstPassIteration,
@@ -64,6 +69,7 @@ final class ExecutionResult {
 
         TrackedAssertion fail() {
             return new TrackedAssertion(
+                    kind,
                     name,
                     passCount,
                     firstPassIteration,
@@ -89,63 +95,107 @@ final class ExecutionResult {
     }
 
     boolean isInteresting() {
-        return interesting;
+        return interesting || runFailed();
     }
 
     Map<String, TrackedAssertion> assertionsHit() {
         return assertionsHit;
     }
 
-    /** Returns {@code true} if the simulation stopped with a non-success reason. */
+    /**
+     * Returns {@code true} if any {@code ALWAYS} or {@code ALWAYS_OR_UNREACHABLE} assertion
+     * has at least one failure. {@code SOMETIMES} failures are the expected complement side
+     * of the condition and do not indicate a run-level violation.
+     */
     boolean runFailed() {
-        var hit = assertionsHit.get("simulation stopped successfully");
-        return hit != null && hit.failCount() > 0;
+        return assertionsHit.values().stream()
+                .anyMatch(a -> a.failCount() > 0 && (a.kind() == ALWAYS || a.kind() == ALWAYS_OR_UNREACHABLE));
     }
 
     boolean addSignal(SignalEvent signal, boolean isInteresting) {
         interesting |= isInteresting;
         if (signal.signal() instanceof LifecycleSignal lifecycleSignal) {
-            if ("started".equals(lifecycleSignal.message())) {
-                trackAssertion("simulation started", true, signal.iteration(), null);
-            } else if ("segment-completed".equals(lifecycleSignal.message())) {
-                segmentHashes.add(lifecycleSignal.hash());
-            } else if ("stopped".equals(lifecycleSignal.message())) {
-                boolean success = "success".equals(lifecycleSignal.reason());
-                trackAssertion(
-                        "simulation stopped successfully",
-                        success,
-                        signal.iteration(),
-                        stoppedDetails(lifecycleSignal));
-                runHash = lifecycleSignal.hash();
-                return true;
+            switch (lifecycleSignal.message()) {
+                case "started" -> trackAssertion(ALWAYS, "simulation started", true, signal.iteration(), null);
+                case "segment-completed" -> segmentHashes.add(lifecycleSignal.hash());
+                case "uncaught exception" ->
+                    trackAssertion(
+                            ALWAYS_OR_UNREACHABLE,
+                            "no uncaught exception",
+                            false,
+                            signal.iteration(),
+                            causeDetails(lifecycleSignal));
+                case "trace auditor exception" ->
+                    trackAssertion(
+                            ALWAYS_OR_UNREACHABLE,
+                            "no exception thrown in trace auditor",
+                            false,
+                            signal.iteration(),
+                            causeDetails(lifecycleSignal));
+                case "internal error" ->
+                    trackAssertion(
+                            ALWAYS_OR_UNREACHABLE,
+                            "no internal error",
+                            false,
+                            signal.iteration(),
+                            causeDetails(lifecycleSignal));
+                case "non-determinism detected" ->
+                    trackAssertion(
+                            ALWAYS_OR_UNREACHABLE,
+                            "no internal error",
+                            false,
+                            signal.iteration(),
+                            nonDeterminismDetails(lifecycleSignal));
+                case "stopped" -> {
+                    trackAssertion(ALWAYS, "simulation terminated", true, signal.iteration(), null);
+                    runHash = lifecycleSignal.hash();
+                    return true;
+                }
+                default -> {
+                    // Ignore unknown lifecycle messages
+                }
             }
         } else if (signal.signal() instanceof AssertSignal assertSignal) {
             trackAssertion(
-                    assertSignal.message(), assertSignal.condition(),
-                    signal.iteration(), assertSignal.details());
+                    assertSignal.kind(),
+                    assertSignal.message(),
+                    assertSignal.condition(),
+                    signal.iteration(),
+                    assertSignal.details());
         }
         // GuidanceSignals are handled by the orchestrator only; no tracking needed here.
         return false;
     }
 
     /**
-     * Builds a details {@link JsonNode} for the {@code lifecycle/stopped} signal.
-     * Includes the exit reason and, when present, the cause message.
+     * Builds a details {@link JsonNode} for lifecycle signals that carry a cause message.
      */
-    private static JsonNode stoppedDetails(LifecycleSignal signal) {
+    private static JsonNode causeDetails(LifecycleSignal signal) {
         var node = JSON_MAPPER.createObjectNode();
-        node.put("reason", signal.reason());
         if (signal.cause() != null) {
             node.put("cause", signal.cause());
         }
         return node;
     }
 
-    private void trackAssertion(String name, boolean pass, long iteration, JsonNode details) {
+    /**
+     * Builds a details {@link JsonNode} for non-determinism lifecycle signals,
+     * including the expected and actual hash codes.
+     */
+    private static JsonNode nonDeterminismDetails(LifecycleSignal signal) {
+        var node = JSON_MAPPER.createObjectNode();
+        node.put("expectedHash", Integer.toHexString(signal.expectedHash()));
+        node.put("actualHash", Integer.toHexString(signal.actualHash()));
+        return node;
+    }
+
+    private void trackAssertion(AssertType kind, String name, boolean pass, long iteration, JsonNode details) {
         assertionsHit.compute(
                 name,
                 (_, existing) -> existing == null
-                        ? pass ? newPassAssertion(name, iteration, details) : newFailAssertion(name, iteration, details)
+                        ? pass
+                                ? newPassAssertion(kind, name, iteration, details)
+                                : newFailAssertion(kind, name, iteration, details)
                         : pass ? existing.pass() : existing.fail());
     }
 }

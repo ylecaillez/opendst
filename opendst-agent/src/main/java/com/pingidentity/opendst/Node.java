@@ -15,7 +15,6 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Simulator.ExitReason.INTERNAL_ERROR;
 import static com.pingidentity.opendst.Threads.Internals.compareAndSetOnWaitingList;
 import static com.pingidentity.opendst.Threads.Internals.getNext;
 import static com.pingidentity.opendst.Threads.Internals.isOnWaitingList;
@@ -178,10 +177,8 @@ public final class Node {
         }
         if (virtualThreads.size() >= SimulationContext.MAX_VIRTUAL_THREADS_PER_NODE) {
             context.simulator()
-                    .exitSimulation(
-                            INTERNAL_ERROR,
-                            new Simulator.SimulationError(
-                                    "Max number of virtual threads reached for machine '" + hostName + "'"));
+                    .reportInternalError(new Simulator.SimulationError(
+                            "Max number of virtual threads reached for machine '" + hostName + "'"));
         }
         virtualThreads.add(thread);
         setThreadLocal(thread, CURRENT_NODE, this);
@@ -235,14 +232,12 @@ public final class Node {
                     var ise = new IllegalStateException("Stack trace");
                     ise.setStackTrace(thread.getStackTrace());
                     context.simulator()
-                            .exitSimulation(
-                                    INTERNAL_ERROR,
-                                    new Simulator.SimulationError(
-                                            format(
-                                                    "Thread '%s' from machine '%s' is unexpectedly present on the waiting-list of"
-                                                            + " machine '%s'",
-                                                    thread.getName(), hostName, node.hostName),
-                                            ise));
+                            .reportInternalError(new Simulator.SimulationError(
+                                    format(
+                                            "Thread '%s' from machine '%s' is unexpectedly present on the waiting-list of"
+                                                    + " machine '%s'",
+                                            thread.getName(), hostName, node.hostName),
+                                    ise));
                 }
             }
         }

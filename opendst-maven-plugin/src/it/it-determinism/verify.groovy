@@ -52,6 +52,9 @@ p1.inputStream.eachLine { line ->
 def p1Exit = p1.waitFor()
 check(p1Exit == 0, "Phase 1 simulation failed with exit code ${p1Exit}", logFile)
 
+// No runs should have failed in phase 1
+check(!p1Output.toString().contains("type:fail"), "Unexpected type:fail in Phase 1 output", logFile)
+
 // Find a plan file in report/plans/
 def plansDir = new File(workingDir, "report/plans")
 check(plansDir.exists() && plansDir.isDirectory(), "Plans directory does not exist: ${plansDir.absolutePath}", logFile)
@@ -88,5 +91,8 @@ def p2Exit = p2.waitFor()
 check(p2Exit == 0, "Replay failed with exit code ${p2Exit}", logFile)
 check(p2Output.toString().contains("Replay complete."),
       "Replay output does not contain 'Replay complete.'", logFile)
+
+// No runs should have failed in phase 2
+check(!p2Output.toString().contains("type:fail"), "Unexpected type:fail in Phase 2 output", logFile)
 
 println "All verifications passed — it-determinism covers replay feature."

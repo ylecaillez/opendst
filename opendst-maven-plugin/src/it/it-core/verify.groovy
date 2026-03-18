@@ -100,9 +100,9 @@ process.inputStream.eachLine { line ->
 
 def exitCode = process.waitFor()
 
-// --mode verify: the TraceAuditor detects "Bug reached!" and throws, causing the simulation
-// to stop with reason=failure. This makes the "simulation stopped successfully" ALWAYS assertion
-// fail, so --mode verify exits with code 1. That is the expected outcome.
+// --mode verify: the TraceAuditor detects "Bug reached!" and throws. This emits a
+// "trace auditor exception" lifecycle signal, failing the "no exception thrown in trace auditor"
+// assertion, so --mode verify exits with code 1. That is the expected outcome.
 check(exitCode == 1, "Expected exit code 1 (--mode verify with bug found), got: ${exitCode}", logFile)
 
 // Verify the report was produced
@@ -139,19 +139,22 @@ assert reportAssertions.containsKey("simulation started") :
 assert reportAssertions["simulation started"] == true :
     "assertion 'simulation started' should pass, got: ${reportAssertions['simulation started']}"
 
-assert reportAssertions.containsKey("simulation stopped successfully") :
-    "built-in assertion 'simulation stopped successfully' not found in report: ${reportAssertions.keySet()}"
-assert reportAssertions["simulation stopped successfully"] == false :
-    "assertion 'simulation stopped successfully' should fail (TraceAuditor found the bug), got: ${reportAssertions['simulation stopped successfully']}"
+assert reportAssertions.containsKey("simulation terminated") :
+    "built-in assertion 'simulation terminated' not found in report: ${reportAssertions.keySet()}"
+assert reportAssertions["simulation terminated"] == true :
+    "assertion 'simulation terminated' should pass (simulation stopped normally), got: ${reportAssertions['simulation terminated']}"
 
-// Verify determinism via report: the Simulator detects hash mismatches on replay and exits
-// with reason "flaky", which appears as a failExample on the "simulation stopped successfully"
-// assertion. No such failures should exist.
-// Note: we don't assert that replays actually occurred (replay probability is low at 1%),
-// because determinism is systematically verified during explore runs.
-def stoppedAssertion = report.assertions.find { it.name == "simulation stopped successfully" }
-def flakyFailures = stoppedAssertion?.examples?.failExamples?.findAll { it.details?.reason == "flaky" }
-assert flakyFailures == null || flakyFailures.size() == 0 :
-    "Non-determinism detected: ${flakyFailures.size()} replay(s) produced different hashes"
+assert reportAssertions.containsKey("no exception thrown in trace auditor") :
+    "built-in assertion 'no exception thrown in trace auditor' not found in report: ${reportAssertions.keySet()}"
+assert reportAssertions["no exception thrown in trace auditor"] == false :
+    "assertion 'no exception thrown in trace auditor' should fail (TraceAuditor found the bug), got: ${reportAssertions['no exception thrown in trace auditor']}"
+
+// Verify determinism: the Simulator detects hash mismatches on replay and emits a
+// "non-determinism detected" lifecycle signal, which fails the "no internal error" assertion.
+// No such failures should exist in this test.
+def internalErrorAssertion = report.assertions.find { it.name == "no internal error" }
+def nonDetFailures = internalErrorAssertion?.examples?.failExamples?.findAll { it.details?.expectedHash != null }
+assert nonDetFailures == null || nonDetFailures.size() == 0 :
+    "Non-determinism detected: ${nonDetFailures.size()} replay(s) produced different hashes"
 
 println "All verifications passed — testapp JAR correctly detects bug via TraceAuditor and reports failure."

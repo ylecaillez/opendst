@@ -113,4 +113,7 @@ assert reportAssertions["level-1"] == true :
 assert reportAssertions["invariant"] == true :
     "assertion 'invariant' should pass, got: ${reportAssertions['invariant']}"
 
+// No runs should have failed — verify no type:fail lines in the output
+check(!output.toString().contains("type:fail"), "Unexpected type:fail in output", logFile)
+
 println "All verifications passed — build JAR runs successfully and produces correct report."

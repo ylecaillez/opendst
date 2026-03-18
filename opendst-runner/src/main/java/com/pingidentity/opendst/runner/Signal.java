@@ -161,7 +161,7 @@ public sealed interface Signal permits ConsoleSignal, AssertSignal, GuidanceSign
         }
     }
 
-    record LifecycleSignal(String message, String reason, int hash, String cause) implements Signal {
+    record LifecycleSignal(String message, int hash, String cause, int expectedHash, int actualHash) implements Signal {
 
         @Override
         public SignalType type() {
