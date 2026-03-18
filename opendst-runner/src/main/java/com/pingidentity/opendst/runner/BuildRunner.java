@@ -15,8 +15,11 @@
  */
 package com.pingidentity.opendst.runner;
 
+import static com.pingidentity.opendst.runner.Assertion.NO_INTERNAL_ERROR;
+import static com.pingidentity.opendst.runner.Assertion.NO_TRACE_AUDITOR_EXCEPTION;
+import static com.pingidentity.opendst.runner.Assertion.NO_UNCAUGHT_EXCEPTION;
 import static com.pingidentity.opendst.runner.Assertion.SIMULATION_STARTED;
-import static com.pingidentity.opendst.runner.Assertion.SIMULATION_STOPPED_SUCCESSFULLY;
+import static com.pingidentity.opendst.runner.Assertion.SIMULATION_TERMINATED;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.OpenDstLogger.ofConsole;
 import static java.lang.System.exit;
@@ -125,8 +128,16 @@ public final class BuildRunner implements Callable<Integer> {
     @Option(names = "--plan", description = "Replay a saved plan file instead of exploring")
     private Path planFile;
 
-    @Option(names = "--jvm-args", description = "JVM arguments for child processes (overrides build-time default)")
-    private String jvmArgs;
+    @Option(names = "--extra-jvm-args", description = "Additional JVM arguments appended to build-time defaults")
+    private String extraJvmArgs;
+
+    @Option(
+            names = "--debug",
+            arity = "0..1",
+            fallbackValue = "5005",
+            description = "Enable JDWP remote debugging on the forked JVM and verbose logging"
+                    + " (default address: ${FALLBACK-VALUE})")
+    private String debugAddress;
 
     public static void main(String[] args) {
         var cmd = new CommandLine(new BuildRunner());
@@ -136,6 +147,7 @@ public final class BuildRunner implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
+        boolean isDebug = debugAddress != null;
         int forkCount = resolveForkCount(forkCountSpec);
 
         // Derive directory layout from working directory
@@ -154,7 +166,10 @@ public final class BuildRunner implements Callable<Integer> {
         // Merge discovered assertions with built-in lifecycle assertions
         var assertions = new LinkedHashSet<>(discoveredAssertions);
         assertions.add(SIMULATION_STARTED);
-        assertions.add(SIMULATION_STOPPED_SUCCESSFULLY);
+        assertions.add(SIMULATION_TERMINATED);
+        assertions.add(NO_UNCAUGHT_EXCEPTION);
+        assertions.add(NO_TRACE_AUDITOR_EXCEPTION);
+        assertions.add(NO_INTERNAL_ERROR);
 
         // 2. Load build config
         var configFile = deploymentDir.resolve("build-config.json");
@@ -164,7 +179,14 @@ public final class BuildRunner implements Callable<Integer> {
         var classpath = buildChildClasspath(deploymentDir);
 
         // 4. Set up orchestrator and run
-        var logger = ofConsole();
+        var logger = ofConsole(isDebug);
+        if (isDebug) {
+            logger.raw()
+                    .info(logger.colored(
+                            OpenDstLogger.CYAN,
+                            "\uD83D\uDC1B Debug mode enabled. Attach debugger to address " + debugAddress
+                                    + " (suspend=y)"));
+        }
         var faultsConfig = toFaultsConfig(config.faults());
 
         var instrumentedAppsDir = deploymentDir.resolve("apps");
@@ -173,11 +195,16 @@ public final class BuildRunner implements Callable<Integer> {
                 .toAbsolutePath()
                 .toString();
 
-        // Merge JVM arguments: CLI --jvm-args wins, else fall back to build-time default
-        var effectiveJvmArgs = jvmArgs != null ? jvmArgs : config.jvmArguments();
+        // Merge JVM arguments: build-time defaults + CLI --extra-jvm-args (additive)
+        var buildTimeArgs = config.jvmArguments();
+        var effectiveJvmArgs = buildTimeArgs != null && extraJvmArgs != null
+                ? buildTimeArgs + " " + extraJvmArgs
+                : buildTimeArgs != null ? buildTimeArgs : extraJvmArgs;
 
+        var debugArgs =
+                isDebug ? "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=" + debugAddress : null;
         var jvmConfig = new JvmConfig(
-                instrumentedAppsDir, agentJarPath, effectiveJvmArgs, null, null, DeploymentRunner.class.getName());
+                instrumentedAppsDir, agentJarPath, effectiveJvmArgs, debugArgs, null, DeploymentRunner.class.getName());
 
         // Replay mode: load a saved plan and execute it once
         boolean isReplay = planFile != null;
@@ -189,8 +216,12 @@ public final class BuildRunner implements Callable<Integer> {
         } else {
             orchestrator = new GuidedOrchestrator(logger, duration, branchProbability, faultsConfig);
         }
+        if (isDebug) {
+            forkCount = 1;
+        }
 
-        var runConfig = new RunConfig(isReplay ? 0 : replayProbability, isReplay, stagnationLimit, forkCount, mode);
+        var runConfig =
+                new RunConfig(isReplay ? 0 : replayProbability, isReplay || isDebug, stagnationLimit, forkCount, mode);
 
         // TestExecutor uses testClass/testMethod as child JVM args.
         // For DeploymentRunner, we pass the deployment dir path so the child knows where to find deployment.yaml.
@@ -208,7 +239,7 @@ public final class BuildRunner implements Callable<Integer> {
                 .execute(reportGenerator);
 
         if (isReplay) {
-            logger.raw().info("Replay complete.");
+            logger.raw().info(logger.colored(OpenDstLogger.GREEN, "\uD83D\uDD01 Replay complete."));
             return 0;
         }
 
@@ -217,11 +248,17 @@ public final class BuildRunner implements Callable<Integer> {
         var reportFile = reportDir.resolve("report.json");
         reportGenerator.generate(reportFile);
 
-        logger.raw().info("Simulation complete. Report written to: " + reportFile);
-
         if (reportGenerator.hasFailures()) {
+            logger.raw()
+                    .error(logger.colored(
+                            OpenDstLogger.RED + OpenDstLogger.BOLD,
+                            "\u274C Simulation complete with failures. Report: " + reportFile));
             return 1;
         }
+        logger.raw()
+                .info(logger.colored(
+                        OpenDstLogger.GREEN,
+                        "\u2705 Simulation complete. All assertions passed. Report: " + reportFile));
         return 0;
     }
 

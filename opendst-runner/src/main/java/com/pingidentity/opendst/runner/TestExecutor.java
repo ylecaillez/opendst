@@ -20,6 +20,7 @@ import static com.pingidentity.opendst.runner.Commons.JAVA_BASE_OPTIONS;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.Commons.deleteRecursively;
 import static java.lang.Runtime.getRuntime;
+import static java.lang.System.out;
 import static java.lang.Thread.ofVirtual;
 import static java.nio.file.Files.copy;
 import static java.nio.file.Files.exists;
@@ -149,24 +150,11 @@ final class TestExecutor {
                 return null;
             }
             if (executionResult.runFailed()) {
-                logger.run("fail")
-                        .error()
-                        .withSeed(executionPlan.plan().segments().getLast().seed())
-                        .withHash(executionResult.runHash())
-                        .log();
+                logger.run("fail").error().withHash(executionResult.runHash()).log();
             } else if (executionPlan.plan().hash() == 0) {
                 pastPlans.offer(executionPlan.plan().withHash(executionResult.runHash()));
             } else if (executionPlan.plan().hash() == executionResult.runHash()) {
-                logger.run("verified")
-                        .withSeed(executionPlan.plan().segments().getLast().seed())
-                        .withHash(executionResult.runHash())
-                        .log();
-            } else {
-                logger.run("flaky")
-                        .error()
-                        .withSeed(executionPlan.plan().segments().getLast().seed())
-                        .withHash(executionResult.runHash())
-                        .log();
+                logger.run("verified").withHash(executionResult.runHash()).log();
             }
 
             var hexHash = HexFormat.of().toHexDigits(executionResult.runHash());
@@ -187,12 +175,12 @@ final class TestExecutor {
             deleteRecursively(runsDir, runBaseDir);
 
             if (runConfig.mode() == RunMode.VERIFY && reportGenerator.hasFailures()) {
-                logger.raw().info("Assertion failure detected — stopping (--mode verify)");
+                logger.raw().warn("Assertion failure detected \u2014 stopping (--mode verify)");
                 earlyExit = true;
             } else if (runConfig.mode() == RunMode.VALIDATE
                     && runCount >= runConfig.stagnationLimit()
                     && reportGenerator.allPassed()) {
-                logger.raw().info("All assertions passing — stopping (--mode validate)");
+                logger.raw().info("All assertions passing \u2014 stopping (--mode validate)");
                 earlyExit = true;
             }
 
@@ -221,7 +209,6 @@ final class TestExecutor {
             var plan = pastPlans.poll();
             if (plan != null) {
                 logger.run("check")
-                        .withSeed(plan.segments().getLast().seed())
                         .withHash(plan.hash())
                         .withDuration(plan.segments().getLast().iteration())
                         .log();
@@ -290,14 +277,19 @@ final class TestExecutor {
     }
 
     private LogStatement parseLog(String line) {
+        if (runConfig.isDebugOrReplay()) {
+            out.println(line);
+        }
         if (isJson(line)) {
             try {
                 return JSON_MAPPER.readValue(line, LogStatement.class);
             } catch (JacksonException e) {
                 // Ignore invalid format, the line will be logged below
+                if (!runConfig.isDebugOrReplay()) {
+                    logger.raw().debug(line);
+                }
             }
         }
-        logger.raw().debug(line);
         return null;
     }
 
