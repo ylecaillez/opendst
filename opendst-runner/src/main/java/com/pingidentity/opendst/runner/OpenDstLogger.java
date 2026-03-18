@@ -41,8 +41,8 @@ public final class OpenDstLogger {
     static final String RED = "\033[31m";
     static final String GREEN = "\033[32m";
     static final String YELLOW = "\033[33m";
-    static final String BLUE = "\033[34m";
-    static final String MAGENTA = "\033[35m";
+    static final String BLUE = "\033[94m"; // bright blue — standard 34 is unreadable on dark backgrounds
+    static final String MAGENTA = "\033[95m"; // bright magenta — standard 35 is too dark on some terminals
     static final String CYAN = "\033[36m";
 
     // ── Emoji and color mapping for structured log lines ───────────────
@@ -69,7 +69,9 @@ public final class OpenDstLogger {
             Map.entry("run:fail", new Glyph("\u274C", 2)), // ❌
             Map.entry("signal:found", new Glyph("\uD83C\uDD95", 2)), // 🆕
             Map.entry("signal:narrowed", new Glyph("\uD83D\uDCD0", 2)), // 📐
-            Map.entry("signal:improved", new Glyph("\u2B06\uFE0F", 2)) // ⬆️ (variation selector forces 2-col)
+            Map.entry(
+                    "signal:improved",
+                    new Glyph("\u2B06\uFE0F", 1)) // ⬆️ — most terminals render this as 1 column despite VS16
             );
 
     private static final Map<String, String> TYPE_COLOR = Map.ofEntries(
