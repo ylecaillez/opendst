@@ -67,6 +67,7 @@ public final class OpenDstLogger {
             Map.entry("run:check", new Glyph("\uD83D\uDD01", 2)), // 🔁
             Map.entry("run:verified", new Glyph("\u2705", 2)), // ✅
             Map.entry("run:fail", new Glyph("\u274C", 2)), // ❌
+            Map.entry("run:settings", new Glyph("\u2699\uFE0F", 1)), // ⚙️
             Map.entry("signal:found", new Glyph("\uD83C\uDD95", 2)), // 🆕
             Map.entry("signal:narrowed", new Glyph("\uD83D\uDCD0", 2)), // 📐
             Map.entry(
@@ -80,6 +81,7 @@ public final class OpenDstLogger {
             Map.entry("run:check", DIM),
             Map.entry("run:verified", GREEN),
             Map.entry("run:fail", RED + BOLD),
+            Map.entry("run:settings", DIM),
             Map.entry("signal:found", GREEN),
             Map.entry("signal:narrowed", MAGENTA),
             Map.entry("signal:improved", GREEN));
@@ -241,6 +243,12 @@ public final class OpenDstLogger {
 
         LogBuilder withDistance(double distance) {
             attributes.put("distance", "%.4f".formatted(distance));
+            return this;
+        }
+
+        /** Adds an arbitrary key:value attribute. */
+        LogBuilder with(String key, Object value) {
+            attributes.put(key, String.valueOf(value));
             return this;
         }
 

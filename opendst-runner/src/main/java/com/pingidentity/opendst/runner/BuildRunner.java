@@ -220,6 +220,14 @@ public final class BuildRunner implements Callable<Integer> {
             forkCount = 1;
         }
 
+        logger.run("settings")
+                .with("duration", duration)
+                .with("forks", forkCount)
+                .with("branch", "%.2f".formatted(branchProbability))
+                .with("replay", "%.2f".formatted(replayProbability))
+                .with("stagnation", stagnationLimit)
+                .log();
+
         var runConfig =
                 new RunConfig(isReplay ? 0 : replayProbability, isReplay || isDebug, stagnationLimit, forkCount, mode);
 
