@@ -61,10 +61,10 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
  *   <li>{@code apps/} — instrumented application artifacts</li>
  * </ul>
  */
-public final class DeploymentRunner {
+public final class OpenDSTExecutor {
     public static void main(String[] args) {
         if (args.length < 1) {
-            err.println("Usage: java DeploymentRunner <deploymentDir>");
+            err.println("Usage: java OpenDSTExecutor <deploymentDir>");
             exit(1);
         }
 
@@ -133,7 +133,7 @@ public final class DeploymentRunner {
             e.printStackTrace();
             getRuntime().halt(1);
         } catch (Exception e) {
-            err.println("DeploymentRunner failed");
+            err.println("OpenDSTExecutor failed");
             e.printStackTrace();
             getRuntime().halt(1);
         }
@@ -179,7 +179,7 @@ public final class DeploymentRunner {
             urls.add(classesDir.toUri().toURL());
         }
         return new URLClassLoader(
-                "trace-auditor-loader", urls.toArray(URL[]::new), DeploymentRunner.class.getClassLoader());
+                "trace-auditor-loader", urls.toArray(URL[]::new), OpenDSTExecutor.class.getClassLoader());
     }
 
     /**

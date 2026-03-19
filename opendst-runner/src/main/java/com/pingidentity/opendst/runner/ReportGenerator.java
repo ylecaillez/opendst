@@ -20,6 +20,7 @@ import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.SOM
 import static java.lang.System.currentTimeMillis;
 import static java.util.Comparator.comparing;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -32,31 +33,38 @@ import java.util.concurrent.atomic.AtomicInteger;
 import tools.jackson.databind.JsonNode;
 
 /**
- * Collects simulation signals and generates static HTML and JSON reports for OpenDST runs.
- * Uses JTE for type-safe, secure-by-default template rendering.
+ * Collects simulation signals and generates a JSON report for OpenDST runs.
  */
 final class ReportGenerator {
+    private final Path reportDir;
     private final Instant startTime;
     private final Set<Assertion> assertions;
     private final Map<String, Examples> examples = new ConcurrentHashMap<>();
     private final AtomicInteger totalPlans = new AtomicInteger();
 
-    ReportGenerator(Set<Assertion> discoveredProperties) {
+    ReportGenerator(Set<Assertion> discoveredProperties, Path reportDir) {
+        this.reportDir = reportDir;
         this.assertions = Set.copyOf(discoveredProperties);
         this.assertions.forEach(
                 assertion -> examples.put(assertion.message(), new Examples(0, List.of(), 0, List.of())));
         this.startTime = Instant.now();
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private record AssertionState(String name, boolean pass, Examples examples) {}
 
-    private record Example(Path planFile, long iteration, JsonNode details) {}
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record Example(String plan, long iteration, JsonNode details) {}
 
-    private record Examples(int passCount, List<Example> passExamples, int failCount, List<Example> failExamples) {
-        Examples add(TrackedAssertion assertion, Path planFile) {
+    private record Examples(
+            int passCount,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<Example> passExamples,
+            int failCount,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<Example> failExamples) {
+        Examples add(TrackedAssertion assertion, Path planFile, Path reportDir) {
             return new Examples(
-                    passCount + assertion.passCount(), appendInto(passExamples, planFile, assertion, true),
-                    failCount + assertion.failCount(), appendInto(failExamples, planFile, assertion, false));
+                    passCount + assertion.passCount(), appendInto(passExamples, planFile, assertion, true, reportDir),
+                    failCount + assertion.failCount(), appendInto(failExamples, planFile, assertion, false, reportDir));
         }
 
         /**
@@ -64,7 +72,7 @@ final class ReportGenerator {
          * the iteration at which the assertion has been hit: the sooner, the more interesting.
          */
         private static List<Example> appendInto(
-                List<Example> examples, Path planFile, TrackedAssertion assertion, boolean pass) {
+                List<Example> examples, Path planFile, TrackedAssertion assertion, boolean pass, Path reportDir) {
             if (pass && assertion.passCount() == 0 || !pass && assertion.failCount() == 0) {
                 // This assertion has not been hit
                 return examples;
@@ -83,7 +91,7 @@ final class ReportGenerator {
                 // We cannot remove the associated plan's file as it might be referenced by another example.
                 newExamples.removeLast();
             }
-            newExamples.add(new Example(planFile, iteration, details));
+            newExamples.add(new Example(reportDir.relativize(planFile).toString(), iteration, details));
             newExamples.sort(comparing(Example::iteration));
             return List.copyOf(newExamples);
         }
@@ -93,8 +101,8 @@ final class ReportGenerator {
         totalPlans.incrementAndGet();
         executionResult
                 .assertionsHit()
-                .forEach((name, assertionTrack) ->
-                        examples.computeIfPresent(name, (_, examples) -> examples.add(assertionTrack, planFile)));
+                .forEach((name, assertionTrack) -> examples.computeIfPresent(
+                        name, (_, examples) -> examples.add(assertionTrack, planFile, reportDir)));
     }
 
     /** Returns {@code true} if any non-SOMETIMES assertion has recorded at least one failure. */
@@ -151,7 +159,7 @@ final class ReportGenerator {
                 // fail: always(), sometimes() (mustHit — must be reached at least once)
                 // pass: alwaysOrUnreachable(), unreachable()
                 state.add(new AssertionState(
-                        assertion.message(), !assertion.kind().mustHit(), hit));
+                        assertion.message(), !assertion.kind().mustHit(), null));
             } else if (SOMETIMES.equals(assertion.kind())) {
                 state.add(new AssertionState(assertion.message(), hit.passCount() > 0, hit));
             } else if (hit.failCount() > 0) {
