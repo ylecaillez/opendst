@@ -34,9 +34,11 @@ import com.pingidentity.opendst.runner.TestExecutor.JvmConfig;
 import com.pingidentity.opendst.runner.TestExecutor.RunConfig;
 import java.io.File;
 import java.nio.file.Path;
+import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.stream.Collectors;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -73,26 +75,36 @@ public final class BuildRunner implements Callable<Integer> {
     private Path workingDir;
 
     /**
-     * Controls the exploration stopping strategy.
+     * Early-stopping conditions that can be combined via repeated {@code --stop} flags.
      *
      * <ul>
-     *   <li>{@code EXPLORE} — run until the stagnation limit is reached (default)</li>
-     *   <li>{@code VALIDATE} — stop early when all assertions are passing,
+     *   <li>{@code FIRST_FAIL} — stop immediately on the first assertion failure</li>
+     *   <li>{@code FIRST_PASS} — stop early when all assertions are passing,
      *       after at least {@code stagnation-limit} executions for confidence</li>
-     *   <li>{@code VERIFY} — stop immediately on first assertion failure</li>
      * </ul>
+     *
+     * <p>When no {@code --stop} flag is given, the runner uses the default strategy:
+     * run until the stagnation limit is reached (no early stopping).
      */
-    public enum RunMode {
-        EXPLORE,
-        VALIDATE,
-        VERIFY
+    public enum StopCondition {
+        FIRST_FAIL,
+        FIRST_PASS
+    }
+
+    /** Converts CLI values like {@code first-fail} to {@link StopCondition#FIRST_FAIL}. */
+    static class StopConditionConverter implements CommandLine.ITypeConverter<StopCondition> {
+        @Override
+        public StopCondition convert(String value) {
+            return StopCondition.valueOf(value.toUpperCase().replace('-', '_'));
+        }
     }
 
     @Option(
-            names = "--mode",
-            description = "Exploration strategy: explore (default), validate, verify",
-            defaultValue = "EXPLORE")
-    private RunMode mode;
+            names = "--stop",
+            converter = StopConditionConverter.class,
+            description =
+                    "Early-stopping conditions (combinable): first-fail, first-pass. Default: none (run until stagnation)")
+    private Set<StopCondition> stopConditions;
 
     @Option(
             names = "--fork-count",
@@ -220,16 +232,30 @@ public final class BuildRunner implements Callable<Integer> {
             forkCount = 1;
         }
 
+        var effectiveStopConditions =
+                stopConditions != null ? EnumSet.copyOf(stopConditions) : EnumSet.noneOf(StopCondition.class);
+
         logger.run("settings")
                 .with("duration", duration)
                 .with("forks", forkCount)
                 .with("branch", "%.2f".formatted(branchProbability))
                 .with("replay", "%.2f".formatted(replayProbability))
                 .with("stagnation", stagnationLimit)
+                .with(
+                        "stop",
+                        effectiveStopConditions.isEmpty()
+                                ? "none"
+                                : effectiveStopConditions.stream()
+                                        .map(s -> s.name().toLowerCase().replace('_', '-'))
+                                        .collect(Collectors.joining(",")))
                 .log();
 
-        var runConfig =
-                new RunConfig(isReplay ? 0 : replayProbability, isReplay || isDebug, stagnationLimit, forkCount, mode);
+        var runConfig = new RunConfig(
+                isReplay ? 0 : replayProbability,
+                isReplay || isDebug,
+                stagnationLimit,
+                forkCount,
+                effectiveStopConditions);
 
         // TestExecutor uses testClass/testMethod as child JVM args.
         // For DeploymentRunner, we pass the deployment dir path so the child knows where to find deployment.yaml.

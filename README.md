@@ -186,7 +186,7 @@ Available CLI options:
 | `--replay-probability` | 0.05 | Probability of replaying a previous trace |
 | `--fork-count` | max(1, CPUs/2 - 1) | Number of concurrent simulation forks. Supports `C` suffix (e.g. `1C`, `0.5C`) |
 | `--working-dir` | (JAR name sans `.jar`) | Persistent working directory for deployment, runs, and reports |
-| `--mode` | explore | Exploration strategy: `explore` (run until stagnation), `validate` (stop when all assertions pass after stagnation-limit runs), `verify` (stop on first failure) |
+| `--stop` | (none) | Early-stopping conditions (combinable): `first-fail` (stop on first assertion failure), `first-pass` (stop when all assertions pass after stagnation-limit runs). Omit for default behavior (run until stagnation) |
 | `--plan` | (none) | Replay a saved plan file instead of exploring |
 | `--extra-jvm-args` | (none) | Additional JVM arguments appended to build-time defaults |
 

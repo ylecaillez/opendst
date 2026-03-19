@@ -32,7 +32,7 @@ import static java.util.concurrent.ThreadLocalRandom.current;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.pingidentity.opendst.Plan;
-import com.pingidentity.opendst.runner.BuildRunner.RunMode;
+import com.pingidentity.opendst.runner.BuildRunner.StopCondition;
 import com.pingidentity.opendst.runner.Commons.SignalEvent;
 import com.pingidentity.opendst.runner.Orchestrator.ExecutionPlan;
 import java.io.BufferedReader;
@@ -46,6 +46,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -76,7 +77,7 @@ final class TestExecutor {
             boolean isDebugOrReplay,
             int stagnationLimit,
             int forkCount,
-            BuildRunner.RunMode mode) {}
+            Set<BuildRunner.StopCondition> stopConditions) {}
 
     private final Path reportDir;
     private final Path runsDir;
@@ -174,13 +175,14 @@ final class TestExecutor {
             // Run directory is ephemeral — clean up after capturing any interesting artifacts
             deleteRecursively(runsDir, runBaseDir);
 
-            if (runConfig.mode() == RunMode.VERIFY && reportGenerator.hasFailures()) {
-                logger.raw().warn("Assertion failure detected \u2014 stopping (--mode verify)");
+            if (runConfig.stopConditions().contains(StopCondition.FIRST_FAIL) && reportGenerator.hasFailures()) {
+                logger.raw().warn("Assertion failure detected \u2014 stopping (--stop first-fail)");
                 earlyExit = true;
-            } else if (runConfig.mode() == RunMode.VALIDATE
+            }
+            if (runConfig.stopConditions().contains(StopCondition.FIRST_PASS)
                     && runCount >= runConfig.stagnationLimit()
                     && reportGenerator.allPassed()) {
-                logger.raw().info("All assertions passing \u2014 stopping (--mode validate)");
+                logger.raw().info("All assertions passing \u2014 stopping (--stop first-pass)");
                 earlyExit = true;
             }
 
