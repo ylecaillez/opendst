@@ -124,26 +124,20 @@ interface Orchestrator {
                 prefixSegments = truncateAt(prefixSegments, branchPoint);
             }
 
-            // Ensure we don't explore beyond the provided total duration
+            // Use the full remaining budget from the branch point
             long remainingBudget = duration - branchPoint;
             if (remainingBudget <= 0) {
                 return newRandomWalk();
             }
-            // Vary the last iteration: from 10% of remaining to 100% of remaining
-            // Use a higher minimum to force meaningful exploration
-            long minExploration = Math.max(1000, (long) (remainingBudget * 0.1));
-            long explorationLength = (long) (remainingBudget * (0.1 + current().nextDouble() * 0.9));
-            explorationLength = Math.max(Math.min(minExploration, remainingBudget), explorationLength);
 
             var segments = new ArrayList<>(prefixSegments);
             long seed = current().nextLong();
-            segments.add(new Segment(seed, branchPoint + explorationLength));
+            segments.add(new Segment(seed, branchPoint + remainingBudget));
             var exploratoryPlan = new Plan(segments, faultsConfig);
             logger.run("explore")
                     .withSignal(explorationKey)
                     .withScore(selected.score())
                     .withStartingAt(branchPoint)
-                    .withDuration(explorationLength)
                     .log();
             return new ExecutionPlan(exploratoryPlan, new GuidanceMonitor(exploratoryPlan));
         }
