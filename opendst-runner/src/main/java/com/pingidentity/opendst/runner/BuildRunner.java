@@ -64,7 +64,7 @@ import picocli.CommandLine.Parameters;
  * <ol>
  *   <li>Loads the assertion catalog from {@code deployment/META-INF/opendst/assertions.json}</li>
  *   <li>Loads the build configuration from {@code deployment/build-config.json}</li>
- *   <li>Spawns child JVMs running {@link DeploymentRunner} via {@link TestExecutor}</li>
+ *   <li>Spawns child JVMs running {@link OpenDSTExecutor} via {@link TestExecutor}</li>
  *   <li>Uses {@link Orchestrator.GuidedOrchestrator} to drive exploration</li>
  * </ol>
  */
@@ -216,7 +216,7 @@ public final class BuildRunner implements Callable<Integer> {
         var debugArgs =
                 isDebug ? "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=" + debugAddress : null;
         var jvmConfig = new JvmConfig(
-                instrumentedAppsDir, agentJarPath, effectiveJvmArgs, debugArgs, null, DeploymentRunner.class.getName());
+                instrumentedAppsDir, agentJarPath, effectiveJvmArgs, debugArgs, null, OpenDSTExecutor.class.getName());
 
         // Replay mode: load a saved plan and execute it once
         boolean isReplay = planFile != null;
@@ -258,8 +258,8 @@ public final class BuildRunner implements Callable<Integer> {
                 effectiveStopConditions);
 
         // TestExecutor uses testClass/testMethod as child JVM args.
-        // For DeploymentRunner, we pass the deployment dir path so the child knows where to find deployment.yaml.
-        var reportGenerator = new ReportGenerator(assertions);
+        // For OpenDSTExecutor, we pass the deployment dir path so the child knows where to find deployment.yaml.
+        var reportGenerator = new ReportGenerator(assertions, reportDir);
         new TestExecutor(
                         reportDir,
                         runsDir,

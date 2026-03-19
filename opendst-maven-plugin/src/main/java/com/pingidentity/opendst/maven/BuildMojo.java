@@ -37,9 +37,9 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.pingidentity.opendst.runner.Assertion;
 import com.pingidentity.opendst.runner.Bootstrap;
 import com.pingidentity.opendst.runner.BuildRunner.BuildConfig;
-import com.pingidentity.opendst.runner.DeploymentRunner.DeploymentDescriptor;
-import com.pingidentity.opendst.runner.DeploymentRunner.DeploymentDescriptor.ServiceDescriptor;
-import com.pingidentity.opendst.runner.DeploymentRunner.DeploymentDescriptor.TraceAuditorDescriptor;
+import com.pingidentity.opendst.runner.OpenDSTExecutor.DeploymentDescriptor;
+import com.pingidentity.opendst.runner.OpenDSTExecutor.DeploymentDescriptor.ServiceDescriptor;
+import com.pingidentity.opendst.runner.OpenDSTExecutor.DeploymentDescriptor.TraceAuditorDescriptor;
 import com.pingidentity.opendst.runner.OpenDstLogger;
 import java.io.File;
 import java.io.IOException;
@@ -422,7 +422,7 @@ public class BuildMojo extends AbstractMojo {
      * com/pingidentity/opendst/runner/Bootstrap.class  # Bootstrap (only class at root)
      * system/
      *   opendst-agent.jar                # Java agent (full shaded JAR, also loaded by URLClassLoader)
-     *   opendst-runner.jar              # Runner classes (BuildRunner, DeploymentRunner, etc.)
+     *   opendst-runner.jar              # Runner classes (BuildRunner, OpenDSTExecutor, etc.)
      *   jackson-databind.jar            # Library JARs
      *   jackson-core.jar
      *   jackson-annotations.jar
@@ -523,7 +523,7 @@ public class BuildMojo extends AbstractMojo {
      * {@link Bootstrap} builds a {@link java.net.URLClassLoader} from every
      * {@code system/*.jar} after extraction.
      *
-     * <p>This includes the runner JAR (BuildRunner, DeploymentRunner, etc.),
+     * <p>This includes the runner JAR (BuildRunner, OpenDSTExecutor, etc.),
      * Jackson, SnakeYAML, and opendst-sdk. {@code opendst-agent} is added separately
      * in {@link #buildJar} since it comes from the embedded agent JAR, not from
      * {@code pluginDescriptor}.
