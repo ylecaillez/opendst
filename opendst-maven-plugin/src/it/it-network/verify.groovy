@@ -112,7 +112,7 @@ println "Running: ${javaBin} -jar ${jarFile.absolutePath} --working-dir ${workin
 def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
                                  "--working-dir", workingDir.absolutePath,
                                  "--stagnation-limit", "200",
-                                 "--mode", "validate")
+                                 "--stop", "first-pass")
         .directory(basedir)
         .redirectErrorStream(true)
         .start()
