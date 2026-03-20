@@ -15,15 +15,12 @@
  */
 package com.pingidentity.opendst.runner;
 
-import static com.pingidentity.opendst.Constants.APPS_DIR_PROPERTY;
-import static com.pingidentity.opendst.Deployment.Image.image;
-import static com.pingidentity.opendst.Deployment.Service.service;
-import static com.pingidentity.opendst.Simulator.deploy;
 import static com.pingidentity.opendst.Simulator.runSimulation;
+import static com.pingidentity.opendst.Simulator.startNode;
+import static java.lang.ClassLoader.getPlatformClassLoader;
 import static java.lang.Runtime.getRuntime;
 import static java.lang.System.err;
 import static java.lang.System.exit;
-import static java.lang.System.setProperty;
 import static java.net.InetAddress.getByName;
 import static java.nio.file.Files.exists;
 import static java.nio.file.Files.isRegularFile;
@@ -32,14 +29,13 @@ import static tools.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRI
 import static tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.pingidentity.opendst.Deployment.Image;
-import com.pingidentity.opendst.Deployment.Service;
 import com.pingidentity.opendst.sdk.TraceAuditor;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,16 +45,17 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
 /**
  * Child JVM entry point for the self-contained JAR.
  *
- * <p>Instead of reflectively invoking a test method, this class reads the deployment descriptor and
- * calls {@link com.pingidentity.opendst.Simulator#deploy(java.util.List, java.util.List)}
- * followed by {@link com.pingidentity.opendst.Simulator#runSimulation}.
+ * <p>Reads a {@code deployment.yaml} descriptor from the deployment directory, resolves
+ * classpaths from the {@code apps/} subdirectories, and starts each service as a
+ * classloader-isolated node inside a deterministic simulation.
  *
- * <p>Arguments: {@code <deploymentDir> <ignored>}
+ * <p>Arguments: {@code <deploymentDir>}
  *
  * <p>The deployment directory is expected to contain:
  * <ul>
  *   <li>{@code deployment.yaml} — the enriched deployment descriptor (all services have {@code dir} set)</li>
  *   <li>{@code apps/} — instrumented application artifacts</li>
+ *   <li>{@code system/opendst-agent.jar} — the agent JAR added to each service's classpath</li>
  * </ul>
  */
 public final class OpenDSTExecutor {
@@ -79,31 +76,12 @@ public final class OpenDSTExecutor {
                     .build();
             var descriptor = yamlMapper.readValue(descriptorFile.toFile(), DeploymentDescriptor.class);
 
-            // Build Image and Service lists from the map-based descriptor.
-            // One Image per service (imageName = serviceName) since class differs per service.
             // The opendst-agent JAR must be on each service's classpath so that the
             // URLClassLoader (parented to getPlatformClassLoader()) can resolve
             // AssertImpl and other opendst-agent classes referenced by instrumented code.
+            var appsDir = deploymentDir.resolve("apps");
             var coreJarUrl =
                     deploymentDir.resolve("system/opendst-agent.jar").toUri().toURL();
-            var extraClasspath = new URL[] {coreJarUrl};
-            var images = new ArrayList<Image>();
-            var services = new ArrayList<Service>();
-
-            for (var entry : descriptor.services().entrySet()) {
-                var serviceName = entry.getKey();
-                var serviceDescriptor = entry.getValue();
-                // appDir(serviceName) returns the apps/ subdirectory for this service's source
-                var appDir = Path.of(serviceDescriptor.appDir(serviceName));
-                images.add(image(serviceName, appDir, serviceDescriptor.className(), extraClasspath));
-                services.add(service(
-                        serviceName, serviceName, getByName(serviceDescriptor.ip()), serviceDescriptor.argsArray()));
-            }
-
-            // Set the apps-dir property to point to the apps/ directory inside the extraction.
-            // This must happen before Deployment class initialization reads the apps-dir property.
-            var appsDir = deploymentDir.resolve("apps");
-            setProperty(APPS_DIR_PROPERTY, appsDir.toAbsolutePath().toString());
 
             // Resolve trace auditor if specified. The trace auditor is self-contained: its source
             // is identified by its own appDir() (from dir/artifact), not by referencing a service.
@@ -114,16 +92,28 @@ public final class OpenDSTExecutor {
                     throw new IllegalStateException(
                             "Trace auditor has no 'dir' or 'artifact' — the deployment descriptor may not have been enriched by the build plugin");
                 }
-                var auditorClassLoader = nodeClassLoader(appsDir, auditorAppDir);
+                var auditorClassLoader = classLoader(
+                        "trace-auditor-loader", appsDir.resolve(auditorAppDir), OpenDSTExecutor.class.getClassLoader());
                 var auditorClass = Class.forName(descriptor.traceAuditor().className(), true, auditorClassLoader);
                 traceAuditor =
                         (TraceAuditor) auditorClass.getDeclaredConstructor().newInstance();
             }
 
-            // Run the simulation
+            // Run the simulation — start each service as a classloader-isolated node.
             runSimulation(
                     () -> {
-                        deploy(images, services);
+                        for (var entry : descriptor.services().entrySet()) {
+                            var serviceName = entry.getKey();
+                            var svc = entry.getValue();
+                            var appDir = appsDir.resolve(svc.appDir(serviceName));
+                            var serviceClassLoader =
+                                    classLoader(serviceName, appDir, getPlatformClassLoader(), coreJarUrl);
+                            var mainMethod = serviceClassLoader
+                                    .loadClass(svc.className())
+                                    .getMethod("main", String[].class);
+                            startNode(
+                                    serviceName, getByName(svc.ip()), serviceClassLoader, mainMethod, svc.argsArray());
+                        }
                         return null;
                     },
                     traceAuditor);
@@ -140,33 +130,35 @@ public final class OpenDSTExecutor {
     }
 
     /**
-     * Builds a {@link URLClassLoader} that can see the node classes for the given app directory.
+     * Builds a {@link URLClassLoader} for a node whose classes live under {@code appDir/WEB-INF/}.
      *
-     * <p>Mirrors the classpath logic in {@code Deployment.classPath()} — walks
-     * {@code WEB-INF/lib/} for JARs, then checks for {@code WEB-INF/classes.jar} and
-     * {@code WEB-INF/classes/}. The parent is the system classloader so that the
-     * {@link TraceAuditor} interface (from {@code opendst-sdk}) remains visible for the cast.
+     * <p>Walks {@code WEB-INF/lib/} for JARs, then checks for {@code WEB-INF/classes.jar}
+     * and {@code WEB-INF/classes/}. Any additional URLs (e.g. the opendst-agent JAR) are
+     * appended after the application classpath.
      *
-     * @param appsDir  the root {@code apps/} directory inside the extraction
-     * @param appDir   the subdirectory name under {@code apps/} (e.g., {@code opendst-testapp})
+     * @param name      the classloader name (used for debugging)
+     * @param appDir    the application directory (contains {@code WEB-INF/})
+     * @param parent    the parent classloader
+     * @param extraUrls additional URLs appended after the application classpath
      */
-    private static URLClassLoader nodeClassLoader(Path appsDir, String appDir) throws IOException {
-        var webInfDir = appsDir.resolve(appDir).resolve("WEB-INF");
+    private static URLClassLoader classLoader(String name, Path appDir, ClassLoader parent, URL... extraUrls)
+            throws IOException {
+        var webInfDir = appDir.resolve("WEB-INF");
         var urls = new ArrayList<URL>();
 
         // WEB-INF/lib/*.jar
         var libDir = webInfDir.resolve("lib");
-        if (exists(libDir)) {
-            try (var libJars = walk(libDir).sorted()) {
-                libJars.filter(p -> p.toString().toLowerCase().endsWith(".jar") && isRegularFile(p))
-                        .forEach(p -> {
-                            try {
-                                urls.add(p.toUri().toURL());
-                            } catch (MalformedURLException e) {
-                                throw new UncheckedIOException(e);
-                            }
-                        });
-            }
+        try (var libJars = walk(libDir).sorted()) {
+            libJars.filter(p -> p.toString().toLowerCase().endsWith(".jar") && isRegularFile(p))
+                    .forEach(p -> {
+                        try {
+                            urls.add(p.toUri().toURL());
+                        } catch (MalformedURLException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    });
+        } catch (NoSuchFileException e) {
+            // No lib directory — that's fine
         }
         // WEB-INF/classes.jar
         var classesJar = webInfDir.resolve("classes.jar");
@@ -178,8 +170,11 @@ public final class OpenDSTExecutor {
         if (exists(classesDir)) {
             urls.add(classesDir.toUri().toURL());
         }
-        return new URLClassLoader(
-                "trace-auditor-loader", urls.toArray(URL[]::new), OpenDSTExecutor.class.getClassLoader());
+        // Extra URLs (e.g. opendst-agent.jar)
+        for (var extra : extraUrls) {
+            urls.add(extra);
+        }
+        return new URLClassLoader(name, urls.toArray(URL[]::new), parent);
     }
 
     /**
