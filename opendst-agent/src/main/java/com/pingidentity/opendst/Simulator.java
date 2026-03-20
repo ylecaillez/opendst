@@ -105,13 +105,13 @@ public final class Simulator {
         this.plan = requireNonNull(plan);
 
         // Build all components — each takes only its direct dependencies
-        var random = new Randomness.Source(this, plan.segments());
+        var random = new RandomInterceptors.Source(this, plan.segments());
         var faults = plan.faults() != null ? plan.faults() : new Faults.Config();
         this.hasher = new StateHasher();
         var logger = new ConsoleCapture(this, traceAuditor, System.out);
-        var network = new Network(this);
+        var network = new NetworkInterceptors(this);
         var faultInjector = new Faults.Injector(this, faults);
-        var scheduler = new Time.Scheduler(START_TIME, this, logger);
+        var scheduler = new TimeInterceptors.Scheduler(START_TIME, this, logger);
 
         // Assemble the immutable context last — passed only to Node
         this.context = new SimulationContext(this, scheduler, random, faults, network, faultInjector, logger);
@@ -119,7 +119,7 @@ public final class Simulator {
         logger.logLifecycle("started", START_TIME, 0).log();
     }
 
-    public Randomness.Source random() {
+    public RandomInterceptors.Source random() {
         return context.random();
     }
 
@@ -213,7 +213,7 @@ public final class Simulator {
     }
 
     /**
-     * Called by {@link Randomness.Source} at each segment boundary. Snapshots the current hash,
+     * Called by {@link RandomInterceptors.Source} at each segment boundary. Snapshots the current hash,
      * emits a {@code "segment-completed"} lifecycle signal, and checks the departing segment's
      * expected hash. If the expected hash is non-zero and differs from the actual hash, the
      * simulation exits with a non-determinism report.

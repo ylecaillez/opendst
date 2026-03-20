@@ -16,12 +16,12 @@
 package com.pingidentity.opendst;
 
 import static com.pingidentity.opendst.Node.CURRENT_NODE;
-import static com.pingidentity.opendst.Threads.Internals.clearNext;
-import static com.pingidentity.opendst.Threads.Internals.compareAndSetOnWaitingList;
-import static com.pingidentity.opendst.Threads.Internals.getNext;
-import static com.pingidentity.opendst.Threads.Internals.getThreadLocal;
-import static com.pingidentity.opendst.Threads.Internals.takeVirtualThreadListToUnblock;
-import static com.pingidentity.opendst.Threads.Internals.unblock;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.clearNext;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.compareAndSetOnWaitingList;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.getNext;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.getThreadLocal;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.takeVirtualThreadListToUnblock;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.unblock;
 import static java.lang.Thread.ofVirtual;
 import static java.lang.invoke.MethodHandles.lookup;
 import static java.lang.invoke.MethodHandles.privateLookupIn;
@@ -50,7 +50,7 @@ import net.bytebuddy.implementation.StubMethod;
 /**
  * Functional module for thread simulation and instrumentation.
  */
-public final class Threads {
+public final class ThreadsInterceptors {
 
     /** Exposes internal methods of {@link Thread}. */
     public static final class Internals {
@@ -389,7 +389,7 @@ public final class Threads {
                 .asTerminalTransformation();
     }
 
-    private Threads() {
+    private ThreadsInterceptors() {
         // Prevent instantiation
     }
 }

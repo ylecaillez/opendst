@@ -59,7 +59,7 @@ import net.bytebuddy.implementation.StubMethod;
 /**
  * Functional module for time simulation, scheduling, and real wall-clock access.
  */
-public final class Time {
+public final class TimeInterceptors {
 
     /**
      * Manages the execution of tasks in the simulated environment.
@@ -299,5 +299,5 @@ public final class Time {
                 .asTerminalTransformation();
     }
 
-    private Time() {}
+    private TimeInterceptors() {}
 }

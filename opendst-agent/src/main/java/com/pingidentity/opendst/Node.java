@@ -15,10 +15,10 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Threads.Internals.compareAndSetOnWaitingList;
-import static com.pingidentity.opendst.Threads.Internals.getNext;
-import static com.pingidentity.opendst.Threads.Internals.isOnWaitingList;
-import static com.pingidentity.opendst.Threads.Internals.setThreadLocal;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.compareAndSetOnWaitingList;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.getNext;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.isOnWaitingList;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.setThreadLocal;
 import static java.lang.String.format;
 import static java.lang.Thread.State.TERMINATED;
 import static java.lang.Thread.currentThread;
@@ -125,7 +125,7 @@ public final class Node {
      * Must be {@code public} — called from advice inlined into {@code java.util.Random},
      * {@code java.security.SecureRandom}, {@code java.util.concurrent.ThreadLocalRandom}, etc.
      */
-    public Randomness.Source random() {
+    public RandomInterceptors.Source random() {
         return context.random();
     }
 
@@ -137,7 +137,7 @@ public final class Node {
         return context.faultInjector();
     }
 
-    Network network() {
+    NetworkInterceptors network() {
         return context.network();
     }
 
@@ -314,7 +314,7 @@ public final class Node {
                             "Thread '%s' is no more present on the waiting-list. Determinism is broken",
                             thread.getName()));
                 }
-                Threads.Internals.unblock(thread);
+                ThreadsInterceptors.Internals.unblock(thread);
             }
         }
     }

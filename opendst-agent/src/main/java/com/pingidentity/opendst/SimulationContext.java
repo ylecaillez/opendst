@@ -24,10 +24,10 @@ package com.pingidentity.opendst;
  */
 record SimulationContext(
         Simulator simulator,
-        Time.Scheduler scheduler,
-        Randomness.Source random,
+        TimeInterceptors.Scheduler scheduler,
+        RandomInterceptors.Source random,
         Faults.Config faults,
-        Network network,
+        NetworkInterceptors network,
         Faults.Injector faultInjector,
         ConsoleCapture logger) {
 
