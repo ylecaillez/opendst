@@ -270,7 +270,7 @@ public final class Simulator {
                 sleep(60_000);
             } catch (InterruptedException _) {
             }
-            getRuntime().halt(reason.code);
+            getRuntime().exit(reason.code);
         }
     }
 

@@ -51,6 +51,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -240,7 +241,12 @@ final class TestExecutor {
             return monitorExecutionOutput(proc, execution);
         } finally {
             if (proc != null) {
-                proc.destroyForcibly();
+                // Graceful SIGTERM lets the child JVM run shutdown hooks (CDS archive dump).
+                // Falls back to SIGKILL if the child doesn't exit within 30 seconds.
+                proc.destroy();
+                if (!proc.waitFor(30, TimeUnit.SECONDS)) {
+                    proc.destroyForcibly();
+                }
             }
             if (runKiller != null) {
                 try {
@@ -327,6 +333,14 @@ final class TestExecutor {
         var command = new ArrayList<String>();
         command.add(JAVA_BIN);
         command.addAll(JAVA_BASE_OPTIONS);
+        // CDS (Class Data Sharing) reduces child JVM cold-start time by reusing a shared archive.
+        // Disabled in debug mode: CDS dumping is incompatible with the JDWP native agent.
+        if (jvm.debugArgs() == null) {
+            command.addAll(List.of(
+                    "-XX:+AutoCreateSharedArchive",
+                    "-XX:SharedArchiveFile=%s"
+                            .formatted(jvm.instrumentedAppsDir().getParent().resolve("opendst.jsa"))));
+        }
         command.addAll(List.of(
                 "-javaagent:%s".formatted(jvm.agentJarPath()),
                 "-Djava.io.tmpdir=%s".formatted(runTmpDir),

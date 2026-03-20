@@ -320,19 +320,18 @@ public final class BuildRunner implements Callable<Integer> {
     }
 
     /**
-     * Builds the classpath for child JVMs. Includes the deployment root (plugin + opendst
-     * classes) and all library JARs from {@code deployment/system/}.
+     * Builds the classpath for child JVMs from all library JARs in {@code deployment/system/}.
+     * The deployment root directory is intentionally excluded: CDS (Class Data Sharing) rejects
+     * non-empty directories as classpath entries, and the child JVM only needs the system JARs.
      */
     private static String buildChildClasspath(Path deploymentDir) {
         var sb = new StringBuilder();
-        sb.append(deploymentDir.toAbsolutePath());
-
-        // Add all JARs from system/ (Jackson, SnakeYAML, opendst-agent)
         var systemDir = deploymentDir.resolve("system").toFile();
         var jars = systemDir.listFiles((_, name) -> name.endsWith(".jar"));
         if (jars != null) {
-            for (var jar : jars) {
-                sb.append(File.pathSeparatorChar).append(jar.getAbsolutePath());
+            for (int i = 0; i < jars.length; i++) {
+                if (i > 0) sb.append(File.pathSeparatorChar);
+                sb.append(jars[i].getAbsolutePath());
             }
         }
         return sb.toString();
