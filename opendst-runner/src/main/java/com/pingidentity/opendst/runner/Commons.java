@@ -61,6 +61,8 @@ public final class Commons {
             "--add-opens=java.base/java.util=ALL-UNNAMED",
             "-Dnet.bytebuddy.safe=true",
             "-XX:+UnlockExperimentalVMOptions",
+            "-XX:+UnlockDiagnosticVMOptions",
+            "-XX:+AllowArchivingWithJavaAgent",
             // hashCode=2 uses a deterministic RNG for System.identityHashCode
             "-XX:hashCode=2",
             // Speed up keystore loading for tests
