@@ -72,7 +72,10 @@ public final class OpenDstLogger {
             Map.entry("signal:narrowed", new Glyph("\uD83D\uDCD0", 2)), // 📐
             Map.entry(
                     "signal:improved",
-                    new Glyph("\u2B06\uFE0F", 1)) // ⬆️ — most terminals render this as 1 column despite VS16
+                    new Glyph("\u2B06\uFE0F", 1)), // ⬆️ — most terminals render this as 1 column despite VS16
+            Map.entry(
+                    "run:progress",
+                    new Glyph("\u27A1\uFE0F", 1)) // ➡️ — most terminals render this as 1 column despite VS16
             );
 
     private static final Map<String, String> TYPE_COLOR = Map.ofEntries(
@@ -84,7 +87,8 @@ public final class OpenDstLogger {
             Map.entry("run:settings", DIM),
             Map.entry("signal:found", GREEN),
             Map.entry("signal:narrowed", MAGENTA),
-            Map.entry("signal:improved", GREEN));
+            Map.entry("signal:improved", GREEN),
+            Map.entry("run:progress", DIM));
 
     /** Minimal logging sink that decouples OpenDST from Maven's Log interface. */
     public interface Sink {
@@ -243,6 +247,11 @@ public final class OpenDstLogger {
 
         LogBuilder withDistance(double distance) {
             attributes.put("distance", "%.4f".formatted(distance));
+            return this;
+        }
+
+        LogBuilder withPassing(int passing, int total) {
+            attributes.put("passing", passing + "/" + total);
             return this;
         }
 

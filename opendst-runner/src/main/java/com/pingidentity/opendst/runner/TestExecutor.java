@@ -60,6 +60,9 @@ final class TestExecutor {
     private static final String JAVA_BIN =
             Path.of(System.getProperty("java.home"), "bin", "java").toString();
 
+    /** How often (in runs) to emit a progress line to the console. */
+    private static final int PROGRESS_INTERVAL = 10;
+
     record LogStatement(@JsonProperty("it") long iteration, String source, JsonNode log) {}
 
     /** JVM launch configuration for child processes. */
@@ -195,6 +198,15 @@ final class TestExecutor {
             } else if (runCount - lastInterestingRun.get() >= runConfig.stagnationLimit()) {
                 return null;
             }
+
+            if (runCount % PROGRESS_INTERVAL == 0) {
+                var counts = reportGenerator.passingCount();
+                logger.run("progress")
+                        .with("run", runCount)
+                        .with("stagnation", runCount - lastInterestingRun.get())
+                        .withPassing(counts[0], counts[1])
+                        .log();
+            }
         }
     }
 
@@ -210,10 +222,7 @@ final class TestExecutor {
         if (current().nextDouble() < runConfig.replayProbability()) {
             var plan = pastPlans.poll();
             if (plan != null) {
-                logger.run("check")
-                        .withHash(plan.hash())
-                        .withDuration(plan.segments().getLast().iteration())
-                        .log();
+                logger.run("check").withHash(plan.hash()).log();
                 return new ExecutionPlan(plan, _ -> false);
             }
         }
@@ -269,12 +278,14 @@ final class TestExecutor {
                     }
                 }
             }
-            // For some reason (hopefully captured in the last log line), the process exited but the "stopped" signal
-            // has not been received.
+            // Child exited without sending "stopped" — synthesize an error result so the failure
+            // flows through the normal reporting pipeline (fail line, report.json, log.json preservation).
+            int exitCode = proc.waitFor();
+            result.synthesizeCrash(exitCode, lastLogs);
             logger.raw()
-                    .error("opendst-agent exited unexpectedly with code %d. Here are the latest logs received:\n%s"
-                            .formatted(proc.waitFor(), String.join("\n", lastLogs)));
-            throw new IOException("opendst-agent failed unexpectedly (exit code %d)".formatted(proc.waitFor()));
+                    .error("child process exited unexpectedly (code %d). Last %d log lines preserved in report."
+                            .formatted(exitCode, lastLogs.size()));
+            return result;
         }
     }
 
