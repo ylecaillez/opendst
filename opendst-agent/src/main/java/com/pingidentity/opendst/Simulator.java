@@ -28,8 +28,6 @@ import static java.lang.Thread.sleep;
 import static java.util.Arrays.stream;
 import static java.util.Objects.requireNonNull;
 
-import com.pingidentity.opendst.Deployment.Image;
-import com.pingidentity.opendst.Deployment.Service;
 import com.pingidentity.opendst.Plan.Segment;
 import com.pingidentity.opendst.sdk.TraceAuditor;
 import java.io.IOException;
@@ -38,7 +36,6 @@ import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -313,22 +310,6 @@ public final class Simulator {
         requireNonNull(bootstrap);
         var current = currentNodeOrThrow();
         new Node(current.context, getSystemClassLoader(), hostName, ipAddress).startNode(bootstrap);
-    }
-
-    /**
-     * Creates and starts a deployment of services within the simulation.
-     *
-     * <p>This is a convenience method equivalent to creating a {@link Deployment} and calling
-     * its {@link Deployment#deploy()} method. Use this when testing real distributed applications
-     * with classloader-isolated nodes.
-     *
-     * @param images   the list of images to use
-     * @param services the list of services to deploy
-     * @throws Exception if an error occurs during deployment
-     * @see Deployment#deploy()
-     */
-    public static void deploy(List<Image> images, List<Service> services) throws Exception {
-        Deployment.deployment(images, services).deploy();
     }
 
     Instant instant() {
