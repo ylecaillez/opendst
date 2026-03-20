@@ -62,7 +62,7 @@ import net.bytebuddy.implementation.Implementation.Context.Disabled.Factory;
  */
 public final class SimulatorAgent {
     public static final String AGENT_PROPERTY = "com.pingidentity.opendst.simulator.agent";
-    private static final ClassDesc THREADS_CLASS = ClassDesc.of("com.pingidentity.opendst.Threads");
+    private static final ClassDesc THREADS_CLASS = ClassDesc.of("com.pingidentity.opendst.ThreadsInterceptors");
     private static final ClassDesc SIGNALS_IMPL_CLASS = ClassDesc.of("com.pingidentity.opendst.SignalsImpl");
     private static final ClassDesc ASSERT_IMPL_CLASS = ClassDesc.of("com.pingidentity.opendst.AssertImpl");
 
@@ -92,11 +92,11 @@ public final class SimulatorAgent {
                         .or(nameStartsWith("sun."))
                         .or(nameStartsWith("javax."))));
 
-        agent = Time.instrument(agent);
+        agent = TimeInterceptors.instrument(agent);
         agent = SystemInterceptors.instrument(agent);
-        agent = Randomness.instrument(agent);
-        agent = Threads.instrument(agent);
-        agent = Network.instrument(agent);
+        agent = RandomInterceptors.instrument(agent);
+        agent = ThreadsInterceptors.instrument(agent);
+        agent = NetworkInterceptors.instrument(agent);
 
         agent.installOn(instrumentation);
 

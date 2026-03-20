@@ -56,7 +56,7 @@ import net.bytebuddy.description.method.MethodDescription.ForLoadedMethod;
 /**
  * Functional module for randomness simulation and instrumentation.
  */
-public final class Randomness {
+public final class RandomInterceptors {
 
     /** The source of randomness used by the simulator and everything running inside the simulator. */
     public static final class Source extends Random {
@@ -368,8 +368,8 @@ public final class Randomness {
                                         .and(isFinal())
                                         .and(fieldType(long.class)))
                                 .onRead()
-                                .replaceWith(
-                                        new ForLoadedMethod(Randomness.class.getMethod("immutableCollectionsSalt32l")))
+                                .replaceWith(new ForLoadedMethod(
+                                        RandomInterceptors.class.getMethod("immutableCollectionsSalt32l")))
                                 .on(any()));
                     } catch (NoSuchMethodException ex) {
                         throw new Simulator.SimulationError(ex);
@@ -385,8 +385,8 @@ public final class Randomness {
                                         .and(isFinal())
                                         .and(fieldType(boolean.class)))
                                 .onRead()
-                                .replaceWith(
-                                        new ForLoadedMethod(Randomness.class.getMethod("immutableCollectionsReverse")))
+                                .replaceWith(new ForLoadedMethod(
+                                        RandomInterceptors.class.getMethod("immutableCollectionsReverse")))
                                 .on(any()));
                     } catch (NoSuchMethodException ex) {
                         throw new Simulator.SimulationError(ex);
@@ -394,7 +394,7 @@ public final class Randomness {
                 });
     }
 
-    private Randomness() {
+    private RandomInterceptors() {
         // Prevent instantiation
     }
 }

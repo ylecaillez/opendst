@@ -134,11 +134,11 @@ public class InstrumentationAuditTest {
 
     private void auditDiscoveredAdvice() throws Exception {
         var simulatedClasses = List.of(
-                Network.class,
-                Randomness.class,
+                NetworkInterceptors.class,
+                RandomInterceptors.class,
                 SystemInterceptors.class,
-                Threads.class,
-                Time.class,
+                ThreadsInterceptors.class,
+                TimeInterceptors.class,
                 SignalsImpl.class,
                 AssertImpl.class);
 

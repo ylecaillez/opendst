@@ -64,7 +64,7 @@ import net.bytebuddy.asm.Advice.Return;
  *       running inside a simulation node.</li>
  * </ul>
  */
-public final class Network {
+public final class NetworkInterceptors {
 
     private final Simulator simulator;
     private final Map<InetAddress, String> addressToName;
@@ -102,7 +102,7 @@ public final class Network {
         }
     }
 
-    Network(Simulator simulator) {
+    NetworkInterceptors(Simulator simulator) {
         this.simulator = requireNonNull(simulator);
         this.addressToName = new HashMap<>(SimulationContext.MAX_ADDRESSES);
         this.nameToNode = new HashMap<>(SimulationContext.MAX_NODES);
