@@ -26,6 +26,7 @@ import com.pingidentity.opendst.runner.Signal.AssertSignal;
 import com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType;
 import com.pingidentity.opendst.runner.Signal.LifecycleSignal;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -110,6 +111,23 @@ final class ExecutionResult {
     boolean runFailed() {
         return assertionsHit.values().stream()
                 .anyMatch(a -> a.failCount() > 0 && (a.kind() == ALWAYS || a.kind() == ALWAYS_OR_UNREACHABLE));
+    }
+
+    /**
+     * Records a synthetic internal error when the child JVM exits without sending
+     * structured lifecycle signals (hard crash, pre-simulator failure, OOM, etc.).
+     *
+     * <p>Synthesizes a fail on {@code "no internal error"} with the exit code and
+     * last captured log lines as details, plus a pass on {@code "simulation terminated"}
+     * so that {@link #runFailed()} and {@link #isInteresting()} return {@code true}.
+     */
+    void synthesizeCrash(int exitCode, Collection<String> lastLogs) {
+        var details = JSON_MAPPER.createObjectNode();
+        details.put("exitCode", exitCode);
+        details.put("cause", "child process exited unexpectedly (code %d)".formatted(exitCode));
+        details.set("lastLogs", JSON_MAPPER.valueToTree(lastLogs));
+        trackAssertion(ALWAYS_OR_UNREACHABLE, "no internal error", false, 0, details);
+        trackAssertion(ALWAYS, "simulation terminated", true, 0, null);
     }
 
     boolean addSignal(SignalEvent signal, boolean isInteresting) {

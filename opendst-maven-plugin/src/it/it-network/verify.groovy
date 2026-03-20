@@ -160,4 +160,13 @@ assert failed.isEmpty() :
 // No runs should have failed — verify no type:fail lines in the output
 check(!output.toString().contains("type:fail"), "Unexpected type:fail in output", logFile)
 
+// Verify the simulation didn't run excessively — parse progress lines for run count.
+// Progress lines look like: "progress     run:42 stagnation:3 passing:25/31"
+def runCounts = (output.toString() =~ /progress\s+run:(\d+)/).collect { it[1] as int }
+if (!runCounts.isEmpty()) {
+    def maxRun = runCounts.max()
+    println "Max run count from progress lines: ${maxRun}"
+    check(maxRun <= 600, "Simulation ran too many iterations (${maxRun}), possible stagnation/stop-condition issue", logFile)
+}
+
 println "All verifications passed — network-fault-test JAR runs successfully and produces correct report."

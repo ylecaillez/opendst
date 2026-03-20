@@ -131,21 +131,37 @@ final class ReportGenerator {
      */
     boolean allPassed() {
         for (var assertion : assertions) {
-            var hit = examples.get(assertion.message());
-            if (hit == null || (hit.passCount() == 0 && hit.failCount() == 0)) {
-                // Never hit — only passes if mustHit is false (e.g. ALWAYS_OR_UNREACHABLE)
-                if (assertion.kind().mustHit()) {
-                    return false;
-                }
-            } else if (SOMETIMES.equals(assertion.kind())) {
-                if (hit.passCount() == 0) {
-                    return false;
-                }
-            } else if (hit.failCount() > 0) {
+            if (!isPassing(assertion)) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Returns the number of assertions currently in a passing state and the total count.
+     * Used for progress reporting (e.g. {@code passing:25/31}).
+     */
+    int[] passingCount() {
+        int passing = 0;
+        for (var assertion : assertions) {
+            if (isPassing(assertion)) {
+                passing++;
+            }
+        }
+        return new int[] {passing, assertions.size()};
+    }
+
+    /** Checks whether a single assertion meets its kind-specific passing criteria. */
+    private boolean isPassing(Assertion assertion) {
+        var hit = examples.get(assertion.message());
+        if (hit == null || (hit.passCount() == 0 && hit.failCount() == 0)) {
+            return !assertion.kind().mustHit();
+        } else if (SOMETIMES.equals(assertion.kind())) {
+            return hit.passCount() > 0;
+        } else {
+            return hit.failCount() == 0;
+        }
     }
 
     record ReportState(int count, String duration, List<AssertionState> assertions) {}
@@ -154,19 +170,8 @@ final class ReportGenerator {
         var state = new ArrayList<AssertionState>();
         for (var assertion : assertions) {
             var hit = examples.get(assertion.message());
-            if (hit == null || hit.passCount() == 0 && hit.failCount() == 0) {
-                // Never hit at runtime.
-                // fail: always(), sometimes() (mustHit — must be reached at least once)
-                // pass: alwaysOrUnreachable(), unreachable()
-                state.add(new AssertionState(
-                        assertion.message(), !assertion.kind().mustHit(), null));
-            } else if (SOMETIMES.equals(assertion.kind())) {
-                state.add(new AssertionState(assertion.message(), hit.passCount() > 0, hit));
-            } else if (hit.failCount() > 0) {
-                state.add(new AssertionState(assertion.message(), false, hit));
-            } else {
-                state.add(new AssertionState(assertion.message(), true, hit));
-            }
+            var noExamples = hit == null || (hit.passCount() == 0 && hit.failCount() == 0);
+            state.add(new AssertionState(assertion.message(), isPassing(assertion), noExamples ? null : hit));
         }
         JSON_MAPPER
                 .writer()
