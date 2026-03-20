@@ -111,7 +111,7 @@ public final class RandomInterceptors {
             }
             iteration++;
             last = super.next(bits);
-            this.simulator.hash(last);
+            simulator.hash(last);
             return last;
         }
     }

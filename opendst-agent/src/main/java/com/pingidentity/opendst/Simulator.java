@@ -17,6 +17,8 @@ package com.pingidentity.opendst;
 
 import static com.pingidentity.opendst.Node.currentNodeOrNull;
 import static com.pingidentity.opendst.Node.currentNodeOrThrow;
+import static com.pingidentity.opendst.SimulationContext.MAX_TASKS;
+import static com.pingidentity.opendst.Simulator.ExitReason.INTERNAL_ERROR;
 import static com.pingidentity.opendst.Simulator.ExitReason.PLAN_OK;
 import static com.pingidentity.opendst.SimulatorAgent.AGENT_PROPERTY;
 import static java.lang.Boolean.getBoolean;
@@ -27,6 +29,8 @@ import static java.lang.Thread.currentThread;
 import static java.lang.Thread.sleep;
 import static java.util.Arrays.stream;
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.Future.State.CANCELLED;
+import static java.util.concurrent.Future.State.SUCCESS;
 
 import com.pingidentity.opendst.Plan.Segment;
 import com.pingidentity.opendst.sdk.TraceAuditor;
@@ -36,9 +40,13 @@ import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.Objects;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonParser;
 import tools.jackson.jr.ob.JSON;
@@ -111,7 +119,7 @@ public final class Simulator {
         var logger = new ConsoleCapture(this, traceAuditor, System.out);
         var network = new NetworkInterceptors(this);
         var faultInjector = new Faults.Injector(this, faults);
-        var scheduler = new TimeInterceptors.Scheduler(START_TIME, this, logger);
+        var scheduler = new Scheduler(START_TIME, logger);
 
         // Assemble the immutable context last — passed only to Node
         this.context = new SimulationContext(this, scheduler, random, faults, network, faultInjector, logger);
@@ -220,23 +228,29 @@ public final class Simulator {
      *
      * @param departingSegment the segment that just completed
      */
-    void checkSegmentHash(Plan.Segment departingSegment) {
+    void checkSegmentHash(Segment departingSegment) {
         int actualHash = hasher.getHash();
-        context.logger()
-                .logLifecycle("segment-completed", instant(), iteration())
-                .withNumber("hash", actualHash)
-                .log();
-        if (departingSegment.hash() != 0 && departingSegment.hash() != actualHash) {
-            reportNonDeterminism(departingSegment.hash(), actualHash);
+        if (departingSegment.hash() == 0) {
+            // Nothing to check
+        } else if (departingSegment.hash() == actualHash) {
+            context.logger()
+                    .logLifecycle("segment-completed", instant(), iteration())
+                    .withNumber("hash", actualHash)
+                    .log();
+        } else {
+            context.logger()
+                    .logLifecycle("non-determinism detected", instant(), iteration())
+                    .withNumber("expectedHash", departingSegment.hash())
+                    .withNumber("actualHash", actualHash)
+                    .log();
+            exitSimulation(INTERNAL_ERROR);
         }
     }
 
     void exitSimulation(ExitReason reason) {
-        flushLogs();
-
         int actualHash = hasher.getHash();
         // Check for run-level non-determinism before emitting the stopped signal
-        if (!ExitReason.INTERNAL_ERROR.equals(reason) && plan.hash() != 0 && plan.hash() != actualHash) {
+        if (!INTERNAL_ERROR.equals(reason) && plan.hash() != 0 && plan.hash() != actualHash) {
             context.logger()
                     .logLifecycle("non-determinism detected", instant(), iteration())
                     .withNumber("expectedHash", plan.hash())
@@ -276,31 +290,7 @@ public final class Simulator {
                                 .map(StackTraceElement::toString)
                                 .toList())
                 .log();
-        exitSimulation(ExitReason.INTERNAL_ERROR);
-    }
-
-    /**
-     * Reports a non-determinism detection by emitting a lifecycle signal with the expected and actual
-     * hash codes, then terminating the simulation.
-     *
-     * @param expectedHash the hash that was expected
-     * @param actualHash   the hash that was actually computed
-     */
-    void reportNonDeterminism(int expectedHash, int actualHash) {
-        context.logger()
-                .logLifecycle("non-determinism detected", instant(), iteration())
-                .withNumber("expectedHash", expectedHash)
-                .withNumber("actualHash", actualHash)
-                .log();
-        exitSimulation(ExitReason.INTERNAL_ERROR);
-    }
-
-    void flushLogs() {
-        context.network().nodes().values().forEach(Node::flush);
-    }
-
-    void checkNodesWaitingList(Node node) {
-        context.network().nodes().values().forEach(n -> n.checkNoThreadOnWaitingList(node));
+        exitSimulation(INTERNAL_ERROR);
     }
 
     public static void startNode(String hostName, String ipAddress, Callable<Void> bootstrap) throws IOException {
@@ -352,11 +342,91 @@ public final class Simulator {
         var bootstrapNode = new Node(context, getSystemClassLoader(), "simulator", "127.0.0.1");
         bootstrapNode.startNode(scenario);
         context.scheduler().run();
-        flushLogs();
         // When the scheduler's run loop exits but threads are still alive, it means all remaining
         // threads are blocked (waiting on I/O, locks, etc.). This is a normal simulation outcome
         // — not an error — since the plan simply ran out of runnable tasks.
         exitSimulation(PLAN_OK);
+    }
+
+    // ── Scheduler ─────────────────────────────────────────────────────────────
+
+    /**
+     * Manages the execution of tasks in the simulated environment.
+     * Responsible for virtual time progression and task scheduling.
+     */
+    final class Scheduler {
+        private final ConsoleCapture logger;
+        private final PriorityQueue<ScheduledTask> tasks = new PriorityQueue<>();
+        private Instant now;
+        private long taskId;
+
+        Scheduler(Instant startTime, ConsoleCapture logger) {
+            this.now = startTime;
+            this.logger = logger;
+        }
+
+        Instant now() {
+            return now;
+        }
+
+        void run() {
+            for (var task = tasks.poll(); task != null; task = tasks.poll()) {
+                if (task.runAt.isBefore(now)) {
+                    reportInternalError(new SimulationError("Simulator has gone backward in time"));
+                } else {
+                    now = task.runAt;
+                    var result = task.execute();
+                    if (!Set.of(SUCCESS, CANCELLED).contains(result)) {
+                        reportInternalError(new SimulationError("Task failed", task.exceptionNow()));
+                    }
+                    logger.flush();
+                    checkNodesWaitingList(task.node);
+                }
+            }
+        }
+
+        private void checkNodesWaitingList(Node node) {
+            context.network().nodes().values().forEach(n -> n.checkNoThreadOnWaitingList(node));
+        }
+
+        Future<?> scheduleExactlyAt(Node node, Runnable task, Instant at) {
+            if (at.isBefore(now)) {
+                reportInternalError(new SimulationError("Cannot schedule a task in the past"));
+            }
+            if (tasks.size() >= MAX_TASKS) {
+                reportInternalError(new SimulationError("Maximum task queue size reached"));
+            }
+            var queuedTask = new ScheduledTask(node, at, task, taskId++);
+            tasks.add(queuedTask);
+            return queuedTask;
+        }
+    }
+
+    /** Represents a task waiting to be executed in the simulated environment. */
+    private static final class ScheduledTask extends FutureTask<Void> implements Comparable<ScheduledTask> {
+        private static final Comparator<ScheduledTask> COMPARATOR =
+                Comparator.<ScheduledTask, Instant>comparing(q -> q.runAt).thenComparingLong(a -> a.taskId);
+
+        private final Node node;
+        private final Instant runAt;
+        private final long taskId;
+
+        ScheduledTask(Node node, Instant runAt, Runnable task, long taskId) {
+            super(task, null);
+            this.node = requireNonNull(node);
+            this.runAt = requireNonNull(runAt);
+            this.taskId = taskId;
+        }
+
+        @Override
+        public int compareTo(ScheduledTask other) {
+            return COMPARATOR.compare(this, other);
+        }
+
+        State execute() {
+            node.execute(this);
+            return state();
+        }
     }
 
     void uncaughtExceptionHandler(Node node, Thread thread, Throwable throwable) {

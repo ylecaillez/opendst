@@ -156,7 +156,7 @@ public final class AssertImpl {
                 .logAssert(
                         requireNonNull(message),
                         node.hostName,
-                        node.instant(),
+                        node.simulator().instant(),
                         node.random().iteration())
                 .withString("kind", kind)
                 .withBoolean("condition", condition)
@@ -170,7 +170,7 @@ public final class AssertImpl {
                 .logGuidance(
                         requireNonNull(message),
                         node.hostName,
-                        node.instant(),
+                        node.simulator().instant(),
                         node.random().iteration())
                 .withPOJO("guidance", guidance)
                 .log();

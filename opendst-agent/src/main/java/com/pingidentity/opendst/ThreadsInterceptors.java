@@ -17,15 +17,20 @@ package com.pingidentity.opendst;
 
 import static com.pingidentity.opendst.Node.currentNodeOrNull;
 import static com.pingidentity.opendst.Node.nodeForThreadOrNull;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.clearNext;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.clearNextVirtualThread;
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.compareAndSetOnWaitingList;
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.getNextVirtualThread;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.isOnWaitingList;
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.takeVirtualThreadListToUnblock;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.unblock;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.unblockVirtualThread;
+import static java.lang.String.format;
+import static java.lang.Thread.State.TERMINATED;
 import static java.lang.Thread.ofVirtual;
+import static java.lang.Thread.onSpinWait;
 import static java.lang.invoke.MethodHandles.lookup;
 import static java.lang.invoke.MethodHandles.privateLookupIn;
 import static java.lang.invoke.MethodType.methodType;
+import static java.util.Objects.requireNonNull;
 import static net.bytebuddy.asm.Advice.to;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
@@ -119,7 +124,7 @@ public final class ThreadsInterceptors {
             return (Thread) VTHREAD_NEXT.get(thread);
         }
 
-        static void clearNext(Thread thread) {
+        static void clearNextVirtualThread(Thread thread) {
             VTHREAD_NEXT.set(thread, null);
         }
 
@@ -151,7 +156,7 @@ public final class ThreadsInterceptors {
             }
         }
 
-        public static void unblock(Thread vthread) {
+        public static void unblockVirtualThread(Thread vthread) {
             try {
                 VTHREAD_UNBLOCK.invoke(vthread);
             } catch (Throwable e) {
@@ -166,22 +171,39 @@ public final class ThreadsInterceptors {
      * Replaces {@code VirtualThread#unblockVirtualThreads()} which processes virtual threads exiting object monitor.
      */
     public static final class VirtualThreadUnblocker {
-        /**
-         * Unblocks all the virtual threads present on the waiting list.
-         */
+        /** Unblocks all the virtual threads present on the waiting list. */
         public static void unblockVirtualThreads() {
             for (; ; ) {
                 var vthread = takeVirtualThreadListToUnblock();
                 while (vthread != null) {
                     var nextThread = getNextVirtualThread(vthread);
-                    clearNext(vthread);
-                    var nodeOrNull = nodeForThreadOrNull(vthread);
-                    if (nodeOrNull == null) {
-                        boolean changed = compareAndSetOnWaitingList(vthread, true, false);
-                        assert changed;
-                        unblock(vthread);
+                    clearNextVirtualThread(vthread);
+                    if (nodeForThreadOrNull(vthread) == null) {
+                        // Only unblock virtual threads scheduled on standard JVM's executor. The virtual threads
+                        // scheduled on the Simulator's scheduler will be unblocked after task execution by an
+                        // invocation to unblockSimulatorBackedThread()
+                        compareAndSetOnWaitingList(vthread, true, false);
+                        unblockVirtualThread(vthread);
                     }
                     vthread = nextThread;
+                }
+            }
+        }
+
+        public static void unblockSimulatorBackedThread(Thread thread) {
+            requireNonNull(thread);
+            if (thread.isAlive() && thread.getState() != TERMINATED) {
+                if (isOnWaitingList(thread)) {
+                    while (getNextVirtualThread(thread) != null) {
+                        // Wait for unblockVirtualThreads() to detach this thread from the waiting list
+                        onSpinWait();
+                    }
+                    if (!compareAndSetOnWaitingList(thread, true, false)) {
+                        throw new Simulator.SimulationError(format(
+                                "Thread '%s' is no more present on the waiting-list. Determinism is broken",
+                                thread.getName()));
+                    }
+                    ThreadsInterceptors.Internals.unblockVirtualThread(thread);
                 }
             }
         }

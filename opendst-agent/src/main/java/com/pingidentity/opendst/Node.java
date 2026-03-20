@@ -15,22 +15,20 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.compareAndSetOnWaitingList;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.getNextVirtualThread;
+import static com.pingidentity.opendst.SimulationContext.MAX_VIRTUAL_THREADS_PER_NODE;
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.isOnWaitingList;
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.setThreadLocal;
 import static java.lang.String.format;
 import static java.lang.System.setErr;
 import static java.lang.System.setOut;
-import static java.lang.Thread.State.TERMINATED;
 import static java.lang.Thread.currentThread;
 import static java.lang.Thread.ofVirtual;
-import static java.lang.Thread.onSpinWait;
 import static java.net.InetAddress.getLoopbackAddress;
 import static java.time.temporal.ChronoUnit.NANOS;
 import static java.util.Objects.requireNonNull;
 
 import com.pingidentity.opendst.NodeSocketImpl.Binding;
+import com.pingidentity.opendst.ThreadsInterceptors.VirtualThreadUnblocker;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.BindException;
@@ -46,7 +44,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.ToLongFunction;
@@ -69,8 +66,6 @@ public final class Node {
     final long salt32l;
     final boolean reverse;
     final ToLongFunction<Random> defaultSchedulingJitter = r -> r.nextLong(1, 10_000);
-    final CompletableFuture<Integer> shutdown = new CompletableFuture<>();
-    boolean stopped;
 
     private final InetAddress localHost;
     private final NodeInterfaces netInterfaces;
@@ -143,12 +138,10 @@ public final class Node {
             } else {
                 CURRENT_NODE.remove();
             }
-            purgeAndUnblockVirtualThreads();
+            // Some thread blocked on monitor might have been unblocked as a result of this execution
+            virtualThreads.forEach(VirtualThreadUnblocker::unblockSimulatorBackedThread);
+            console.flush();
         }
-    }
-
-    void flush() {
-        console.flush();
     }
 
     /** Must be {@code public} — called from advice inlined into {@code java.net.InetAddress}. */
@@ -214,8 +207,7 @@ public final class Node {
         requireNonNull(thread);
         if (!thread.isVirtual()) {
             throw new IllegalArgumentException("Only virtual threads can be attached to a node");
-        }
-        if (virtualThreads.size() >= SimulationContext.MAX_VIRTUAL_THREADS_PER_NODE) {
+        } else if (virtualThreads.size() >= MAX_VIRTUAL_THREADS_PER_NODE) {
             context.simulator()
                     .reportInternalError(new Simulator.SimulationError(
                             "Max number of virtual threads reached for machine '" + hostName + "'"));
@@ -236,15 +228,14 @@ public final class Node {
         execute(() -> ofVirtual().name(hostName + "-main").start(() -> {
             try {
                 scenario.call();
-                shutdown.complete(0);
             } catch (Throwable e) {
-                if (e instanceof Simulator.SystemExitError exitError) {
-                    shutdown.complete(exitError.exitCode);
-                } else {
+                if (!(e instanceof Simulator.SystemExitError)) {
                     uncaughtExceptionHandler(currentThread(), e);
                 }
             } finally {
-                stopped = true;
+                // TODO: Stop handling is incomplete here: we should (silently ?) prevent scheduling new tasks after
+                //  once the shutdown hooks, accepting a possible memory leak. Effectively, the node lifecycle is not
+                //  clearly implemented yet.
                 context.network().unregisterDns(hostName);
                 shutdownHooks.forEach(Thread::start);
                 shutdownHooks.forEach(hook -> {
@@ -330,27 +321,6 @@ public final class Node {
     /** Must be {@code public} — called from advice inlined into {@code java.lang.Runtime}. */
     public void exit(int status) {
         throw new Simulator.SystemExitError(status);
-    }
-
-    void purgeAndUnblockVirtualThreads() {
-        virtualThreads.forEach(this::unblockWaitingThread);
-    }
-
-    private void unblockWaitingThread(Thread thread) {
-        requireNonNull(thread);
-        if (thread.isAlive() && thread.getState() != TERMINATED) {
-            if (isOnWaitingList(thread)) {
-                while (getNextVirtualThread(thread) != null) {
-                    onSpinWait();
-                }
-                if (!compareAndSetOnWaitingList(thread, true, false)) {
-                    throw new Simulator.SimulationError(format(
-                            "Thread '%s' is no more present on the waiting-list. Determinism is broken",
-                            thread.getName()));
-                }
-                ThreadsInterceptors.Internals.unblock(thread);
-            }
-        }
     }
 
     private void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
