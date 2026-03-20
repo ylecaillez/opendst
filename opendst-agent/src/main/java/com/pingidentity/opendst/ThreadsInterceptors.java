@@ -15,11 +15,11 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Node.CURRENT_NODE;
+import static com.pingidentity.opendst.Node.currentNodeOrNull;
+import static com.pingidentity.opendst.Node.nodeForThreadOrNull;
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.clearNext;
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.compareAndSetOnWaitingList;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.getNext;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.getThreadLocal;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.getNextVirtualThread;
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.takeVirtualThreadListToUnblock;
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.unblock;
 import static java.lang.Thread.ofVirtual;
@@ -115,7 +115,7 @@ public final class ThreadsInterceptors {
             }
         }
 
-        static Thread getNext(Thread thread) {
+        static Thread getNextVirtualThread(Thread thread) {
             return (Thread) VTHREAD_NEXT.get(thread);
         }
 
@@ -173,9 +173,9 @@ public final class ThreadsInterceptors {
             for (; ; ) {
                 var vthread = takeVirtualThreadListToUnblock();
                 while (vthread != null) {
-                    var nextThread = getNext(vthread);
+                    var nextThread = getNextVirtualThread(vthread);
                     clearNext(vthread);
-                    var nodeOrNull = (Node) getThreadLocal(vthread, CURRENT_NODE);
+                    var nodeOrNull = nodeForThreadOrNull(vthread);
                     if (nodeOrNull == null) {
                         boolean changed = compareAndSetOnWaitingList(vthread, true, false);
                         assert changed;
@@ -192,49 +192,49 @@ public final class ThreadsInterceptors {
     /** Deterministic implementation of {@link Thread#Thread()}. */
     @SuppressWarnings({"MissingJavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod"})
     public static Thread newThread() {
-        return CURRENT_NODE.get() != null ? ofVirtual().unstarted(() -> {}) : new Thread();
+        return currentNodeOrNull() != null ? ofVirtual().unstarted(() -> {}) : new Thread();
     }
 
     /** Deterministic implementation of {@link Thread#Thread(String)}. */
     @SuppressWarnings({"MissingJavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod"})
     public static Thread newThread(String name) {
-        return CURRENT_NODE.get() != null ? ofVirtual().name(name).unstarted(() -> {}) : new Thread(name);
+        return currentNodeOrNull() != null ? ofVirtual().name(name).unstarted(() -> {}) : new Thread(name);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, String)}. */
     @SuppressWarnings({"MissingJavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod"})
     public static Thread newThread(ThreadGroup group, String name) {
-        return CURRENT_NODE.get() != null ? ofVirtual().name(name).unstarted(() -> {}) : new Thread(group, name);
+        return currentNodeOrNull() != null ? ofVirtual().name(name).unstarted(() -> {}) : new Thread(group, name);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(Runnable)}. */
     @SuppressWarnings({"MissingJavadocMethod", "unused"})
     public static Thread newThread(Runnable target) {
-        return CURRENT_NODE.get() != null ? ofVirtual().unstarted(target) : new Thread(target);
+        return currentNodeOrNull() != null ? ofVirtual().unstarted(target) : new Thread(target);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable)}. */
     @SuppressWarnings({"MissingJavadocMethod", "unused"})
     public static Thread newThread(ThreadGroup group, Runnable target) {
-        return CURRENT_NODE.get() != null ? ofVirtual().unstarted(target) : new Thread(group, target);
+        return currentNodeOrNull() != null ? ofVirtual().unstarted(target) : new Thread(group, target);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(Runnable, String)}. */
     @SuppressWarnings({"MissingJavadocMethod", "unused"})
     public static Thread newThread(Runnable target, String name) {
-        return CURRENT_NODE.get() != null ? ofVirtual().name(name).unstarted(target) : new Thread(target, name);
+        return currentNodeOrNull() != null ? ofVirtual().name(name).unstarted(target) : new Thread(target, name);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String)}. */
     @SuppressWarnings({"MissingJavadocMethod", "unused"})
     public static Thread newThread(ThreadGroup group, Runnable target, String name) {
-        return CURRENT_NODE.get() != null ? ofVirtual().name(name).unstarted(target) : new Thread(group, target, name);
+        return currentNodeOrNull() != null ? ofVirtual().name(name).unstarted(target) : new Thread(group, target, name);
     }
 
     /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long)}. */
     @SuppressWarnings({"MissingJavadocMethod", "unused"})
     public static Thread newThread(ThreadGroup group, Runnable target, String name, long stackSize) {
-        return CURRENT_NODE.get() != null
+        return currentNodeOrNull() != null
                 ? ofVirtual().name(name).unstarted(target)
                 : new Thread(group, target, name, stackSize);
     }
@@ -243,7 +243,7 @@ public final class ThreadsInterceptors {
     @SuppressWarnings({"MissingJavadocMethod", "unused"})
     public static Thread newThread(
             ThreadGroup group, Runnable target, String name, long stackSize, boolean inheritThreadLocal) {
-        return CURRENT_NODE.get() != null
+        return currentNodeOrNull() != null
                 ? ofVirtual().name(name).unstarted(target)
                 : new Thread(group, target, name, stackSize, inheritThreadLocal);
     }
@@ -252,7 +252,7 @@ public final class ThreadsInterceptors {
     @SuppressWarnings({"MissingJavadocMethod", "unused"})
     public static Thread newThread(
             ThreadGroup group, String name, int characteristics, Runnable target, long stackSize) {
-        return CURRENT_NODE.get() != null
+        return currentNodeOrNull() != null
                 ? ofVirtual().name(name).unstarted(target)
                 : Internals.newThread(group, name, characteristics, target, stackSize);
     }
@@ -263,7 +263,7 @@ public final class ThreadsInterceptors {
         @OnMethodEnter
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter(@Argument(value = 0, readOnly = false) Executor executor) {
-            var node = CURRENT_NODE.get();
+            var node = currentNodeOrNull();
             if (node != null) {
                 executor = node::scheduleNow;
             }
@@ -285,7 +285,7 @@ public final class ThreadsInterceptors {
         @OnMethodEnter
         @SuppressWarnings({"MissingJavadocMethod", "ParameterCanBeLocal", "UnusedAssignment", "ReassignedVariable"})
         public static void onEnter(@Argument(value = 0, readOnly = false) boolean on) {
-            var node = CURRENT_NODE.get();
+            var node = currentNodeOrNull();
             if (node != null) {
                 on = true;
             }
@@ -300,7 +300,7 @@ public final class ThreadsInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return CURRENT_NODE.get();
+            return currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -318,7 +318,7 @@ public final class ThreadsInterceptors {
         @OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return CURRENT_NODE.get();
+            return currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -351,7 +351,7 @@ public final class ThreadsInterceptors {
         @OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return CURRENT_NODE.get();
+            return currentNodeOrNull();
         }
 
         @OnMethodExit

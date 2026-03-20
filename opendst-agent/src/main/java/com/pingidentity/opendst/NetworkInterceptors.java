@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Node.CURRENT_NODE;
+import static com.pingidentity.opendst.Node.currentNodeOrNull;
 import static java.util.Locale.ROOT;
 import static java.util.Objects.requireNonNull;
 import static net.bytebuddy.asm.Advice.to;
@@ -188,7 +188,7 @@ public final class NetworkInterceptors {
                 @Override
                 public Stream<InetAddress> lookupByName(String host, LookupPolicy lookupPolicy)
                         throws UnknownHostException {
-                    var node = CURRENT_NODE.get();
+                    var node = currentNodeOrNull();
                     return node != null
                             ? node.context.network().lookupByName(host)
                             : builtinResolver.lookupByName(host, lookupPolicy);
@@ -196,7 +196,7 @@ public final class NetworkInterceptors {
 
                 @Override
                 public String lookupByAddress(byte[] addr) throws UnknownHostException {
-                    var node = CURRENT_NODE.get();
+                    var node = currentNodeOrNull();
                     return node != null
                             ? node.context.network().lookupByAddress(InetAddress.getByAddress(addr))
                             : builtinResolver.lookupByAddress(addr);
@@ -214,7 +214,7 @@ public final class NetworkInterceptors {
     public static final class InetAddressGetLocalHost {
         @OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
         public static InetAddress onEnter() {
-            var node = CURRENT_NODE.get();
+            var node = currentNodeOrNull();
             return node != null ? node.getLocalHost() : null;
         }
 
@@ -236,11 +236,11 @@ public final class NetworkInterceptors {
     @SuppressWarnings({"deprecation", "removal"})
     static AgentBuilder instrument(AgentBuilder agent) throws IOException {
         Socket.setSocketImplFactory(() -> {
-            var node = CURRENT_NODE.get();
+            var node = currentNodeOrNull();
             return node != null ? node.newSocketImpl(false) : createPlatformSocketImpl(false);
         });
         ServerSocket.setSocketFactory(() -> {
-            var node = CURRENT_NODE.get();
+            var node = currentNodeOrNull();
             return node != null ? node.newSocketImpl(true) : createPlatformSocketImpl(true);
         });
         return agent.type(named("java.net.InetAddress"))

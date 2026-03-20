@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Node.CURRENT_NODE;
+import static com.pingidentity.opendst.Node.currentNodeOrNull;
 import static net.bytebuddy.asm.Advice.to;
 import static net.bytebuddy.asm.MemberSubstitution.relaxed;
 import static net.bytebuddy.matcher.ElementMatchers.any;
@@ -121,7 +121,7 @@ public final class RandomInterceptors {
     @Intercepts("java.util.ImmutableCollections#SALT32L")
     public static long immutableCollectionsSalt32l()
             throws IllegalAccessException, ClassNotFoundException, NoSuchFieldException {
-        var node = CURRENT_NODE.get();
+        var node = currentNodeOrNull();
         if (node != null) {
             return node.immutableCollectionsSalt32l();
         }
@@ -135,7 +135,7 @@ public final class RandomInterceptors {
     @Intercepts("java.util.ImmutableCollections#REVERSE")
     public static boolean immutableCollectionsReverse()
             throws IllegalAccessException, ClassNotFoundException, NoSuchFieldException {
-        var node = CURRENT_NODE.get();
+        var node = currentNodeOrNull();
         if (node != null) {
             return node.immutableCollectionsReverse();
         }
@@ -150,7 +150,7 @@ public final class RandomInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return CURRENT_NODE.get();
+            return currentNodeOrNull();
         }
     }
 
@@ -160,7 +160,7 @@ public final class RandomInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return CURRENT_NODE.get();
+            return currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -178,7 +178,7 @@ public final class RandomInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return CURRENT_NODE.get();
+            return currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -198,7 +198,7 @@ public final class RandomInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return CURRENT_NODE.get();
+            return currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -218,7 +218,7 @@ public final class RandomInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return CURRENT_NODE.get();
+            return currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -236,7 +236,7 @@ public final class RandomInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter(@This RandomGenerator self) {
-            return self instanceof Source ? null : CURRENT_NODE.get();
+            return self instanceof Source ? null : currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -256,7 +256,7 @@ public final class RandomInterceptors {
         public static Node onEnter(@This Random self) {
             // To prevent stack-overflow, call the original implementation for Source.
             // ThreadLocalRandom next(int) original implementation delegates to getSeed() which is already overridden.
-            return self instanceof Source || self instanceof ThreadLocalRandom ? null : CURRENT_NODE.get();
+            return self instanceof Source || self instanceof ThreadLocalRandom ? null : currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -276,7 +276,7 @@ public final class RandomInterceptors {
         public static Node onEnter(@This Random self) {
             // To prevent stack-overflow, call the original implementation for Source.
             // ThreadLocalRandom next(int) original implementation delegates to getSeed() which is already overridden.
-            return self instanceof Source ? null : CURRENT_NODE.get();
+            return self instanceof Source ? null : currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -296,7 +296,7 @@ public final class RandomInterceptors {
         public static Node onEnter(@This Random self) {
             // To prevent stack-overflow, call the original implementation for Source.
             // ThreadLocalRandom next(int) original implementation delegates to getSeed() which is already overridden.
-            return self instanceof Source ? null : CURRENT_NODE.get();
+            return self instanceof Source ? null : currentNodeOrNull();
         }
 
         @OnMethodExit
