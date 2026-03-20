@@ -104,7 +104,7 @@ public final class Simulator {
     private final StateHasher hasher;
     private boolean ready;
 
-    private Simulator(Plan plan, TraceAuditor traceAuditor) {
+    private Simulator(Plan plan, TraceAuditor traceAuditor) throws IOException {
         this.plan = requireNonNull(plan);
 
         // Build all components — each takes only its direct dependencies

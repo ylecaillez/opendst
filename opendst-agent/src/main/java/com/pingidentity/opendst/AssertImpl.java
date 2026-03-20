@@ -16,6 +16,7 @@
 package com.pingidentity.opendst;
 
 import static com.pingidentity.opendst.Node.currentNodeOrThrow;
+import static java.util.Map.of;
 import static java.util.Objects.requireNonNull;
 
 import java.util.Map;
@@ -30,16 +31,13 @@ public final class AssertImpl {
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#always(boolean,String,java.util.Map)")
     public static void always(boolean condition, String message, Map<String, Object> details) {
-        requireNonNull(message);
-        var node = currentNodeOrThrow();
-        log(node, "always", message, condition, details);
+        log("always", message, condition, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysOrUnreachable(boolean,String,java.util.Map)")
     public static void alwaysOrUnreachable(boolean condition, String message, Map<String, Object> details) {
-        requireNonNull(message);
-        var node = currentNodeOrThrow();
-        log(node, "alwaysOrUnreachable", message, condition, details);
+        ;
+        log("alwaysOrUnreachable", message, condition, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#unreachable(String,java.util.Map)")
@@ -51,9 +49,7 @@ public final class AssertImpl {
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimes(boolean,String,java.util.Map)")
     public static void sometimes(boolean condition, String message, Map<String, Object> details) {
-        requireNonNull(message);
-        var node = currentNodeOrThrow();
-        log(node, "sometimes", message, condition, details);
+        log("sometimes", message, condition, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#reachable(String,java.util.Map)")
@@ -69,7 +65,7 @@ public final class AssertImpl {
         var node = currentNodeOrThrow();
         boolean condition = left.compareTo(right) > 0;
         log(node, "always", message, condition, details);
-        logGuidance(node, message, Map.of("left", left, "right", right));
+        logGuidance(node, message, of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysGreaterThanOrEqualTo(Number,Number,String,java.util.Map)")
@@ -78,7 +74,7 @@ public final class AssertImpl {
         var node = currentNodeOrThrow();
         boolean condition = left.compareTo(right) >= 0;
         log(node, "always", message, condition, details);
-        logGuidance(node, message, Map.of("left", left, "right", right));
+        logGuidance(node, message, of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysLessThan(Number,Number,String,java.util.Map)")
@@ -87,7 +83,7 @@ public final class AssertImpl {
         var node = currentNodeOrThrow();
         boolean condition = left.compareTo(right) < 0;
         log(node, "always", message, condition, details);
-        logGuidance(node, message, Map.of("left", left, "right", right));
+        logGuidance(node, message, of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysLessThanOrEqualTo(Number,Number,String,java.util.Map)")
@@ -96,7 +92,7 @@ public final class AssertImpl {
         var node = currentNodeOrThrow();
         boolean condition = left.compareTo(right) <= 0;
         log(node, "always", message, condition, details);
-        logGuidance(node, message, Map.of("left", left, "right", right));
+        logGuidance(node, message, of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesGreaterThan(Number,Number,String,java.util.Map)")
@@ -104,7 +100,7 @@ public final class AssertImpl {
             T left, T right, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
         log(node, "sometimes", message, left.compareTo(right) > 0, details);
-        logGuidance(node, message, Map.of("left", left, "right", right));
+        logGuidance(node, message, of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesGreaterThanOrEqualTo(Number,Number,String,java.util.Map)")
@@ -112,7 +108,7 @@ public final class AssertImpl {
             T left, T right, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
         log(node, "sometimes", message, left.compareTo(right) >= 0, details);
-        logGuidance(node, message, Map.of("left", left, "right", right));
+        logGuidance(node, message, of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesLessThan(Number,Number,String,java.util.Map)")
@@ -120,7 +116,7 @@ public final class AssertImpl {
             T left, T right, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
         log(node, "sometimes", message, left.compareTo(right) < 0, details);
-        logGuidance(node, message, Map.of("left", left, "right", right));
+        logGuidance(node, message, of("left", left, "right", right));
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesLessThanOrEqualTo(Number,Number,String,java.util.Map)")
@@ -128,7 +124,7 @@ public final class AssertImpl {
             T left, T right, String message, Map<String, Object> details) {
         var node = currentNodeOrThrow();
         log(node, "sometimes", message, left.compareTo(right) <= 0, details);
-        logGuidance(node, message, Map.of("left", left, "right", right));
+        logGuidance(node, message, of("left", left, "right", right));
     }
 
     // --- Grouped ---
@@ -138,7 +134,7 @@ public final class AssertImpl {
         var node = currentNodeOrThrow();
         boolean overall = conditions.values().stream().anyMatch(b -> b);
         log(node, "always", message, overall, details);
-        logGuidance(node, message, Map.of("conditions", conditions));
+        logGuidance(node, message, of("conditions", conditions));
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesAll(java.util.Map,String,java.util.Map)")
@@ -146,13 +142,22 @@ public final class AssertImpl {
         var node = currentNodeOrThrow();
         boolean overall = conditions.values().stream().allMatch(b -> b);
         log(node, "sometimes", message, overall, details);
-        logGuidance(node, message, Map.of("conditions", conditions));
+        logGuidance(node, message, of("conditions", conditions));
     }
 
     /** Emits an assertion verdict — "condition was true/false". */
+    private static void log(String kind, String message, boolean condition, Map<String, Object> details) {
+        log(currentNodeOrThrow(), kind, message, condition, details);
+    }
+
     private static void log(Node node, String kind, String message, boolean condition, Map<String, Object> details) {
-        node.logger()
-                .logAssert(message, node.hostName, node.instant(), node.random().iteration())
+        currentNodeOrThrow()
+                .logger()
+                .logAssert(
+                        requireNonNull(message),
+                        node.hostName,
+                        node.instant(),
+                        node.random().iteration())
                 .withString("kind", kind)
                 .withBoolean("condition", condition)
                 .withPOJO("details", details)
@@ -163,7 +168,10 @@ public final class AssertImpl {
     private static void logGuidance(Node node, String message, Map<String, Object> guidance) {
         node.logger()
                 .logGuidance(
-                        message, node.hostName, node.instant(), node.random().iteration())
+                        requireNonNull(message),
+                        node.hostName,
+                        node.instant(),
+                        node.random().iteration())
                 .withPOJO("guidance", guidance)
                 .log();
     }
