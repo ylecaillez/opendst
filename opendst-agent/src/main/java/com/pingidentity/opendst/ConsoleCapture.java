@@ -50,7 +50,7 @@ import tools.jackson.jr.ob.JSON;
  *       for deferred {@link TraceAuditor} processing.</li>
  * </ul>
  *
- * <p>Deferred processing: {@link #processLogs()} drains the buffered {@link LogWriter} entries to
+ * <p>Deferred processing: {@link #flush()} ()} drains the buffered {@link LogWriter} entries to
  * {@link TraceAuditor#process} and is called <em>outside</em> the simulation tick so that arbitrary user-supplied
  * auditor code cannot affect determinism.
  *
@@ -73,15 +73,15 @@ final class ConsoleCapture {
     private static final JSON JSON_LOGGER =
             JSON.builder().disable(FLUSH_AFTER_WRITE_VALUE).build();
 
+    private boolean traceAuditorFailed;
+
     ConsoleCapture(Simulator simulator, TraceAuditor traceAuditor, PrintStream out) throws IOException {
         this.simulator = simulator;
         this.traceAuditor = traceAuditor;
         var spyPath = System.getProperty("opendst.log-spy");
-        if (spyPath != null) {
-            this.out = new TeeingPrintStream(out, new FileOutputStream(spyPath, true));
-        } else {
-            this.out = new CloseShieldPrintStream(out);
-        }
+        this.out = spyPath != null
+                ? new TeeingPrintStream(out, new FileOutputStream(spyPath, true))
+                : new CloseShieldPrintStream(out);
     }
 
     // ── Core API: log factory methods ──────────────────────────────────────────
@@ -124,19 +124,31 @@ final class ConsoleCapture {
     // ── Lifecycle ──────────────────────────────────────────────────────────────
 
     /**
+     * Flushes the underlying output stream to ensure all JSON log entries are delivered to the parent process.
      * Drains all buffered {@link LogWriter} entries to {@link TraceAuditor#process}. Called <em>outside</em> the
      * simulation tick so that arbitrary user-supplied auditor code cannot interfere with deterministic execution.
      */
-    void processLogs() throws Throwable {
-        for (var log : unauditedLogs) {
-            traceAuditor.process(log);
-        }
-        unauditedLogs.clear();
-    }
-
-    /** Flushes the underlying output stream to ensure all JSON log entries are delivered to the parent process. */
     void flush() {
         out.flush();
+        try {
+            for (var log : unauditedLogs) {
+                traceAuditor.process(log);
+            }
+            unauditedLogs.clear();
+        } catch (Throwable e) {
+            if (!traceAuditorFailed) {
+                traceAuditorFailed = true;
+                logLifecycle("trace auditor exception", simulator.instant(), simulator.iteration())
+                        .withString("cause", e.getMessage())
+                        .withPOJO(
+                                "stacktrace",
+                                java.util.Arrays.stream(e.getStackTrace())
+                                        .limit(10)
+                                        .map(StackTraceElement::toString)
+                                        .toList())
+                        .log();
+            }
+        }
     }
 
     /**
@@ -222,7 +234,7 @@ final class ConsoleCapture {
      *
      * <p>If a line is already a JSON object ({@code \{...\}}), it is embedded as a raw value; otherwise it is
      * wrapped in a {@code type:stdout} object. Every line is hashed into the deterministic state and buffered
-     * in {@link #unauditedLogs} for deferred {@link TraceAuditor} processing via {@link #processLogs()}.
+     * in {@link #unauditedLogs} for deferred {@link TraceAuditor} processing via {@link #flush()}.
      */
     final class LogWriter extends OutputStream {
         private final String host;

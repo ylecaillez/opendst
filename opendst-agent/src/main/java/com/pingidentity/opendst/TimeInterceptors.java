@@ -15,13 +15,11 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Node.currentNodeOrThrow;
 import static java.lang.foreign.MemoryLayout.PathElement.groupElement;
 import static java.lang.foreign.MemoryLayout.structLayout;
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
-import static java.util.concurrent.Future.State.SUCCESS;
 import static java.util.concurrent.TimeUnit.MICROSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static net.bytebuddy.asm.Advice.to;
@@ -38,11 +36,6 @@ import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Comparator;
-import java.util.PriorityQueue;
-import java.util.concurrent.Future;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.TimeUnit;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.asm.Advice.Enter;
@@ -53,129 +46,9 @@ import net.bytebuddy.asm.Advice.Return;
 import net.bytebuddy.implementation.StubMethod;
 
 /**
- * Functional module for time simulation, scheduling, and real wall-clock access.
+ * Bytecode advice for time-related JDK methods and access to the real (non-simulated) wall clock.
  */
 public final class TimeInterceptors {
-
-    /**
-     * Manages the execution of tasks in the simulated environment.
-     * Responsible for virtual time progression and task scheduling.
-     */
-    static final class Scheduler {
-
-        private final Simulator simulator;
-        private final ConsoleCapture logger;
-        private final PriorityQueue<ScheduledTask> tasks = new PriorityQueue<>();
-        private Instant now;
-        private long taskId;
-        private boolean traceAuditorFailed;
-
-        Scheduler(Instant startTime, Simulator simulator, ConsoleCapture logger) {
-            this.now = startTime;
-            this.simulator = simulator;
-            this.logger = logger;
-        }
-
-        Instant now() {
-            return now;
-        }
-
-        void run() {
-            for (var task = tasks.poll(); task != null; task = tasks.poll()) {
-                processTask(task);
-            }
-        }
-
-        private void processTask(ScheduledTask task) {
-            assert task.node != null;
-
-            if (task.runAt.isBefore(now)) {
-                simulator.reportInternalError(new SimulationError("Simulator has gone backward in time"));
-            } else if (!task.skip) {
-                now = task.runAt;
-                executeTask(task);
-                postTaskCleanup(task);
-            }
-        }
-
-        private void executeTask(ScheduledTask task) {
-            task.node.execute(task);
-        }
-
-        private void postTaskCleanup(ScheduledTask task) {
-            if (!SUCCESS.equals(task.state())) {
-                simulator.reportInternalError(new SimulationError("Task failed", task.exceptionNow()));
-            }
-            simulator.flushLogs();
-            logger.flush();
-            try {
-                logger.processLogs();
-            } catch (Throwable e) {
-                if (!traceAuditorFailed) {
-                    traceAuditorFailed = true;
-                    logger.logLifecycle("trace auditor exception", simulator.instant(), simulator.iteration())
-                            .withString("cause", e.getMessage())
-                            .withPOJO(
-                                    "stacktrace",
-                                    java.util.Arrays.stream(e.getStackTrace())
-                                            .limit(10)
-                                            .map(StackTraceElement::toString)
-                                            .toList())
-                            .log();
-                }
-            }
-            simulator.checkNodesWaitingList(task.node);
-        }
-
-        Future<?> scheduleAfterDelay(Node node, Runnable task, long delay, TimeUnit unit) {
-            return scheduleExactlyAt(node, task, now.plus(delay, unit.toChronoUnit()));
-        }
-
-        Future<?> scheduleExactlyAt(Node node, Runnable task, Instant at) {
-            var current = currentNodeOrThrow();
-            if (at.isBefore(now)) {
-                simulator.reportInternalError(new SimulationError("Cannot schedule a task in the past"));
-            }
-            if (tasks.size() >= SimulationContext.MAX_TASKS) {
-                simulator.reportInternalError(new SimulationError("Maximum task queue size reached"));
-            }
-            var queuedTask = new ScheduledTask(node, at, task, taskId++);
-            tasks.add(queuedTask);
-            return queuedTask;
-        }
-    }
-
-    /** Represents a task waiting to be executed in the simulated environment. */
-    private static final class ScheduledTask extends FutureTask<Void> implements Comparable<ScheduledTask> {
-        private static final Comparator<ScheduledTask> COMPARATOR =
-                Comparator.<ScheduledTask, Instant>comparing(q -> q.runAt).thenComparingLong(a -> a.taskId);
-
-        final Node node;
-        final Instant runAt;
-        final long taskId;
-        boolean skip;
-
-        ScheduledTask(Node node, Instant runAt, Runnable task, long taskId) {
-            super(task, null);
-            this.node = node;
-            this.runAt = runAt;
-            this.taskId = taskId;
-        }
-
-        @Override
-        public boolean cancel(boolean mayInterruptIfRunning) {
-            boolean cancelled = super.cancel(mayInterruptIfRunning);
-            if (cancelled) {
-                skip = true;
-            }
-            return cancelled;
-        }
-
-        @Override
-        public int compareTo(ScheduledTask other) {
-            return COMPARATOR.compare(this, other);
-        }
-    }
 
     /**
      * Provides access to the real, non-simulated wall clock.
