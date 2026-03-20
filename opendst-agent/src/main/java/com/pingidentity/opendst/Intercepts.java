@@ -22,7 +22,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Indicates that a class or method provides advice for a specific JDK method.
+ * Indicates that a class or method provides advice for a specific intercepted method.
  * Used for automated auditing of OpenDST instrumentation.
  */
 @Target({ElementType.TYPE, ElementType.METHOD})
@@ -30,7 +30,8 @@ import java.lang.annotation.Target;
 @Repeatable(Intercepts.List.class)
 public @interface Intercepts {
     /**
-     * {@return the fully qualified method name being intercepted (e.g. "java.lang.System#nanoTime()")}
+     * {@return the fully qualified name of the class or method being intercepted
+     * (e.g. "java.lang.System#nanoTime()")}
      */
     String value();
 

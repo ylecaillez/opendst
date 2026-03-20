@@ -71,7 +71,7 @@ public final class Deployment {
         this.services = services.stream().collect(toMap(Service::name, identity()));
         this.services.values().forEach(s -> {
             if (!this.images.containsKey(s.imageName())) {
-                throw new IllegalArgumentException("Image " + s.imageName() + " does not exist");
+                throw new IllegalArgumentException("Image %s does not exist".formatted(s.imageName()));
             }
         });
     }
