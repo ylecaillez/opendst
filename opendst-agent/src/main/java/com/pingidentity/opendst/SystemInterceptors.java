@@ -77,7 +77,7 @@ public final class SystemInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return Node.CURRENT_NODE.get();
+            return Node.currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -95,7 +95,7 @@ public final class SystemInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return Node.CURRENT_NODE.get();
+            return Node.currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -114,7 +114,7 @@ public final class SystemInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return Node.CURRENT_NODE.get();
+            return Node.currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -143,7 +143,7 @@ public final class SystemInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return Node.CURRENT_NODE.get();
+            return Node.currentNodeOrNull();
         }
     }
 
@@ -153,7 +153,7 @@ public final class SystemInterceptors {
         @SuppressWarnings("MissingJavadocMethod")
         @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
         public static Node onEnter() {
-            return Node.CURRENT_NODE.get();
+            return Node.currentNodeOrNull();
         }
 
         @SuppressWarnings("MissingJavadocMethod")
@@ -171,7 +171,7 @@ public final class SystemInterceptors {
         @SuppressWarnings("MissingJavadocMethod")
         @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
         public static Node onEnter() {
-            return Node.CURRENT_NODE.get();
+            return Node.currentNodeOrNull();
         }
 
         @SuppressWarnings("MissingJavadocMethod")
@@ -192,7 +192,7 @@ public final class SystemInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return Node.CURRENT_NODE.get();
+            return Node.currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -212,7 +212,7 @@ public final class SystemInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return Node.CURRENT_NODE.get();
+            return Node.currentNodeOrNull();
         }
     }
 }

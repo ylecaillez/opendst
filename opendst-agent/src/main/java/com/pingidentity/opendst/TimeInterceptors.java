@@ -15,11 +15,7 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Node.CURRENT_NODE;
 import static com.pingidentity.opendst.Node.currentNodeOrThrow;
-import static java.lang.System.setErr;
-import static java.lang.System.setOut;
-import static java.lang.Thread.currentThread;
 import static java.lang.foreign.MemoryLayout.PathElement.groupElement;
 import static java.lang.foreign.MemoryLayout.structLayout;
 import static java.lang.foreign.ValueLayout.ADDRESS;
@@ -103,28 +99,15 @@ public final class TimeInterceptors {
         }
 
         private void executeTask(ScheduledTask task) {
-            CURRENT_NODE.set(task.node);
-            currentThread().setContextClassLoader(task.node.classLoader);
-            setOut(task.node.console);
-            setErr(task.node.console);
-            simulator.hash(now, task.node.hostName, task.taskId);
-            try {
-                task.run();
-                task.node.purgeAndUnblockVirtualThreads();
-            } finally {
-                CURRENT_NODE.remove();
-            }
+            task.node.execute(task);
         }
 
         private void postTaskCleanup(ScheduledTask task) {
             if (!SUCCESS.equals(task.state())) {
-                var throwable = task.exceptionNow();
-                simulator.reportInternalError(new SimulationError("Task failed", throwable));
+                simulator.reportInternalError(new SimulationError("Task failed", task.exceptionNow()));
             }
-            if (task.taskId % 100 == 0) {
-                simulator.flushLogs();
-                logger.flush();
-            }
+            simulator.flushLogs();
+            logger.flush();
             try {
                 logger.processLogs();
             } catch (Throwable e) {
@@ -262,7 +245,7 @@ public final class TimeInterceptors {
         @OnMethodExit
         @SuppressWarnings("MissingJavadocMethod")
         public static void intercept(@Advice.Origin Method method, @Return(readOnly = false) long out) {
-            var node = CURRENT_NODE.get();
+            var node = Node.currentNodeOrNull();
             out = node != null
                     ? "currentTimeMillis".equals(method.getName()) ? node.currentTimeMillis() : node.nanoTime()
                     : "currentTimeMillis".equals(method.getName()) ? RealTime.currentTimeMillis() : RealTime.nanoTime();
@@ -275,7 +258,7 @@ public final class TimeInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter() {
-            return CURRENT_NODE.get();
+            return Node.currentNodeOrNull();
         }
 
         @OnMethodExit

@@ -16,10 +16,12 @@
 package com.pingidentity.opendst;
 
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.compareAndSetOnWaitingList;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.getNext;
+import static com.pingidentity.opendst.ThreadsInterceptors.Internals.getNextVirtualThread;
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.isOnWaitingList;
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.setThreadLocal;
 import static java.lang.String.format;
+import static java.lang.System.setErr;
+import static java.lang.System.setOut;
 import static java.lang.Thread.State.TERMINATED;
 import static java.lang.Thread.currentThread;
 import static java.lang.Thread.ofVirtual;
@@ -56,7 +58,7 @@ import java.util.stream.Stream;
  * A Node provides its own IP address, class loader, and deterministic implementations of JDK APIs.
  */
 public final class Node {
-    public static final ThreadLocal<Node> CURRENT_NODE = new ThreadLocal<>();
+    private static final ThreadLocal<Node> CURRENT_NODE = new ThreadLocal<>();
 
     final SimulationContext context;
     final String hostName;
@@ -93,18 +95,56 @@ public final class Node {
         context.network().registerDns(hostName, this);
     }
 
+    /** {@return the Node attached to this thread, or {@code null} if not in a simulation} */
+    public static Node currentNodeOrNull() {
+        return CURRENT_NODE.get();
+    }
+
+    /**
+     * {@return the Node attached to the given thread, or {@code null}}
+     *
+     * <p>Uses reflective access to read the thread-local value from an arbitrary thread.
+     */
+    static Node nodeForThreadOrNull(Thread thread) {
+        return (Node) ThreadsInterceptors.Internals.getThreadLocal(thread, CURRENT_NODE);
+    }
+
     /**
      * {@return The Node attached to this thread}.
      * @throws IllegalStateException if this thread is not part of a simulation.
      */
     static Node currentNodeOrThrow() {
-        var node = CURRENT_NODE.get();
+        var node = currentNodeOrNull();
         if (node == null) {
             throw new IllegalStateException(format(
                     "This operation cannot be performed from the thread '%s' as it is not part of a simulation",
                     currentThread().getName()));
         }
         return node;
+    }
+
+    /**
+     * Executes the given action with this node as the current node on the calling thread.
+     * Restores the previous node when the action completes.
+     *
+     * @param action the action to execute with this node as current
+     */
+    void execute(Runnable action) {
+        simulator().hash(simulator().instant(), hostName);
+        var previous = CURRENT_NODE.get();
+        CURRENT_NODE.set(this);
+        setOut(console);
+        setErr(console);
+        try {
+            action.run();
+        } finally {
+            if (previous != null) {
+                CURRENT_NODE.set(previous);
+            } else {
+                CURRENT_NODE.remove();
+            }
+            purgeAndUnblockVirtualThreads();
+        }
     }
 
     void flush() {
@@ -193,35 +233,29 @@ public final class Node {
      */
     void startNode(Callable<Void> scenario) {
         requireNonNull(scenario);
-        var originalNode = CURRENT_NODE.get();
-        CURRENT_NODE.set(this);
-        try {
-            ofVirtual().name(hostName + "-main").start(() -> {
-                try {
-                    scenario.call();
-                    shutdown.complete(0);
-                } catch (Throwable e) {
-                    if (e instanceof Simulator.SystemExitError exitError) {
-                        shutdown.complete(exitError.exitCode);
-                    } else {
-                        uncaughtExceptionHandler(currentThread(), e);
-                    }
-                } finally {
-                    stopped = true;
-                    context.network().unregisterDns(hostName);
-                    shutdownHooks.forEach(Thread::start);
-                    shutdownHooks.forEach(hook -> {
-                        try {
-                            hook.join();
-                        } catch (InterruptedException e) {
-                            currentThread().interrupt();
-                        }
-                    });
+        execute(() -> ofVirtual().name(hostName + "-main").start(() -> {
+            try {
+                scenario.call();
+                shutdown.complete(0);
+            } catch (Throwable e) {
+                if (e instanceof Simulator.SystemExitError exitError) {
+                    shutdown.complete(exitError.exitCode);
+                } else {
+                    uncaughtExceptionHandler(currentThread(), e);
                 }
-            });
-        } finally {
-            CURRENT_NODE.set(originalNode);
-        }
+            } finally {
+                stopped = true;
+                context.network().unregisterDns(hostName);
+                shutdownHooks.forEach(Thread::start);
+                shutdownHooks.forEach(hook -> {
+                    try {
+                        hook.join();
+                    } catch (InterruptedException e) {
+                        currentThread().interrupt();
+                    }
+                });
+            }
+        }));
     }
 
     void checkNoThreadOnWaitingList(Node node) {
@@ -306,7 +340,7 @@ public final class Node {
         requireNonNull(thread);
         if (thread.isAlive() && thread.getState() != TERMINATED) {
             if (isOnWaitingList(thread)) {
-                while (getNext(thread) != null) {
+                while (getNextVirtualThread(thread) != null) {
                     onSpinWait();
                 }
                 if (!compareAndSetOnWaitingList(thread, true, false)) {

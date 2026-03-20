@@ -44,11 +44,13 @@ println "Running: ${javaBin} -jar ${jarFile.absolutePath} --working-dir ${workin
 // High replay probability ensures replays happen quickly.
 // The scenario uses RealTime.currentTimeMillis() which bypasses the virtual clock,
 // so replayed plans will produce different hashes and be flagged as flaky.
+// --stop first-fail causes the runner to stop as soon as non-determinism is detected.
 def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
                                  "--working-dir", workingDir.absolutePath,
                                  "--fork-count", "1",
                                  "--stagnation-limit", "20",
-                                 "--replay-probability", "0.95")
+                                 "--replay-probability", "0.95",
+                                 "--stop", "first-fail")
         .directory(basedir)
         .redirectErrorStream(true)
         .start()
