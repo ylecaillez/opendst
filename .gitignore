@@ -71,6 +71,7 @@ nohup.out
 *.ss
 *.md
 !README.md
+!DESIGN.md
 .gemini/
 build_debug.log
 build_warnings.log

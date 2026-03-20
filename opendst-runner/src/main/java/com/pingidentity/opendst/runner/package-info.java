@@ -15,6 +15,24 @@
  */
 
 /**
- * Standalone runtime for discovering, instrumenting, and running OpenDST deterministic simulation tests.
+ * Orchestration runtime and child JVM entry point for OpenDST.
+ *
+ * <p>This package runs in both JVM processes:
+ * <ul>
+ *   <li><b>Parent process</b> -- {@link com.pingidentity.opendst.runner.Bootstrap} extracts the
+ *       self-contained JAR, {@link com.pingidentity.opendst.runner.BuildRunner} drives the CLI,
+ *       {@link com.pingidentity.opendst.runner.Orchestrator} generates execution plans, and
+ *       {@link com.pingidentity.opendst.runner.TestExecutor} spawns and monitors child JVMs.</li>
+ *   <li><b>Child process</b> -- {@link com.pingidentity.opendst.runner.OpenDSTExecutor} parses
+ *       the deployment descriptor, creates classloader-isolated nodes per service, and hands off
+ *       to {@link com.pingidentity.opendst.Simulator}.</li>
+ * </ul>
+ *
+ * <p>{@code OpenDSTExecutor} lives here (rather than in {@code opendst-agent}) because it needs
+ * Jackson databind + YAML to parse {@code deployment.yaml}. The agent is a shaded JAR with only
+ * jackson-jr.
+ *
+ * @see <a href="../../../../../../../../../../DESIGN.md">DESIGN.md</a> for the full execution
+ *      architecture.
  */
 package com.pingidentity.opendst.runner;
