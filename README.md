@@ -211,11 +211,11 @@ myapp-opendst/              # --working-dir (default: JAR path minus .jar)
 
 To learn more about Deterministic Simulation Testing and why it is a game-changer for distributed systems reliability, check out these resources:
 
+*   **[Antithesis: Deterministic Simulation Testing](https://antithesis.com/docs/resources/deterministic_simulation_testing/):** A deep dive into determinism and its role in testing.
 *   **[Testing Distributed Systems with Deterministic Simulation](https://www.youtube.com/watch?v=4fFDFbi3toc)** (Will Wilson, FoundationDB): The seminal talk that popularized the technique.
 *   **[FoundationDB Testing](https://apple.github.io/foundationdb/testing.html):** Detailed documentation on how FoundationDB uses simulation.
 *   **[TigerBeetle: Simulation](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md#simulation):** How TigerBeetle uses deterministic simulation to ensure correctness.
 *   **[Rewriting the heart of our sync engine](https://dropbox.tech/infrastructure/-testing-our-new-sync-engine):** How Dropbox used deterministic simulation to rewrite their synchronization engine.
-*   **[Antithesis: Determinism](https://antithesis.com/docs/determinism/):** A deep dive into determinism and its role in testing.
 
 ## License
 
