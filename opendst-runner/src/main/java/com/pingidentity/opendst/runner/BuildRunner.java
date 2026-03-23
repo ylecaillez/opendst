@@ -146,6 +146,14 @@ public final class BuildRunner implements Callable<Integer> {
     private String extraJvmArgs;
 
     @Option(
+            names = "--cds",
+            negatable = true,
+            defaultValue = "false",
+            description = "Enable CDS shared archive for child JVMs to reduce cold-start time"
+                    + " (default: ${DEFAULT-VALUE})")
+    private boolean cds;
+
+    @Option(
             names = "--debug",
             arity = "0..1",
             fallbackValue = "5005",
@@ -218,7 +226,13 @@ public final class BuildRunner implements Callable<Integer> {
         var debugArgs =
                 isDebug ? "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=" + debugAddress : null;
         var jvmConfig = new JvmConfig(
-                instrumentedAppsDir, agentJarPath, effectiveJvmArgs, debugArgs, null, OpenDSTExecutor.class.getName());
+                instrumentedAppsDir,
+                agentJarPath,
+                effectiveJvmArgs,
+                debugArgs,
+                null,
+                OpenDSTExecutor.class.getName(),
+                cds && !isDebug);
 
         // Replay mode: load a saved plan and execute it once
         boolean isReplay = planFile != null;
@@ -243,6 +257,7 @@ public final class BuildRunner implements Callable<Integer> {
                 .with("branch", "%.2f".formatted(branchProbability))
                 .with("replay", "%.2f".formatted(replayProbability))
                 .with("stagnation", stagnationLimit)
+                .with("cds", cds && !isDebug)
                 .with(
                         "stop",
                         effectiveStopConditions.isEmpty()

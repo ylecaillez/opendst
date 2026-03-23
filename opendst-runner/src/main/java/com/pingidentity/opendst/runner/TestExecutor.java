@@ -76,7 +76,8 @@ final class TestExecutor {
             String jvmArguments,
             String debugArgs,
             File logSpy,
-            String mainClass) {}
+            String mainClass,
+            boolean cds) {}
 
     /** Execution loop control parameters. */
     record RunConfig(
@@ -355,8 +356,9 @@ final class TestExecutor {
         command.add(JAVA_BIN);
         command.addAll(JAVA_BASE_OPTIONS);
         // CDS (Class Data Sharing) reduces child JVM cold-start time by reusing a shared archive.
-        // Disabled in debug mode: CDS dumping is incompatible with the JDWP native agent.
-        if (jvm.debugArgs() == null) {
+        // Controlled via --cds / --no-cds (default: off). Also requires non-debug mode since CDS
+        // dumping is incompatible with the JDWP native agent.
+        if (jvm.cds()) {
             command.addAll(List.of(
                     "-XX:+AutoCreateSharedArchive",
                     "-XX:SharedArchiveFile=%s"
