@@ -59,7 +59,6 @@ import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugin.descriptor.PluginDescriptor;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
@@ -83,7 +82,10 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
  */
 @Mojo(name = "build", defaultPhase = LifecyclePhase.PACKAGE, requiresDependencyResolution = ResolutionScope.TEST)
 public class BuildMojo extends AbstractMojo {
-    private static final String OPENDST_SIMULATOR_JAR = "/META-INF/agents/opendst-agent.jar";
+    private static final String OPENDST_AGENT_JAR = "/META-INF/agents/opendst-agent.jar";
+    private static final String OPENDST_RUNNER_JAR = "/META-INF/agents/opendst-runner.jar";
+    private static final String OPENDST_COMMON_JAR = "/META-INF/agents/opendst-common.jar";
+    private static final String OPENDST_SDK_JAR = "/META-INF/agents/opendst-sdk.jar";
     private static final String BOOTSTRAP_CLASS_NAME = "com.pingidentity.opendst.runner.Bootstrap";
     private static final String INSTRUMENTED_APPS_DIR = "instrumented-apps";
 
@@ -107,9 +109,6 @@ public class BuildMojo extends AbstractMojo {
     @SuppressWarnings("deprecation")
     @org.apache.maven.plugins.annotations.Component
     private MavenProjectHelper projectHelper;
-
-    @Parameter(defaultValue = "${plugin}", readonly = true, required = true)
-    private PluginDescriptor pluginDescriptor;
 
     @Parameter(property = "opendst.descriptor", defaultValue = "${project.basedir}/deployment.yaml")
     private File descriptor;
@@ -143,8 +142,11 @@ public class BuildMojo extends AbstractMojo {
         var deploymentDescriptor = parseDescriptor();
         var enrichedDescriptor = enrichDescriptor(deploymentDescriptor);
 
-        // 2. Extract agent JAR
-        var agentJarPath = extractAgentJar(basePath);
+        // 2. Extract embedded JARs (agent, runner, common, sdk) from plugin classpath resources
+        var agentJarPath = extractEmbeddedJar(basePath, OPENDST_AGENT_JAR, "opendst-agent.jar");
+        var runnerJarPath = extractEmbeddedJar(basePath, OPENDST_RUNNER_JAR, "opendst-runner.jar");
+        var commonJarPath = extractEmbeddedJar(basePath, OPENDST_COMMON_JAR, "opendst-common.jar");
+        var sdkJarPath = extractEmbeddedJar(basePath, OPENDST_SDK_JAR, "opendst-sdk.jar");
 
         // 3. Resolve external artifacts and instrument all unique sources
         var opendstBasePath = basePath.resolve("target").resolve("opendst-package");
@@ -168,7 +170,14 @@ public class BuildMojo extends AbstractMojo {
 
         // 4. Build the self-contained JAR
         try {
-            buildJar(instrumentedAppsDir, agentJarPath, enrichedDescriptor, discoveredProperties);
+            buildJar(
+                    instrumentedAppsDir,
+                    agentJarPath,
+                    runnerJarPath,
+                    commonJarPath,
+                    sdkJarPath,
+                    enrichedDescriptor,
+                    discoveredProperties);
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to build self-contained JAR", e);
         }
@@ -409,17 +418,26 @@ public class BuildMojo extends AbstractMojo {
         }
     }
 
-    private Path extractAgentJar(Path basePath) throws MojoFailureException {
-        try (var is = getClass().getResourceAsStream(OPENDST_SIMULATOR_JAR)) {
+    /**
+     * Extracts an embedded JAR from the plugin's classpath resources to a file
+     * under {@code target/opendst-package/}.
+     *
+     * @param basePath     the project base directory
+     * @param resourcePath the classpath resource path (e.g. {@code /META-INF/agents/opendst-agent.jar})
+     * @param fileName     the output file name (e.g. {@code opendst-agent.jar})
+     * @return the path to the extracted JAR
+     */
+    private Path extractEmbeddedJar(Path basePath, String resourcePath, String fileName) throws MojoFailureException {
+        try (var is = getClass().getResourceAsStream(resourcePath)) {
             if (is == null) {
-                throw new MojoFailureException("Could not find embedded opendst-agent.jar");
+                throw new MojoFailureException("Could not find embedded " + fileName);
             }
-            var agentJar = basePath.resolve("target").resolve("opendst-package").resolve("opendst-agent.jar");
-            createDirectories(agentJar.getParent());
-            copy(is, agentJar, REPLACE_EXISTING);
-            return agentJar;
+            var jarPath = basePath.resolve("target").resolve("opendst-package").resolve(fileName);
+            createDirectories(jarPath.getParent());
+            copy(is, jarPath, REPLACE_EXISTING);
+            return jarPath;
         } catch (IOException e) {
-            throw new MojoFailureException("Failed to extract opendst-agent.jar", e);
+            throw new MojoFailureException("Failed to extract " + fileName, e);
         }
     }
 
@@ -432,13 +450,10 @@ public class BuildMojo extends AbstractMojo {
      *     assertions.json               # Serialized Set&lt;Assertion&gt;
      * com/pingidentity/opendst/runner/Bootstrap.class  # Bootstrap (only class at root)
      * system/
-     *   opendst-agent.jar                # Java agent (full shaded JAR, also loaded by URLClassLoader)
-     *   opendst-runner.jar              # Runner classes (BuildRunner, OpenDSTExecutor, etc.)
-     *   jackson-databind.jar            # Library JARs
-     *   jackson-core.jar
-     *   jackson-annotations.jar
-     *   jackson-dataformat-yaml.jar
-     *   snakeyaml-engine.jar
+     *   opendst-agent.jar               # Java agent (shaded fat JAR)
+     *   opendst-runner.jar              # Runner (shaded: picocli + Jackson + SnakeYAML)
+     *   opendst-common.jar              # Common classes (shared between runner and agent)
+     *   opendst-sdk.jar                 # SDK classes (TraceAuditor, annotations, etc.)
      * apps/
      *   &lt;appDir&gt;/                       # Instrumented application content
      *     WEB-INF/
@@ -451,6 +466,9 @@ public class BuildMojo extends AbstractMojo {
     private void buildJar(
             Path instrumentedAppsDir,
             Path agentJarPath,
+            Path runnerJarPath,
+            Path commonJarPath,
+            Path sdkJarPath,
             DeploymentDescriptor enrichedDescriptor,
             Set<Assertion> discoveredProperties)
             throws IOException {
@@ -466,11 +484,13 @@ public class BuildMojo extends AbstractMojo {
             addEntry(jos, "META-INF/opendst/assertions.json", JSON_MAPPER.writeValueAsBytes(discoveredProperties));
 
             // 2. Bootstrap.class at root — the only class needed for java -jar bootstrap
-            addBootstrapClass(jos);
+            addBootstrapClass(jos, runnerJarPath);
 
             // 3. system/ — all runtime JARs (loaded by Bootstrap's URLClassLoader after extraction)
             addEntry(jos, "system/opendst-agent.jar", readAllBytes(agentJarPath));
-            addSystemJars(jos);
+            addEntry(jos, "system/opendst-runner.jar", readAllBytes(runnerJarPath));
+            addEntry(jos, "system/opendst-common.jar", readAllBytes(commonJarPath));
+            addEntry(jos, "system/opendst-sdk.jar", readAllBytes(sdkJarPath));
 
             // 4. apps/ — instrumented application artifacts
             addInstrumentedApps(jos, instrumentedAppsDir);
@@ -507,64 +527,16 @@ public class BuildMojo extends AbstractMojo {
      * classes are loaded by the {@link java.net.URLClassLoader} that {@code Bootstrap} creates
      * from {@code system/*.jar} after extraction.
      *
-     * <p>Reads the class bytes from the {@code opendst-runner} JAR resolved via
-     * the plugin descriptor.
+     * <p>Reads the class bytes from the embedded {@code opendst-runner} JAR.
+     *
+     * @param runnerJarPath path to the extracted opendst-runner JAR
      */
-    private void addBootstrapClass(JarOutputStream jos) throws IOException {
+    private void addBootstrapClass(JarOutputStream jos, Path runnerJarPath) throws IOException {
         var launcherRelPath = BOOTSTRAP_CLASS_NAME.replace('.', '/') + ".class";
-        var runnerJar = findRunnerJar();
 
-        try (var jarFs = newFileSystem(runnerJar, (ClassLoader) null)) {
+        try (var jarFs = newFileSystem(runnerJarPath, (ClassLoader) null)) {
             addEntry(jos, launcherRelPath, readAllBytes(jarFs.getPath(launcherRelPath)));
         }
-    }
-
-    /**
-     * Copies all runtime dependency JARs into {@code system/}. At runtime, the
-     * Bootstrap builds a {@link java.net.URLClassLoader} from every
-     * {@code system/*.jar} after extraction.
-     *
-     * <p>This includes the runner JAR (BuildRunner, OpenDSTExecutor, etc.),
-     * Jackson, SnakeYAML, and opendst-sdk. {@code opendst-agent} is added separately
-     * in {@link #buildJar} since it comes from the embedded agent JAR, not from
-     * {@code pluginDescriptor}.
-     */
-    private void addSystemJars(JarOutputStream jos) throws IOException {
-        for (var artifact : pluginDescriptor.getArtifacts()) {
-            if (!isRuntimeDependency(artifact)) {
-                continue;
-            }
-            // opendst-agent is already added as system/opendst-agent.jar from the embedded agent
-            if ("opendst-agent".equals(artifact.getArtifactId())) {
-                continue;
-            }
-            // The plugin JAR itself is not needed at runtime — all runtime classes are in opendst-runner
-            if ("opendst-maven-plugin".equals(artifact.getArtifactId())) {
-                continue;
-            }
-            var jarName = artifact.getArtifactId() + ".jar";
-            addEntry(jos, "system/" + jarName, readAllBytes(artifact.getFile().toPath()));
-        }
-    }
-
-    private boolean isRuntimeDependency(Artifact artifact) {
-        var groupId = artifact.getGroupId();
-        return groupId.startsWith("tools.jackson")
-                || groupId.startsWith("com.fasterxml.jackson")
-                || groupId.startsWith("org.snakeyaml")
-                || "com.pingidentity.opendst".equals(groupId)
-                || "info.picocli".equals(groupId);
-    }
-
-    /** Finds the opendst-runner JAR from the plugin descriptor's resolved artifacts. */
-    private Path findRunnerJar() throws IOException {
-        for (var artifact : pluginDescriptor.getArtifacts()) {
-            if ("opendst-runner".equals(artifact.getArtifactId())
-                    && "com.pingidentity.opendst".equals(artifact.getGroupId())) {
-                return artifact.getFile().toPath();
-            }
-        }
-        throw new IOException("opendst-runner JAR not found in plugin dependencies");
     }
 
     private void addInstrumentedApps(JarOutputStream jos, Path instrumentedAppsDir) throws IOException {
