@@ -233,6 +233,11 @@
             <extensions>true</extensions>
             <configuration>
               <publishingServerId>central</publishingServerId>
+              <excludeArtifacts>
+                <excludeArtifact>opendst-common</excludeArtifact>
+                <excludeArtifact>opendst-agent</excludeArtifact>
+                <excludeArtifact>opendst-runner</excludeArtifact>
+              </excludeArtifacts>
             </configuration>
           </plugin>
         </plugins>
