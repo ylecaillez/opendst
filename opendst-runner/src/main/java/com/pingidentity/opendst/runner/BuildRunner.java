@@ -80,8 +80,8 @@ public final class BuildRunner implements Callable<Integer> {
      * Early-stopping conditions that can be combined via repeated {@code --stop} flags.
      *
      * <ul>
-     *   <li>{@code FIRST_FAIL} — stop immediately on the first assertion failure</li>
-     *   <li>{@code FIRST_PASS} — stop early when all assertions are passing,
+     *   <li>{@code ANY_FAIL} — stop immediately on the first assertion failure</li>
+     *   <li>{@code ALL_PASS} — stop early when all assertions are passing,
      *       after at least {@code stagnation-limit} executions for confidence</li>
      * </ul>
      *
@@ -89,11 +89,11 @@ public final class BuildRunner implements Callable<Integer> {
      * run until the stagnation limit is reached (no early stopping).
      */
     public enum StopCondition {
-        FIRST_FAIL,
-        FIRST_PASS
+        ANY_FAIL,
+        ALL_PASS
     }
 
-    /** Converts CLI values like {@code first-fail} to {@link StopCondition#FIRST_FAIL}. */
+    /** Converts CLI values like {@code any-fail} to {@link StopCondition#ANY_FAIL}. */
     static class StopConditionConverter implements CommandLine.ITypeConverter<StopCondition> {
         @Override
         public StopCondition convert(String value) {
@@ -105,7 +105,7 @@ public final class BuildRunner implements Callable<Integer> {
             names = "--stop",
             converter = StopConditionConverter.class,
             description =
-                    "Early-stopping conditions (combinable): first-fail, first-pass. Default: none (run until stagnation)")
+                    "Early-stopping conditions (combinable): any-fail, all-pass. Default: none (run until stagnation)")
     private Set<StopCondition> stopConditions;
 
     @Option(

@@ -52,6 +52,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -98,9 +99,9 @@ final class TestExecutor {
     private final Orchestrator orchestrator;
 
     private final AtomicInteger runSequence = new AtomicInteger();
-    private final AtomicInteger lastInterestingRun = new AtomicInteger();
+    private final AtomicInteger boringRunStreak = new AtomicInteger();
     private final Queue<Plan> pastPlans = new ArrayBlockingQueue<>(10);
-    private volatile boolean earlyExit;
+    private final AtomicBoolean earlyExit = new AtomicBoolean();
 
     TestExecutor(
             Path reportDir,
@@ -140,7 +141,7 @@ final class TestExecutor {
     private Void runLoop(int count, ReportGenerator reportGenerator) throws IOException, InterruptedException {
         int consecutiveCrashes = 0;
         for (; ; ) {
-            if (earlyExit) {
+            if (earlyExit.get()) {
                 return null;
             }
             var executionPlan = getNewExecutionPlanOrReplay();
@@ -201,24 +202,22 @@ final class TestExecutor {
             // Run directory is ephemeral — clean up after capturing any interesting artifacts
             deleteRecursively(runsDir, runBaseDir);
 
-            if (runConfig.stopConditions().contains(StopCondition.FIRST_FAIL) && reportGenerator.hasFailures()) {
-                logger.raw().warn("Assertion failure detected \u2014 stopping (--stop first-fail)");
-                earlyExit = true;
+            if (runConfig.stopConditions().contains(StopCondition.ANY_FAIL)
+                    && reportGenerator.hasFailures()
+                    && earlyExit.compareAndSet(false, true)) {
+                logger.raw().warn("Assertion failure detected \u2014 stopping (--stop any-fail)");
             }
-            if (runConfig.stopConditions().contains(StopCondition.FIRST_PASS)
+            if (runConfig.stopConditions().contains(StopCondition.ALL_PASS)
                     && runCount >= runConfig.stagnationLimit()
-                    && reportGenerator.allPassed()) {
-                logger.raw().info("All assertions passing \u2014 stopping (--stop first-pass)");
-                earlyExit = true;
+                    && reportGenerator.allPassed()
+                    && earlyExit.compareAndSet(false, true)) {
+                logger.raw().info("All assertions passing \u2014 stopping (--stop all-pass)");
             }
 
             if (executionResult.isInteresting()) {
                 reportGenerator.generate(reportDir.resolve("report.json"));
-                int lastRun;
-                do {
-                    lastRun = lastInterestingRun.get();
-                } while (lastRun < runCount && !lastInterestingRun.compareAndSet(lastRun, runCount));
-            } else if (runCount - lastInterestingRun.get() >= runConfig.stagnationLimit()) {
+                boringRunStreak.set(0);
+            } else if (boringRunStreak.incrementAndGet() >= runConfig.stagnationLimit()) {
                 return null;
             }
 
@@ -226,7 +225,7 @@ final class TestExecutor {
                 var counts = reportGenerator.passingCount();
                 logger.run("progress")
                         .with("run", runCount)
-                        .with("stagnation", runCount - lastInterestingRun.get())
+                        .with("stagnation", boringRunStreak.get())
                         .withPassing(counts[0], counts[1])
                         .log();
             }

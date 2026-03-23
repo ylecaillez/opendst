@@ -86,7 +86,7 @@ def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
                                  "--working-dir", workingDir.absolutePath,
                                  "--stagnation-limit", "500",
                                  "--replay-probability", "0.01",
-                                 "--stop", "first-fail")
+                                 "--stop", "any-fail")
         .directory(basedir)
         .redirectErrorStream(true)
         .start()
@@ -100,10 +100,10 @@ process.inputStream.eachLine { line ->
 
 def exitCode = process.waitFor()
 
-// --stop first-fail: the TraceAuditor detects "Bug reached!" and throws. This emits a
+// --stop any-fail: the TraceAuditor detects "Bug reached!" and throws. This emits a
 // "trace auditor exception" lifecycle signal, failing the "no exception thrown in trace auditor"
-// assertion, so --stop first-fail exits with code 1. That is the expected outcome.
-check(exitCode == 1, "Expected exit code 1 (--stop first-fail with bug found), got: ${exitCode}", logFile)
+// assertion, so --stop any-fail exits with code 1. That is the expected outcome.
+check(exitCode == 1, "Expected exit code 1 (--stop any-fail with bug found), got: ${exitCode}", logFile)
 
 // Verify the report was produced
 def reportFile = new File(workingDir, "report/report.json")
