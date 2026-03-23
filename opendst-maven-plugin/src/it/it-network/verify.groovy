@@ -45,8 +45,8 @@ try {
     // Check essential entries exist
     check(jar.getEntry("META-INF/opendst/assertions.json") != null, "assertions.json missing", logFile)
     check(jar.getEntry("system/opendst-agent.jar") != null, "opendst-agent.jar missing", logFile)
-    check(jar.getEntry("deployment.yaml") != null, "deployment.yaml missing", logFile)
-    check(jar.getEntry("build-config.json") != null, "build-config.json missing", logFile)
+    check(jar.getEntry("META-INF/opendst/deployment.yaml") != null, "deployment.yaml missing", logFile)
+    check(jar.getEntry("META-INF/opendst/build-config.json") != null, "build-config.json missing", logFile)
 
     // Check Bootstrap.class is at JAR root
     check(jar.getEntry("com/pingidentity/opendst/runner/Bootstrap.class") != null, "Bootstrap.class missing at JAR root", logFile)
@@ -89,7 +89,7 @@ try {
     }
 
     // Verify build-config.json contains expected configuration
-    def buildConfigEntry = jar.getEntry("build-config.json")
+    def buildConfigEntry = jar.getEntry("META-INF/opendst/build-config.json")
     def buildConfigJson = jar.getInputStream(buildConfigEntry).text
     def buildConfig = new JsonSlurper().parseText(buildConfigJson)
     check(buildConfig.faults.network.enabled == true, "Network faults should be enabled", logFile)

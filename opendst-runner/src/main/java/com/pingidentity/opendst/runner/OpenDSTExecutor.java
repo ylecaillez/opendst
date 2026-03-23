@@ -43,15 +43,15 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
 /**
  * Child JVM entry point for the self-contained JAR.
  *
- * <p>Reads a {@code deployment.yaml} descriptor from the deployment directory, resolves
- * classpaths from the {@code apps/} subdirectories, and starts each service as a
+ * <p>Reads a {@code META-INF/opendst/deployment.yaml} descriptor from the deployment directory,
+ * resolves classpaths from the {@code apps/} subdirectories, and starts each service as a
  * classloader-isolated node inside a deterministic simulation.
  *
  * <p>Arguments: {@code <deploymentDir>}
  *
  * <p>The deployment directory is expected to contain:
  * <ul>
- *   <li>{@code deployment.yaml} — the enriched deployment descriptor (all services have {@code dir} set)</li>
+ *   <li>{@code META-INF/opendst/deployment.yaml} — the enriched deployment descriptor (all services have {@code dir} set)</li>
  *   <li>{@code apps/} — instrumented application artifacts</li>
  *   <li>{@code system/opendst-agent.jar} — the agent JAR added to each service's classpath</li>
  * </ul>
@@ -65,7 +65,7 @@ public final class OpenDSTExecutor {
 
         try {
             var deploymentDir = Path.of(args[0]);
-            var descriptorFile = deploymentDir.resolve("deployment.yaml");
+            var descriptorFile = deploymentDir.resolve("META-INF/opendst/deployment.yaml");
 
             // Parse deployment descriptor
             var yamlMapper = YAMLMapper.builder()
