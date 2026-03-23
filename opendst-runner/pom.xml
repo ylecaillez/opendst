@@ -69,6 +69,7 @@
                                     <include>com.fasterxml.jackson.core:jackson-annotations</include>
                                     <include>tools.jackson.dataformat:jackson-dataformat-yaml</include>
                                     <include>org.snakeyaml:snakeyaml-engine</include>
+                                    <include>com.pingidentity.opendst:opendst-common</include>
                                 </includes>
                             </artifactSet>
                         </configuration>
