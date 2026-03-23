@@ -51,11 +51,8 @@ try {
     // Check Bootstrap.class is at JAR root
     check(jar.getEntry("com/pingidentity/opendst/runner/Bootstrap.class") != null, "Bootstrap.class missing at JAR root", logFile)
 
-    // Check runner and library JARs in system/
+    // Check runner JAR in system/ (Jackson/snakeyaml/picocli are shaded into runner)
     check(jar.getEntry("system/opendst-runner.jar") != null, "opendst-runner.jar missing from system/", logFile)
-    check(jar.getEntry("system/jackson-databind.jar") != null, "jackson-databind.jar missing from system/", logFile)
-    check(jar.getEntry("system/jackson-core.jar") != null, "jackson-core.jar missing from system/", logFile)
-    check(jar.getEntry("system/snakeyaml-engine.jar") != null, "snakeyaml-engine.jar missing from system/", logFile)
 
     // Check apps/ has instrumented application content
     def hasApps = jar.entries().any { it.name.startsWith("apps/") }
