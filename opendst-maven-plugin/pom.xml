@@ -114,12 +114,7 @@
                                     <version>${project.version}</version>
                                     <destFileName>opendst-common.jar</destFileName>
                                 </artifactItem>
-                                <artifactItem>
-                                    <groupId>com.pingidentity.opendst</groupId>
-                                    <artifactId>opendst-sdk</artifactId>
-                                    <version>${project.version}</version>
-                                    <destFileName>opendst-sdk.jar</destFileName>
-                                </artifactItem>
+
                             </artifactItems>
                             <outputDirectory>${project.build.outputDirectory}/META-INF/agents</outputDirectory>
                         </configuration>
