@@ -165,7 +165,7 @@ final class TestExecutor {
                     logger.raw()
                             .error("Child JVM crashed %d times consecutively without starting the simulation — aborting"
                                     .formatted(consecutiveCrashes));
-                    earlyExit = true;
+                    earlyExit.set(true);
                     deleteRecursively(runsDir, runBaseDir);
                     return null;
                 }
