@@ -65,7 +65,7 @@ import picocli.CommandLine.Parameters;
  * <p>This class:
  * <ol>
  *   <li>Loads the assertion catalog from {@code deployment/META-INF/opendst/assertions.json}</li>
- *   <li>Loads the build configuration from {@code deployment/build-config.json}</li>
+ *   <li>Loads the build configuration from {@code deployment/META-INF/opendst/build-config.json}</li>
  *   <li>Spawns child JVMs running {@link OpenDSTExecutor} via {@link TestExecutor}</li>
  *   <li>Uses {@link Orchestrator.GuidedOrchestrator} to drive exploration</li>
  * </ol>
@@ -194,7 +194,7 @@ public final class BuildRunner implements Callable<Integer> {
         assertions.add(NO_INTERNAL_ERROR);
 
         // 2. Load build config
-        var configFile = deploymentDir.resolve("build-config.json");
+        var configFile = deploymentDir.resolve("META-INF/opendst/build-config.json");
         var config = JSON_MAPPER.readValue(configFile.toFile(), BuildConfig.class);
 
         // 3. Build classpath for child JVMs
