@@ -156,7 +156,7 @@ Configure the Maven plugin with the `build` goal:
 <plugin>
     <groupId>com.pingidentity.opendst</groupId>
     <artifactId>opendst-maven-plugin</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
     <executions>
         <execution>
             <goals><goal>build</goal></goals>
