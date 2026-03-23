@@ -133,6 +133,7 @@
                              outside the main git working tree, so disable ratcheting
                              and resolve the license-header from the real project root. -->
                         <spotless.ratchet.ref></spotless.ratchet.ref>
+                        <spotless.check.skip>${spotless.check.skip}</spotless.check.skip>
                         <spotless.license-header.path>${maven.multiModuleProjectDirectory}/license-header</spotless.license-header.path>
                     </properties>
                     <skipInvocation>${skipTests}</skipInvocation>
