@@ -112,7 +112,7 @@ println "Running: ${javaBin} -jar ${jarFile.absolutePath} --working-dir ${workin
 def process = new ProcessBuilder(javaBin, "-jar", jarFile.absolutePath,
                                  "--working-dir", workingDir.absolutePath,
                                  "--stagnation-limit", "200",
-                                 "--stop", "first-pass")
+                                 "--stop", "all-pass")
         .directory(basedir)
         .redirectErrorStream(true)
         .start()
@@ -166,7 +166,7 @@ def runCounts = (output.toString() =~ /progress\s+run:(\d+)/).collect { it[1] as
 if (!runCounts.isEmpty()) {
     def maxRun = runCounts.max()
     println "Max run count from progress lines: ${maxRun}"
-    check(maxRun <= 600, "Simulation ran too many iterations (${maxRun}), possible stagnation/stop-condition issue", logFile)
+    check(maxRun <= 800, "Simulation ran too many iterations (${maxRun}), possible stagnation/stop-condition issue", logFile)
 }
 
 println "All verifications passed — network-fault-test JAR runs successfully and produces correct report."
