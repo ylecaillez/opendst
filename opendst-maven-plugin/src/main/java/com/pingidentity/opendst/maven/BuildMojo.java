@@ -84,7 +84,6 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
 public class BuildMojo extends AbstractMojo {
     private static final String OPENDST_AGENT_JAR = "/META-INF/agents/opendst-agent.jar";
     private static final String OPENDST_RUNNER_JAR = "/META-INF/agents/opendst-runner.jar";
-    private static final String OPENDST_COMMON_JAR = "/META-INF/agents/opendst-common.jar";
     private static final String BOOTSTRAP_CLASS_NAME = "com.pingidentity.opendst.runner.Bootstrap";
     private static final String INSTRUMENTED_APPS_DIR = "instrumented-apps";
 
@@ -141,10 +140,9 @@ public class BuildMojo extends AbstractMojo {
         var deploymentDescriptor = parseDescriptor();
         var enrichedDescriptor = enrichDescriptor(deploymentDescriptor);
 
-        // 2. Extract embedded JARs (agent, runner, common) from plugin classpath resources
+        // 2. Extract embedded JARs (agent, runner) from plugin classpath resources
         var agentJarPath = extractEmbeddedJar(basePath, OPENDST_AGENT_JAR, "opendst-agent.jar");
         var runnerJarPath = extractEmbeddedJar(basePath, OPENDST_RUNNER_JAR, "opendst-runner.jar");
-        var commonJarPath = extractEmbeddedJar(basePath, OPENDST_COMMON_JAR, "opendst-common.jar");
 
         // 3. Resolve external artifacts and instrument all unique sources
         var opendstBasePath = basePath.resolve("target").resolve("opendst-package");
@@ -168,13 +166,7 @@ public class BuildMojo extends AbstractMojo {
 
         // 4. Build the self-contained JAR
         try {
-            buildJar(
-                    instrumentedAppsDir,
-                    agentJarPath,
-                    runnerJarPath,
-                    commonJarPath,
-                    enrichedDescriptor,
-                    discoveredProperties);
+            buildJar(instrumentedAppsDir, agentJarPath, runnerJarPath, enrichedDescriptor, discoveredProperties);
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to build self-contained JAR", e);
         }
@@ -448,8 +440,7 @@ public class BuildMojo extends AbstractMojo {
      * com/pingidentity/opendst/runner/Bootstrap.class  # Bootstrap (only class at root)
      * system/
      *   opendst-agent.jar               # Java agent (shaded fat JAR)
-     *   opendst-runner.jar              # Runner (shaded: picocli + Jackson + SnakeYAML)
-     *   opendst-common.jar              # Common classes (shared between runner and agent)
+     *   opendst-runner.jar              # Runner (shaded: picocli + Jackson + SnakeYAML + common)
      * apps/
      *   &lt;appDir&gt;/                       # Instrumented application content
      *     WEB-INF/
@@ -463,7 +454,6 @@ public class BuildMojo extends AbstractMojo {
             Path instrumentedAppsDir,
             Path agentJarPath,
             Path runnerJarPath,
-            Path commonJarPath,
             DeploymentDescriptor enrichedDescriptor,
             Set<Assertion> discoveredProperties)
             throws IOException {
@@ -484,7 +474,6 @@ public class BuildMojo extends AbstractMojo {
             // 3. system/ — all runtime JARs (loaded by Bootstrap's URLClassLoader after extraction)
             addEntry(jos, "system/opendst-agent.jar", readAllBytes(agentJarPath));
             addEntry(jos, "system/opendst-runner.jar", readAllBytes(runnerJarPath));
-            addEntry(jos, "system/opendst-common.jar", readAllBytes(commonJarPath));
 
             // 4. apps/ — instrumented application artifacts
             addInstrumentedApps(jos, instrumentedAppsDir);
