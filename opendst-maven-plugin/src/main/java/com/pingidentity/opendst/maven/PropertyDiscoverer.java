@@ -15,10 +15,10 @@
  */
 package com.pingidentity.opendst.maven;
 
-import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.ALWAYS;
-import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.SOMETIMES;
+import static com.pingidentity.opendst.common.AssertType.ALWAYS;
+import static com.pingidentity.opendst.common.AssertType.SOMETIMES;
 
-import com.pingidentity.opendst.runner.Assertion;
+import com.pingidentity.opendst.common.Assertion;
 import java.lang.classfile.ClassModel;
 import java.lang.classfile.Instruction;
 import java.lang.classfile.Opcode;

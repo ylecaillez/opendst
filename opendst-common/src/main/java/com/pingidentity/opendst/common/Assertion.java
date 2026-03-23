@@ -13,12 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst.runner;
+package com.pingidentity.opendst.common;
 
-import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.ALWAYS;
-import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.ALWAYS_OR_UNREACHABLE;
-
-import com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType;
+import static com.pingidentity.opendst.common.AssertType.ALWAYS;
+import static com.pingidentity.opendst.common.AssertType.ALWAYS_OR_UNREACHABLE;
 
 /** Represents a property found in the bytecode. */
 public record Assertion(AssertType kind, String message, String origin, int line) {

@@ -17,14 +17,33 @@
     <dependencies>
         <dependency>
             <groupId>com.pingidentity.opendst</groupId>
-            <artifactId>opendst-runner</artifactId>
+            <artifactId>opendst-common</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <!-- Required for offline instrumentation (shaded agent JAR embedded in plugin) -->
+        <!-- Runtime-only: staged into the self-contained JAR by maven-dependency-plugin,
+             not on the plugin's compile classpath. -->
+        <dependency>
+            <groupId>com.pingidentity.opendst</groupId>
+            <artifactId>opendst-runner</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>com.pingidentity.opendst</groupId>
             <artifactId>opendst-agent</artifactId>
             <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Jackson is used by BuildMojo to read/write deployment descriptors and configs.
+             Versions managed by jackson-bom in parent POM. -->
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>tools.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-yaml</artifactId>
         </dependency>
 
         <dependency>
@@ -53,11 +72,38 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <artifactSet>
+                                <includes>
+                                    <include>com.pingidentity.opendst:opendst-common</include>
+                                </includes>
+                            </artifactSet>
+                            <relocations>
+                                <relocation>
+                                    <pattern>com.pingidentity.opendst.common</pattern>
+                                    <shadedPattern>com.pingidentity.opendst.maven.shaded.common</shadedPattern>
+                                </relocation>
+                            </relocations>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
                 <version>3.8.1</version>
                 <executions>
+                    <!-- Copy the agent JAR into META-INF/agents/ (embedded in plugin JAR) -->
                     <execution>
-                        <id>copy-dependencies</id>
+                        <id>copy-agent</id>
                         <phase>prepare-package</phase>
                         <goals>
                             <goal>copy-dependencies</goal>
@@ -83,6 +129,7 @@
                     <localRepositoryPath>${project.build.directory}/local-repo</localRepositoryPath>
                     <settingsFile>src/it/settings.xml</settingsFile>
                     <extraArtifacts>
+                        <extraArtifact>com.pingidentity.opendst:opendst-common:${project.version}:jar</extraArtifact>
                         <extraArtifact>com.pingidentity.opendst:opendst-runner:${project.version}:jar</extraArtifact>
                         <extraArtifact>com.pingidentity.opendst:opendst-agent:${project.version}:jar</extraArtifact>
                         <extraArtifact>com.pingidentity.opendst:opendst-sdk:${project.version}:jar</extraArtifact>

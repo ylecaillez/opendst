@@ -15,6 +15,7 @@
  */
 package com.pingidentity.opendst;
 
+import com.pingidentity.opendst.common.CallSiteTransform;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -91,9 +92,9 @@ public class InstrumentationAuditTest {
         auditDiscoveredAdvice();
 
         // 2. Audit Static Methods Redirections
-        for (var entry : SimulatorAgent.REDIRECT_MAP.entrySet()) {
+        for (var entry : CallSiteTransform.REDIRECT_MAP.entrySet()) {
             var jdkClassName = entry.getKey().replace('/', '.');
-            if (!Simulator.REDIRECT_STATIC_METHODS_OF.contains(entry.getKey())) {
+            if (!CallSiteTransform.REDIRECT_STATIC_METHODS_OF.contains(entry.getKey())) {
                 continue;
             }
 
@@ -105,9 +106,9 @@ public class InstrumentationAuditTest {
         }
 
         // 3. Audit Constructor Redirections
-        for (var entry : SimulatorAgent.REDIRECT_MAP.entrySet()) {
+        for (var entry : CallSiteTransform.REDIRECT_MAP.entrySet()) {
             var jdkClassName = entry.getKey().replace('/', '.');
-            if (!Simulator.REDIRECT_CONSTRUCTORS_OF.contains(entry.getKey())) {
+            if (!CallSiteTransform.REDIRECT_CONSTRUCTORS_OF.contains(entry.getKey())) {
                 continue;
             }
 

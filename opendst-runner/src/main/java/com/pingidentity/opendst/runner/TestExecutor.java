@@ -61,6 +61,9 @@ final class TestExecutor {
     private static final String JAVA_BIN =
             Path.of(System.getProperty("java.home"), "bin", "java").toString();
 
+    /** Number of consecutive infrastructure crashes before aborting all forks. */
+    private static final int MAX_CONSECUTIVE_CRASHES = 3;
+
     /** How often (in runs) to emit a progress line to the console. */
     private static final int PROGRESS_INTERVAL = 10;
 
@@ -134,6 +137,7 @@ final class TestExecutor {
     }
 
     private Void runLoop(int count, ReportGenerator reportGenerator) throws IOException, InterruptedException {
+        int consecutiveCrashes = 0;
         for (; ; ) {
             if (earlyExit) {
                 return null;
@@ -148,6 +152,23 @@ final class TestExecutor {
             } catch (IOException | InterruptedException e) {
                 deleteRecursively(runsDir, runBaseDir);
                 throw e;
+            }
+
+            // Detect infrastructure crashes (child JVM dies before the simulator starts).
+            // If this happens repeatedly, the classpath or environment is broken — continuing
+            // would just rapid-fire spawn doomed processes across all forks.
+            if (executionResult.isInfrastructureCrash()) {
+                consecutiveCrashes++;
+                if (consecutiveCrashes >= MAX_CONSECUTIVE_CRASHES) {
+                    logger.raw()
+                            .error("Child JVM crashed %d times consecutively without starting the simulation — aborting"
+                                    .formatted(consecutiveCrashes));
+                    earlyExit = true;
+                    deleteRecursively(runsDir, runBaseDir);
+                    return null;
+                }
+            } else {
+                consecutiveCrashes = 0;
             }
 
             if (runConfig.isDebugOrReplay()) {
