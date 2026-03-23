@@ -15,15 +15,15 @@
  */
 package com.pingidentity.opendst.runner;
 
+import static com.pingidentity.opendst.common.AssertType.ALWAYS;
+import static com.pingidentity.opendst.common.AssertType.ALWAYS_OR_UNREACHABLE;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion.newFailAssertion;
 import static com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion.newPassAssertion;
-import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.ALWAYS;
-import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.ALWAYS_OR_UNREACHABLE;
 
+import com.pingidentity.opendst.common.AssertType;
 import com.pingidentity.opendst.runner.Commons.SignalEvent;
 import com.pingidentity.opendst.runner.Signal.AssertSignal;
-import com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType;
 import com.pingidentity.opendst.runner.Signal.LifecycleSignal;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -111,6 +111,19 @@ final class ExecutionResult {
     boolean runFailed() {
         return assertionsHit.values().stream()
                 .anyMatch(a -> a.failCount() > 0 && (a.kind() == ALWAYS || a.kind() == ALWAYS_OR_UNREACHABLE));
+    }
+
+    /**
+     * Returns {@code true} if the child JVM crashed before the simulator started.
+     *
+     * <p>This indicates an infrastructure problem (bad classpath, missing class, OOM on
+     * startup, etc.) rather than a simulation-level assertion failure. The distinction
+     * matters because infrastructure crashes should trigger early abort rather than being
+     * treated as interesting exploration results that reset the stagnation counter.
+     */
+    boolean isInfrastructureCrash() {
+        var started = assertionsHit.get("simulation started");
+        return runFailed() && (started == null || started.passCount() == 0);
     }
 
     /**

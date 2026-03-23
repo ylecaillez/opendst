@@ -97,11 +97,6 @@ public final class Simulator {
     }
 
     // Visible for testing
-    static final Set<String> REDIRECT_CONSTRUCTORS_OF = Set.of("java/lang/Thread");
-
-    static final Set<String> REDIRECT_STATIC_METHODS_OF =
-            Set.of("com/pingidentity/opendst/sdk/Signals", "com/pingidentity/opendst/sdk/Assert");
-
     static final Instant START_TIME = Instant.ofEpochSecond(1445385600);
 
     private final SimulationContext context;

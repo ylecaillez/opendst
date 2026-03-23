@@ -299,8 +299,9 @@
   </profiles>
 
   <modules>
-    <module>opendst-agent</module>
     <module>opendst-sdk</module>
+    <module>opendst-common</module>
+    <module>opendst-agent</module>
     <module>opendst-runner</module>
     <module>opendst-maven-plugin</module>
   </modules>

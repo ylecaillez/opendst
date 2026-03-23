@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst.maven;
 
-import static com.pingidentity.opendst.SimulatorAgent.callSiteTransformMethod;
+import static com.pingidentity.opendst.common.CallSiteTransform.callSiteTransformMethod;
 import static java.lang.classfile.ClassHierarchyResolver.ofClassLoading;
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static java.nio.file.FileVisitResult.SKIP_SUBTREE;
@@ -29,8 +29,7 @@ import static java.nio.file.Files.walk;
 import static java.nio.file.Files.walkFileTree;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 
-import com.pingidentity.opendst.runner.Assertion;
-import com.pingidentity.opendst.runner.OpenDstLogger;
+import com.pingidentity.opendst.common.Assertion;
 import java.io.IOException;
 import java.lang.classfile.ClassFile;
 import java.lang.classfile.ClassFile.ClassHierarchyResolverOption;
@@ -54,6 +53,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 import java.util.stream.Stream;
+import org.apache.maven.plugin.logging.Log;
 
 /**
  * Orchestrates the offline instrumentation of application bytecode.
@@ -66,7 +66,7 @@ final class Instrumentation {
     private final Path basePath;
     private final Path instrumentedAppsDir;
     private final ExecutorService executor;
-    private final OpenDstLogger logger;
+    private final Log log;
 
     /** Result of a class transformation task. */
     private record TransformationResult(String name, byte[] content) {}
@@ -79,11 +79,11 @@ final class Instrumentation {
         }
     }
 
-    Instrumentation(Path basePath, Path instrumentedAppsDir, ExecutorService executor, OpenDstLogger logger) {
+    Instrumentation(Path basePath, Path instrumentedAppsDir, ExecutorService executor, Log log) {
         this.basePath = basePath;
         this.instrumentedAppsDir = instrumentedAppsDir;
         this.executor = executor;
-        this.logger = logger;
+        this.log = log;
     }
 
     /** Creates a new thread-safe set for collecting discovered assertions. */
@@ -103,7 +103,7 @@ final class Instrumentation {
      * @throws AssertionValidationException if an assertion is invalid
      */
     Set<Assertion> instrumentTestClasses() throws IOException {
-        logger.raw().info("Instrumenting test classes");
+        log.info("Instrumenting test classes");
         var discovered = newAssertionSet();
         createDirectories(instrumentedAppsDir);
         var urls = collectClasspath(null);
@@ -132,7 +132,7 @@ final class Instrumentation {
      * @throws AssertionValidationException if an assertion is invalid
      */
     Set<Assertion> instrumentAppDir(String appName, Path sourceDir) throws IOException {
-        logger.raw().info("Instrumenting app directory '%s' from %s".formatted(appName, sourceDir));
+        log.info("Instrumenting app directory '%s' from %s".formatted(appName, sourceDir));
         var discovered = newAssertionSet();
         createDirectories(instrumentedAppsDir);
         var urls = collectClasspath(sourceDir);
@@ -160,7 +160,7 @@ final class Instrumentation {
      * @throws AssertionValidationException if an assertion is invalid
      */
     Set<Assertion> instrumentClasses(String appName, List<Path> dependencyJars) throws IOException {
-        logger.raw().info("Instrumenting classes for %s".formatted(appName));
+        log.info("Instrumenting classes for %s".formatted(appName));
         var discovered = newAssertionSet();
         createDirectories(instrumentedAppsDir);
         var urls = collectClasspath(null);

@@ -15,12 +15,13 @@
  */
 package com.pingidentity.opendst.runner;
 
+import static com.pingidentity.opendst.common.AssertType.SOMETIMES;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
-import static com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType.SOMETIMES;
 import static java.lang.System.currentTimeMillis;
 import static java.util.Comparator.comparing;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.pingidentity.opendst.common.Assertion;
 import com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion;
 import java.nio.file.Path;
 import java.time.Instant;

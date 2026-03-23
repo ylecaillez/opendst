@@ -18,8 +18,8 @@ package com.pingidentity.opendst.runner;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.pingidentity.opendst.common.AssertType;
 import com.pingidentity.opendst.runner.Signal.AssertSignal;
-import com.pingidentity.opendst.runner.Signal.AssertSignal.AssertType;
 import com.pingidentity.opendst.runner.Signal.ConsoleSignal;
 import com.pingidentity.opendst.runner.Signal.FaultSignal;
 import com.pingidentity.opendst.runner.Signal.GuidanceSignal;
@@ -86,40 +86,6 @@ public sealed interface Signal permits ConsoleSignal, AssertSignal, GuidanceSign
     }
 
     record AssertSignal(AssertType kind, String message, boolean condition, JsonNode details) implements Signal {
-
-        public enum AssertType {
-            ALWAYS("always", true),
-            ALWAYS_OR_UNREACHABLE("alwaysOrUnreachable", false),
-            SOMETIMES("sometimes", true);
-
-            private final String value;
-            private final boolean mustHit;
-
-            AssertType(String value, boolean mustHit) {
-                this.value = value;
-                this.mustHit = mustHit;
-            }
-
-            boolean mustHit() {
-                return mustHit;
-            }
-
-            @JsonCreator
-            public static AssertType fromString(String value) {
-                for (var type : values()) {
-                    if (type.value.equals(value)) {
-                        return type;
-                    }
-                }
-                throw new IllegalArgumentException("Unknown assert type: " + value);
-            }
-
-            @Override
-            @com.fasterxml.jackson.annotation.JsonValue
-            public String toString() {
-                return value;
-            }
-        }
 
         @Override
         public SignalType type() {

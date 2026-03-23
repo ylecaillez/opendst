@@ -14,7 +14,16 @@
     <name>OpenDST Runner</name>
     <description>Standalone runtime for executing OpenDST deterministic simulation tests</description>
 
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
     <dependencies>
+        <dependency>
+            <groupId>com.pingidentity.opendst</groupId>
+            <artifactId>opendst-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>tools.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>

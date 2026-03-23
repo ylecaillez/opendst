@@ -15,11 +15,11 @@
  */
 package com.pingidentity.opendst.runner;
 
-import static com.pingidentity.opendst.runner.Assertion.NO_INTERNAL_ERROR;
-import static com.pingidentity.opendst.runner.Assertion.NO_TRACE_AUDITOR_EXCEPTION;
-import static com.pingidentity.opendst.runner.Assertion.NO_UNCAUGHT_EXCEPTION;
-import static com.pingidentity.opendst.runner.Assertion.SIMULATION_STARTED;
-import static com.pingidentity.opendst.runner.Assertion.SIMULATION_TERMINATED;
+import static com.pingidentity.opendst.common.Assertion.NO_INTERNAL_ERROR;
+import static com.pingidentity.opendst.common.Assertion.NO_TRACE_AUDITOR_EXCEPTION;
+import static com.pingidentity.opendst.common.Assertion.NO_UNCAUGHT_EXCEPTION;
+import static com.pingidentity.opendst.common.Assertion.SIMULATION_STARTED;
+import static com.pingidentity.opendst.common.Assertion.SIMULATION_TERMINATED;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.OpenDstLogger.ofConsole;
 import static java.lang.System.exit;
@@ -27,6 +27,8 @@ import static java.nio.file.Files.createDirectories;
 
 import com.pingidentity.opendst.Faults;
 import com.pingidentity.opendst.Plan;
+import com.pingidentity.opendst.common.Assertion;
+import com.pingidentity.opendst.common.BuildConfig;
 import com.pingidentity.opendst.runner.Commons.DurationUtils;
 import com.pingidentity.opendst.runner.Orchestrator.GuidedOrchestrator;
 import com.pingidentity.opendst.runner.Orchestrator.ReplayOrchestrator;
@@ -353,19 +355,5 @@ public final class BuildRunner implements Callable<Integer> {
                         0.001)
                 : new Faults.Config.NetworkConfig();
         return new Faults.Config(net);
-    }
-
-    /** Build-time configuration baked into the self-contained JAR. */
-    public record BuildConfig(String jvmArguments, FaultsConfig faults) {
-
-        /** Serializable faults configuration using string-based durations. */
-        public record FaultsConfig(NetworkFaultsConfig network) {}
-
-        public record NetworkFaultsConfig(
-                boolean enabled,
-                String latencyMinimum,
-                String latencyFast,
-                String latencySlow,
-                String cloggingLatencyMaximum) {}
     }
 }

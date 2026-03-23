@@ -15,13 +15,11 @@
  */
 package com.pingidentity.opendst.maven;
 
-import static com.pingidentity.opendst.runner.Commons.INSTRUMENTED_APPS_DIR;
-import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
-import static com.pingidentity.opendst.runner.Commons.deleteRecursively;
 import static java.lang.Runtime.getRuntime;
 import static java.nio.file.FileSystems.newFileSystem;
 import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
+import static java.nio.file.Files.delete;
 import static java.nio.file.Files.exists;
 import static java.nio.file.Files.isDirectory;
 import static java.nio.file.Files.newOutputStream;
@@ -29,23 +27,26 @@ import static java.nio.file.Files.readAllBytes;
 import static java.nio.file.Files.walk;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.util.concurrent.Executors.newFixedThreadPool;
+import static tools.jackson.core.StreamReadFeature.AUTO_CLOSE_SOURCE;
 import static tools.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES;
+import static tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS;
 import static tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES;
 import static tools.jackson.databind.SerializationFeature.INDENT_OUTPUT;
+import static tools.jackson.databind.cfg.EnumFeature.WRITE_ENUMS_USING_TO_STRING;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.pingidentity.opendst.runner.Assertion;
-import com.pingidentity.opendst.runner.Bootstrap;
-import com.pingidentity.opendst.runner.BuildRunner.BuildConfig;
-import com.pingidentity.opendst.runner.OpenDSTExecutor.DeploymentDescriptor;
-import com.pingidentity.opendst.runner.OpenDSTExecutor.DeploymentDescriptor.ServiceDescriptor;
-import com.pingidentity.opendst.runner.OpenDSTExecutor.DeploymentDescriptor.TraceAuditorDescriptor;
-import com.pingidentity.opendst.runner.OpenDstLogger;
+import com.pingidentity.opendst.common.Assertion;
+import com.pingidentity.opendst.common.BuildConfig;
+import com.pingidentity.opendst.common.DeploymentDescriptor;
+import com.pingidentity.opendst.common.DeploymentDescriptor.ServiceDescriptor;
+import com.pingidentity.opendst.common.DeploymentDescriptor.TraceAuditorDescriptor;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
@@ -69,6 +70,7 @@ import org.eclipse.aether.RepositorySystem;
 import org.eclipse.aether.artifact.DefaultArtifact;
 import org.eclipse.aether.resolution.ArtifactRequest;
 import org.eclipse.aether.resolution.ArtifactResolutionException;
+import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.dataformat.yaml.YAMLMapper;
 
 /**
@@ -82,6 +84,15 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
 @Mojo(name = "build", defaultPhase = LifecyclePhase.PACKAGE, requiresDependencyResolution = ResolutionScope.TEST)
 public class BuildMojo extends AbstractMojo {
     private static final String OPENDST_SIMULATOR_JAR = "/META-INF/agents/opendst-agent.jar";
+    private static final String BOOTSTRAP_CLASS_NAME = "com.pingidentity.opendst.runner.Bootstrap";
+    private static final String INSTRUMENTED_APPS_DIR = "instrumented-apps";
+
+    private static final JsonMapper JSON_MAPPER = JsonMapper.builder()
+            .disable(FAIL_ON_TRAILING_TOKENS)
+            .disable(FAIL_ON_NULL_FOR_PRIMITIVES)
+            .disable(AUTO_CLOSE_SOURCE)
+            .enable(WRITE_ENUMS_USING_TO_STRING)
+            .build();
 
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;
@@ -232,7 +243,7 @@ public class BuildMojo extends AbstractMojo {
      */
     private Set<Assertion> resolveAndInstrument(Path basePath, Path instrumentedAppsDir)
             throws IOException, ArtifactResolutionException, MojoFailureException {
-        var logger = new OpenDstLogger(mavenLogSink());
+        var log = getLog();
 
         // Re-parse original descriptor to know source types (before enrichment cleared artifact).
         var originalDescriptor = parseDescriptor();
@@ -274,7 +285,7 @@ public class BuildMojo extends AbstractMojo {
         }
 
         try (var executor = newFixedThreadPool(getRuntime().availableProcessors() * 2)) {
-            var instrumentation = new Instrumentation(basePath, instrumentedAppsDir, executor, logger);
+            var instrumentation = new Instrumentation(basePath, instrumentedAppsDir, executor, log);
             var allDiscovered = Instrumentation.newAssertionSet();
 
             // Instrument test classes once (shared across all sources)
@@ -448,7 +459,7 @@ public class BuildMojo extends AbstractMojo {
         var manifest = new Manifest();
         var mainAttributes = manifest.getMainAttributes();
         mainAttributes.put(Attributes.Name.MANIFEST_VERSION, "1.0");
-        mainAttributes.put(Attributes.Name.MAIN_CLASS, Bootstrap.class.getName());
+        mainAttributes.put(Attributes.Name.MAIN_CLASS, BOOTSTRAP_CLASS_NAME);
 
         try (var jos = new JarOutputStream(newOutputStream(outputJar.toPath()), manifest)) {
             // 1. assertions.json
@@ -491,36 +502,26 @@ public class BuildMojo extends AbstractMojo {
     }
 
     /**
-     * Adds only {@link Bootstrap}{@code .class} at the JAR root. This is the sole class
+     * Adds only {@code Bootstrap.class} at the JAR root. This is the sole class
      * that must be loadable by {@code java -jar} without a custom classloader. All other
      * classes are loaded by the {@link java.net.URLClassLoader} that {@code Bootstrap} creates
      * from {@code system/*.jar} after extraction.
+     *
+     * <p>Reads the class bytes from the {@code opendst-runner} JAR resolved via
+     * the plugin descriptor.
      */
     private void addBootstrapClass(JarOutputStream jos) throws IOException {
-        final Path classesDir;
-        try {
-            classesDir = Path.of(Bootstrap.class
-                    .getProtectionDomain()
-                    .getCodeSource()
-                    .getLocation()
-                    .toURI());
-        } catch (java.net.URISyntaxException e) {
-            throw new IOException("Failed to resolve Bootstrap class location", e);
-        }
-        var launcherRelPath = Bootstrap.class.getName().replace('.', '/') + ".class";
+        var launcherRelPath = BOOTSTRAP_CLASS_NAME.replace('.', '/') + ".class";
+        var runnerJar = findRunnerJar();
 
-        if (isDirectory(classesDir)) {
-            addEntry(jos, launcherRelPath, readAllBytes(classesDir.resolve(launcherRelPath)));
-        } else {
-            try (var jarFs = newFileSystem(classesDir, (ClassLoader) null)) {
-                addEntry(jos, launcherRelPath, readAllBytes(jarFs.getPath(launcherRelPath)));
-            }
+        try (var jarFs = newFileSystem(runnerJar, (ClassLoader) null)) {
+            addEntry(jos, launcherRelPath, readAllBytes(jarFs.getPath(launcherRelPath)));
         }
     }
 
     /**
      * Copies all runtime dependency JARs into {@code system/}. At runtime, the
-     * {@link Bootstrap} builds a {@link java.net.URLClassLoader} from every
+     * Bootstrap builds a {@link java.net.URLClassLoader} from every
      * {@code system/*.jar} after extraction.
      *
      * <p>This includes the runner JAR (BuildRunner, OpenDSTExecutor, etc.),
@@ -555,35 +556,15 @@ public class BuildMojo extends AbstractMojo {
                 || "info.picocli".equals(groupId);
     }
 
-    /** Adapts Maven's {@link org.apache.maven.plugin.logging.Log} to {@link OpenDstLogger.Sink}. */
-    private OpenDstLogger.Sink mavenLogSink() {
-        var log = getLog();
-        return new OpenDstLogger.Sink() {
-            @Override
-            public boolean isDebugEnabled() {
-                return log.isDebugEnabled();
+    /** Finds the opendst-runner JAR from the plugin descriptor's resolved artifacts. */
+    private Path findRunnerJar() throws IOException {
+        for (var artifact : pluginDescriptor.getArtifacts()) {
+            if ("opendst-runner".equals(artifact.getArtifactId())
+                    && "com.pingidentity.opendst".equals(artifact.getGroupId())) {
+                return artifact.getFile().toPath();
             }
-
-            @Override
-            public void debug(CharSequence content) {
-                log.debug(content);
-            }
-
-            @Override
-            public void info(CharSequence content) {
-                log.info(content);
-            }
-
-            @Override
-            public void warn(CharSequence content) {
-                log.warn(content);
-            }
-
-            @Override
-            public void error(CharSequence content) {
-                log.error(content);
-            }
-        };
+        }
+        throw new IOException("opendst-runner JAR not found in plugin dependencies");
     }
 
     private void addInstrumentedApps(JarOutputStream jos, Path instrumentedAppsDir) throws IOException {
@@ -602,5 +583,28 @@ public class BuildMojo extends AbstractMojo {
         jos.putNextEntry(new JarEntry(name));
         jos.write(content);
         jos.closeEntry();
+    }
+
+    /** Recursively deletes a directory, with safety checks to prevent deleting outside the project. */
+    private static void deleteRecursively(Path basePath, Path directoryToDelete) throws IOException {
+        if (!exists(directoryToDelete)) {
+            return;
+        }
+        var absoluteBase = basePath.toAbsolutePath();
+        if (absoluteBase.getParent() == null) {
+            throw new IllegalArgumentException("The base directory '%s' must not be the root".formatted(basePath));
+        } else if (!directoryToDelete.toRealPath().startsWith(absoluteBase)) {
+            throw new IllegalArgumentException(
+                    "Directory '%s' will not be deleted as it is outside '%s'".formatted(directoryToDelete, basePath));
+        }
+        try (var stream = walk(directoryToDelete)) {
+            var paths = stream.sorted(Comparator.reverseOrder()).toList();
+            for (var path : paths) {
+                try {
+                    delete(path);
+                } catch (NoSuchFileException ignored) {
+                }
+            }
+        }
     }
 }

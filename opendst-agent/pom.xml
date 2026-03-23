@@ -27,7 +27,16 @@
   <description>Java agent and simulation engine for deterministic simulation testing</description>
   <artifactId>opendst-agent</artifactId>
 
+  <properties>
+    <maven.deploy.skip>true</maven.deploy.skip>
+  </properties>
+
   <dependencies>
+    <dependency>
+      <groupId>com.pingidentity.opendst</groupId>
+      <artifactId>opendst-common</artifactId>
+      <version>${project.version}</version>
+    </dependency>
     <dependency>
       <groupId>net.bytebuddy</groupId>
       <artifactId>byte-buddy</artifactId>
@@ -90,6 +99,10 @@
                 </transformer>
               </transformers>
               <relocations>
+                <relocation>
+                  <pattern>com.pingidentity.opendst.common</pattern>
+                  <shadedPattern>com.pingidentity.opendst.shaded.common</shadedPattern>
+                </relocation>
                 <relocation>
                   <pattern>net.bytebuddy</pattern>
                   <shadedPattern>com.pingidentity.opendst.shaded.net.bytebuddy</shadedPattern>
