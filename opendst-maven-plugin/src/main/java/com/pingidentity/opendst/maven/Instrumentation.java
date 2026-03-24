@@ -106,7 +106,7 @@ final class Instrumentation {
         log.info("Instrumenting test classes");
         var discovered = newAssertionSet();
         createDirectories(instrumentedAppsDir);
-        var urls = collectClasspath(null);
+        var urls = collectClasspath(null, List.of());
         try (var projectLoader = new URLClassLoader(urls, getClass().getClassLoader())) {
             var classFile = newClassFile(projectLoader);
             instrumentClassesFolder(
@@ -135,7 +135,7 @@ final class Instrumentation {
         log.info("Instrumenting app directory '%s' from %s".formatted(appName, sourceDir));
         var discovered = newAssertionSet();
         createDirectories(instrumentedAppsDir);
-        var urls = collectClasspath(sourceDir);
+        var urls = collectClasspath(sourceDir, List.of());
         try (var projectLoader = new URLClassLoader(urls, getClass().getClassLoader())) {
             var classFile = newClassFile(projectLoader);
             var outputDir = instrumentedAppsDir.resolve(appName);
@@ -163,7 +163,7 @@ final class Instrumentation {
         log.info("Instrumenting classes for %s".formatted(appName));
         var discovered = newAssertionSet();
         createDirectories(instrumentedAppsDir);
-        var urls = collectClasspath(null);
+        var urls = collectClasspath(null, dependencyJars);
         try (var projectLoader = new URLClassLoader(urls, getClass().getClassLoader())) {
             var classFile = newClassFile(projectLoader);
 
@@ -229,9 +229,10 @@ final class Instrumentation {
     /**
      * Builds a classpath for the {@link URLClassLoader} used during transformation.
      *
-     * @param appDir an exploded application directory, or {@code null} for non-WAR projects
+     * @param appDir    an exploded application directory, or {@code null} for non-WAR projects
+     * @param extraJars additional JARs to include (e.g. runtime dependency JARs for JAR projects)
      */
-    private URL[] collectClasspath(Path appDir) throws IOException {
+    private URL[] collectClasspath(Path appDir, List<Path> extraJars) throws IOException {
         var urls = new ArrayList<URL>();
         var mainClassesDir = basePath.resolve("target/classes");
         if (exists(mainClassesDir)) {
@@ -251,6 +252,9 @@ final class Instrumentation {
                     urls.add(path.toUri().toURL());
                 }
             }
+        }
+        for (var jar : extraJars) {
+            urls.add(jar.toUri().toURL());
         }
         return urls.toArray(URL[]::new);
     }
