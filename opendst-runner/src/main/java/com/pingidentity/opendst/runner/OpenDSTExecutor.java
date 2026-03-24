@@ -38,6 +38,7 @@ import java.net.URLClassLoader;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import tools.jackson.databind.InjectableValues;
 import tools.jackson.dataformat.yaml.YAMLMapper;
 
 /**
@@ -67,12 +68,18 @@ public final class OpenDSTExecutor {
             var deploymentDir = Path.of(args[0]);
             var descriptorFile = deploymentDir.resolve("META-INF/opendst/deployment.yaml");
 
-            // Parse deployment descriptor
+            // Parse deployment descriptor — enriched descriptors always have 'dir' set,
+            // so the injected projectArtifactId (null) is never used.
             var yamlMapper = YAMLMapper.builder()
                     .disable(FAIL_ON_NULL_FOR_PRIMITIVES)
                     .disable(FAIL_ON_UNKNOWN_PROPERTIES)
                     .build();
-            var descriptor = yamlMapper.readValue(descriptorFile.toFile(), DeploymentDescriptor.class);
+            var injectables =
+                    new InjectableValues.Std().addValue(DeploymentDescriptor.PROJECT_ARTIFACT_ID_KEY, (String) null);
+            var descriptor = (DeploymentDescriptor) yamlMapper
+                    .readerFor(DeploymentDescriptor.class)
+                    .with(injectables)
+                    .readValue(descriptorFile.toFile());
 
             // The opendst-agent JAR must be on each service's classpath so that the
             // URLClassLoader (parented to getPlatformClassLoader()) can resolve
@@ -103,7 +110,7 @@ public final class OpenDSTExecutor {
                         for (var entry : descriptor.services().entrySet()) {
                             var serviceName = entry.getKey();
                             var svc = entry.getValue();
-                            var appDir = appsDir.resolve(svc.appDir(serviceName));
+                            var appDir = appsDir.resolve(svc.appDir());
                             var serviceClassLoader =
                                     classLoader(serviceName, appDir, getPlatformClassLoader(), coreJarUrl);
                             var mainMethod = serviceClassLoader
