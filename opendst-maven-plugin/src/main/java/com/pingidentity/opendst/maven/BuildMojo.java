@@ -15,6 +15,8 @@
  */
 package com.pingidentity.opendst.maven;
 
+import static com.pingidentity.opendst.common.DeploymentDescriptor.PROJECT_ARTIFACT_ID_KEY;
+import static com.pingidentity.opendst.common.DeploymentDescriptor.Source.Project.Scope.TEST;
 import static java.lang.Runtime.getRuntime;
 import static java.nio.file.FileSystems.newFileSystem;
 import static java.nio.file.Files.copy;
@@ -35,9 +37,12 @@ import static tools.jackson.databind.cfg.EnumFeature.WRITE_ENUMS_USING_TO_STRING
 
 import com.pingidentity.opendst.common.Assertion;
 import com.pingidentity.opendst.common.BuildConfig;
+import com.pingidentity.opendst.common.BuildConfig.FaultsConfig;
+import com.pingidentity.opendst.common.BuildConfig.NetworkFaultsConfig;
 import com.pingidentity.opendst.common.DeploymentDescriptor;
 import com.pingidentity.opendst.common.DeploymentDescriptor.ServiceDescriptor;
 import com.pingidentity.opendst.common.DeploymentDescriptor.Source;
+import com.pingidentity.opendst.common.DeploymentDescriptor.Source.Project.Scope;
 import com.pingidentity.opendst.common.DeploymentDescriptor.TraceAuditorDescriptor;
 import java.io.File;
 import java.io.IOException;
@@ -254,7 +259,7 @@ public class BuildMojo extends AbstractMojo {
                         allDiscovered.addAll(instrumentation.instrumentAppDir(appDir, sourceDir));
                     }
                     case Source.Project(var scope, var artifactId) -> {
-                        var classesDirs = classesDirsForScope(basePath, scope);
+                        var classesDirs = scope.classesDirs(basePath);
                         var dependencyJars = collectDependencyJars(scope);
                         allDiscovered.addAll(instrumentation.instrumentClasses(appDir, classesDirs, dependencyJars));
                     }
@@ -262,22 +267,6 @@ public class BuildMojo extends AbstractMojo {
             }
             return allDiscovered;
         }
-    }
-
-    /**
-     * Returns the class directories to instrument for the given scope.
-     *
-     * <ul>
-     *   <li>{@link Source.Project.Scope#COMPILE} — {@code [target/classes]}</li>
-     *   <li>{@link Source.Project.Scope#TEST} — {@code [target/classes, target/test-classes]}</li>
-     * </ul>
-     */
-    private static List<Path> classesDirsForScope(Path basePath, Source.Project.Scope scope) {
-        var targetDir = basePath.resolve("target");
-        return switch (scope) {
-            case COMPILE -> List.of(targetDir.resolve("classes"));
-            case TEST -> List.of(targetDir.resolve("classes"), targetDir.resolve("test-classes"));
-        };
     }
 
     /**
@@ -309,12 +298,12 @@ public class BuildMojo extends AbstractMojo {
      * (which is compile-only — its classes are redirected by instrumentation).
      *
      * <ul>
-     *   <li>{@link Source.Project.Scope#COMPILE} — compile + runtime scoped artifacts</li>
-     *   <li>{@link Source.Project.Scope#TEST} — compile + runtime + test scoped artifacts</li>
+     *   <li>{@link Scope#COMPILE} — compile + runtime scoped artifacts</li>
+     *   <li>{@link Scope#TEST} — compile + runtime + test scoped artifacts</li>
      * </ul>
      */
-    private List<Path> collectDependencyJars(Source.Project.Scope scope) {
-        var includeTest = scope == Source.Project.Scope.TEST;
+    private List<Path> collectDependencyJars(Scope scope) {
+        var includeTest = scope == TEST;
         var jars = new ArrayList<Path>();
         for (var artifact : project.getArtifacts()) {
             var artifactScope = artifact.getScope();
@@ -370,15 +359,12 @@ public class BuildMojo extends AbstractMojo {
             throw new MojoFailureException("Deployment descriptor not found: " + descriptor.getAbsolutePath());
         }
         try {
-            var yamlMapper = YAMLMapper.builder()
+            return YAMLMapper.builder()
                     .disable(FAIL_ON_NULL_FOR_PRIMITIVES)
                     .disable(FAIL_ON_UNKNOWN_PROPERTIES)
-                    .build();
-            var injectables = new InjectableValues.Std()
-                    .addValue(DeploymentDescriptor.PROJECT_ARTIFACT_ID_KEY, project.getArtifactId());
-            return yamlMapper
+                    .build()
                     .readerFor(DeploymentDescriptor.class)
-                    .with(injectables)
+                    .with(new InjectableValues.Std().addValue(PROJECT_ARTIFACT_ID_KEY, project.getArtifactId()))
                     .readValue(descriptor);
         } catch (Exception e) {
             throw new MojoFailureException("Failed to parse deployment descriptor: " + descriptor.getAbsolutePath(), e);
@@ -469,9 +455,8 @@ public class BuildMojo extends AbstractMojo {
     }
 
     /** Returns the default faults configuration with network faults enabled. */
-    private static BuildConfig.FaultsConfig defaultFaultsConfig() {
-        return new BuildConfig.FaultsConfig(
-                new BuildConfig.NetworkFaultsConfig(true, "100us", "800us", "100ms", "100ms"));
+    private static FaultsConfig defaultFaultsConfig() {
+        return new FaultsConfig(new NetworkFaultsConfig(true, "100us", "800us", "100ms", "100ms"));
     }
 
     /**

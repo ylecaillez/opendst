@@ -143,8 +143,38 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
          */
         record Project(Scope scope, String artifactId) implements Source {
             public enum Scope {
-                COMPILE,
-                TEST;
+                COMPILE {
+                    @Override
+                    public List<Path> classesDirs(Path basePath) {
+                        return List.of(basePath.resolve("target/classes"));
+                    }
+
+                    @Override
+                    public String appDir(String artifactId) {
+                        return artifactId;
+                    }
+                },
+                TEST {
+                    @Override
+                    public List<Path> classesDirs(Path basePath) {
+                        var targetDir = basePath.resolve("target");
+                        return List.of(targetDir.resolve("classes"), targetDir.resolve("test-classes"));
+                    }
+
+                    @Override
+                    public String appDir(String artifactId) {
+                        return artifactId + "-tests";
+                    }
+                };
+
+                /**
+                 * Returns the class directories to instrument for this scope,
+                 * relative to the given project base path.
+                 */
+                public abstract List<Path> classesDirs(Path basePath);
+
+                /** Returns the {@code apps/} subdirectory name for this scope. */
+                public abstract String appDir(String artifactId);
 
                 static Scope parse(String scope) {
                     if (scope == null || scope.isBlank()) {
@@ -161,10 +191,7 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
             }
 
             public String appDir() {
-                return switch (scope) {
-                    case COMPILE -> artifactId;
-                    case TEST -> artifactId + "-tests";
-                };
+                return scope.appDir(artifactId);
             }
         }
     }
