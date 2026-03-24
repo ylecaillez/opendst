@@ -15,7 +15,10 @@
  */
 package com.pingidentity.opendst.common;
 
+import com.fasterxml.jackson.annotation.JacksonInject;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.OptBoolean;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -46,58 +49,136 @@ import java.util.Map;
  */
 public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, TraceAuditorDescriptor traceAuditor) {
 
+    /** Injectable-values key used to pass the Maven project's artifactId into deserialization. */
+    public static final String PROJECT_ARTIFACT_ID_KEY = "projectArtifactId";
+
     /**
-     * Describes a service with three mutually exclusive source modes:
-     * <ol>
-     *   <li>{@code artifact} — a Maven GAV coordinate resolved from Maven repositories</li>
-     *   <li>{@code dir} — a local directory path relative to the project basedir</li>
-     *   <li>Neither — the current project's {@code target/classes/} and runtime dependencies</li>
-     * </ol>
+     * Typed representation of a service's source, replacing the stringly-typed
+     * {@code artifact}/{@code dir}/{@code scope} YAML fields.
      *
-     * <p>The optional {@code scope} field controls which classes and dependencies are used
-     * when the source is the current project (i.e., neither {@code artifact} nor {@code dir}):
-     * <ul>
-     *   <li>{@code "compile"} (default when absent) — {@code target/classes/} + compile/runtime deps</li>
-     *   <li>{@code "test"} — {@code target/classes/} + {@code target/test-classes/} + all deps (incl. test)</li>
-     * </ul>
-     * Using {@code scope} together with {@code artifact} or {@code dir} is an error.
+     * <p>Used by the build plugin for exhaustive {@code switch}-based dispatch
+     * (enrichment, artifact resolution, instrumentation) without if/else chains.
      *
-     * <p>At build time, the plugin enriches every service with a {@code dir} value pointing
-     * to the actual {@code apps/} subdirectory name in the output JAR. The baked descriptor
-     * therefore always has {@code dir} set on every service.
+     * <p>After enrichment, all sources become {@link Dir} — the baked descriptor
+     * in the output JAR always has {@code dir} set on every service.
      */
-    public record ServiceDescriptor(
-            String artifact,
-            String dir,
-            @JsonProperty("class") String className,
-            String ip,
-            List<String> args,
-            String scope) {
+    public sealed interface Source {
+
+        /** Returns the {@code apps/} subdirectory name for this source. */
+        String appDir();
 
         /**
-         * Returns the {@code apps/} subdirectory name for this service's source.
+         * Constructs the appropriate {@link Source} variant from flat YAML fields.
          *
+         * <p>The three fields are mutually exclusive:
          * <ul>
-         *   <li>{@code dir} set — last path component (e.g., {@code target/apps/foo} &rarr; {@code foo})</li>
-         *   <li>{@code artifact} set — {@code artifactId-version} parsed from the GAV coordinate</li>
-         *   <li>Neither — falls back to the given {@code serviceName}</li>
+         *   <li>{@code artifact} set — {@link Artifact}</li>
+         *   <li>{@code dir} set — {@link Dir}</li>
+         *   <li>Neither — {@link Project} (current Maven project, controlled by {@code scope})</li>
          * </ul>
          *
-         * @param serviceName the service name (map key), used as fallback
+         * @param artifact           Maven GAV coordinate, or {@code null}
+         * @param dir                local directory path, or {@code null}
+         * @param scope              {@code "compile"} or {@code "test"}, or {@code null} (defaults to compile)
+         * @param projectArtifactId  the Maven project's artifactId (only used for {@link Project})
+         * @throws IllegalArgumentException if {@code scope} is used with {@code artifact} or {@code dir},
+         *                                  or if the scope value is not recognized
          */
-        public String appDir(String serviceName) {
-            if (dir != null && !dir.isBlank()) {
-                return Path.of(dir).getFileName().toString();
-            }
+        static Source of(String artifact, String dir, String scope, String projectArtifactId) {
             if (artifact != null && !artifact.isBlank()) {
-                var parts = artifact.split(":");
+                if (scope != null && !scope.isBlank()) {
+                    throw new IllegalArgumentException("'scope' cannot be used with 'artifact'");
+                }
+                return new Artifact(artifact);
+            }
+            if (dir != null && !dir.isBlank()) {
+                if (scope != null && !scope.isBlank()) {
+                    throw new IllegalArgumentException("'scope' cannot be used with 'dir'");
+                }
+                return new Dir(dir);
+            }
+            return new Project(parseScope(scope), projectArtifactId);
+        }
+
+        /** A Maven GAV coordinate resolved from Maven repositories. */
+        record Artifact(String gav) implements Source {
+            public String appDir() {
+                var parts = gav.split(":");
                 if (parts.length < 2) {
                     throw new IllegalArgumentException(
-                            "Malformed artifact coordinate (expected groupId:artifactId[:...]:version): " + artifact);
+                            "Malformed artifact coordinate (expected groupId:artifactId[:...]:version): " + gav);
                 }
                 return parts[1] + "-" + parts[parts.length - 1];
             }
-            return serviceName;
+        }
+
+        /** A local directory path (absolute or relative to the project basedir). */
+        record Dir(String path) implements Source {
+            public String appDir() {
+                return Path.of(path).getFileName().toString();
+            }
+        }
+
+        /**
+         * The current Maven project's compiled classes and dependencies.
+         *
+         * @param scope      controls which classes and dependencies are included
+         * @param artifactId the Maven project's artifactId, used for the {@code apps/} subdirectory name
+         */
+        record Project(Scope scope, String artifactId) implements Source {
+            public enum Scope {
+                COMPILE,
+                TEST
+            }
+
+            public String appDir() {
+                return switch (scope) {
+                    case COMPILE -> artifactId;
+                    case TEST -> artifactId + "-tests";
+                };
+            }
+        }
+
+        private static Project.Scope parseScope(String scope) {
+            if (scope == null || scope.isBlank()) {
+                return Project.Scope.COMPILE;
+            }
+            return switch (scope) {
+                case "compile" -> Project.Scope.COMPILE;
+                case "test" -> Project.Scope.TEST;
+                default ->
+                    throw new IllegalArgumentException(
+                            "Invalid scope '%s' — valid values are 'compile' and 'test'".formatted(scope));
+            };
+        }
+    }
+
+    /**
+     * Describes a service with a typed {@link Source} identifying where its classes come from.
+     *
+     * <p>The YAML representation uses flat {@code artifact}, {@code dir}, and {@code scope} keys
+     * (see example above). A {@link JsonCreator} factory method converts these into a typed
+     * {@link Source} at deserialization time, with the Maven project's artifactId injected via
+     * {@link JacksonInject}.
+     */
+    public record ServiceDescriptor(
+            Source source, @JsonProperty("class") String className, String ip, List<String> args) {
+
+        @JsonCreator
+        static ServiceDescriptor create(
+                @JsonProperty("artifact") String artifact,
+                @JsonProperty("dir") String dir,
+                @JsonProperty("scope") String scope,
+                @JacksonInject(value = PROJECT_ARTIFACT_ID_KEY, useInput = OptBoolean.FALSE) String projectArtifactId,
+                @JsonProperty("class") String className,
+                @JsonProperty("ip") String ip,
+                @JsonProperty("args") List<String> args) {
+            return new ServiceDescriptor(Source.of(artifact, dir, scope, projectArtifactId), className, ip, args);
+        }
+
+        /** Returns the {@code apps/} subdirectory name for this service's source. */
+        public String appDir() {
+            return source.appDir();
         }
 
         public String[] argsArray() {
@@ -113,33 +194,21 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
      * self-describing rather than referencing a service for its classloader.
      */
     public record TraceAuditorDescriptor(
-            String artifact,
-            String dir,
-            @JsonProperty("class") String className,
-            String scope) {
+            Source source, @JsonProperty("class") String className) {
 
-        /**
-         * Returns the {@code apps/} subdirectory name for the trace auditor's source.
-         *
-         * <ul>
-         *   <li>{@code dir} set — last path component</li>
-         *   <li>{@code artifact} set — {@code artifactId-version}</li>
-         *   <li>Neither — returns {@code null} (current project; plugin must enrich before baking)</li>
-         * </ul>
-         */
+        @JsonCreator
+        static TraceAuditorDescriptor create(
+                @JsonProperty("artifact") String artifact,
+                @JsonProperty("dir") String dir,
+                @JsonProperty("scope") String scope,
+                @JacksonInject(value = PROJECT_ARTIFACT_ID_KEY, useInput = OptBoolean.FALSE) String projectArtifactId,
+                @JsonProperty("class") String className) {
+            return new TraceAuditorDescriptor(Source.of(artifact, dir, scope, projectArtifactId), className);
+        }
+
+        /** Returns the {@code apps/} subdirectory name for the trace auditor's source. */
         public String appDir() {
-            if (dir != null && !dir.isBlank()) {
-                return Path.of(dir).getFileName().toString();
-            }
-            if (artifact != null && !artifact.isBlank()) {
-                var parts = artifact.split(":");
-                if (parts.length < 2) {
-                    throw new IllegalArgumentException(
-                            "Malformed artifact coordinate (expected groupId:artifactId[:...]:version): " + artifact);
-                }
-                return parts[1] + "-" + parts[parts.length - 1];
-            }
-            return null;
+            return source.appDir();
         }
     }
 }
