@@ -15,6 +15,8 @@
  */
 package com.pingidentity.opendst.common;
 
+import static java.util.Objects.requireNonNull;
+
 import com.fasterxml.jackson.annotation.JacksonInject;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -84,25 +86,39 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
          * @throws IllegalArgumentException if {@code scope} is used with {@code artifact} or {@code dir},
          *                                  or if the scope value is not recognized
          */
-        static Source of(String artifact, String dir, String scope, String projectArtifactId) {
-            if (artifact != null && !artifact.isBlank()) {
-                if (scope != null && !scope.isBlank()) {
-                    throw new IllegalArgumentException("'scope' cannot be used with 'artifact'");
-                }
+        static Source create(String artifact, String dir, String scope, String projectArtifactId) {
+            boolean hasArtifact = artifact != null && !artifact.isBlank();
+            boolean hasDir = dir != null && !dir.isBlank();
+            boolean hasScope = scope != null && !scope.isBlank();
+
+            if ((hasArtifact ? 1 : 0) + (hasDir ? 1 : 0) + (hasScope ? 1 : 0) > 1) {
+                throw new IllegalArgumentException(
+                        "Only one of 'artifact', 'dir', or 'scope' can be set, but found multiple");
+            } else if (hasArtifact) {
                 return new Artifact(artifact);
-            }
-            if (dir != null && !dir.isBlank()) {
-                if (scope != null && !scope.isBlank()) {
-                    throw new IllegalArgumentException("'scope' cannot be used with 'dir'");
-                }
+            } else if (hasDir) {
                 return new Dir(dir);
+            } else {
+                return new Project(Project.Scope.parse(scope), projectArtifactId);
             }
-            return new Project(parseScope(scope), projectArtifactId);
         }
 
-        /** A Maven GAV coordinate resolved from Maven repositories. */
-        record Artifact(String gav) implements Source {
-            public String appDir() {
+        /**
+         * A Maven GAV coordinate resolved from Maven repositories.
+         *
+         * <p>The coordinate is validated at construction time; the {@code appDir} is
+         * pre-computed as {@code artifactId-version} from the GAV parts.
+         *
+         * @param gav    the raw coordinate string (e.g. {@code groupId:artifactId:version})
+         * @param appDir the pre-computed {@code apps/} subdirectory name
+         */
+        record Artifact(String gav, String appDir) implements Source {
+
+            Artifact(String gav) {
+                this(gav, parseAppDir(gav));
+            }
+
+            private static String parseAppDir(String gav) {
                 var parts = gav.split(":");
                 if (parts.length < 2) {
                     throw new IllegalArgumentException(
@@ -128,7 +144,20 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
         record Project(Scope scope, String artifactId) implements Source {
             public enum Scope {
                 COMPILE,
-                TEST
+                TEST;
+
+                static Scope parse(String scope) {
+                    if (scope == null || scope.isBlank()) {
+                        return COMPILE;
+                    }
+                    return switch (scope) {
+                        case "compile" -> COMPILE;
+                        case "test" -> TEST;
+                        default ->
+                            throw new IllegalArgumentException(
+                                    "Invalid scope '%s' — valid values are 'compile' and 'test'".formatted(scope));
+                    };
+                }
             }
 
             public String appDir() {
@@ -137,19 +166,6 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
                     case TEST -> artifactId + "-tests";
                 };
             }
-        }
-
-        private static Project.Scope parseScope(String scope) {
-            if (scope == null || scope.isBlank()) {
-                return Project.Scope.COMPILE;
-            }
-            return switch (scope) {
-                case "compile" -> Project.Scope.COMPILE;
-                case "test" -> Project.Scope.TEST;
-                default ->
-                    throw new IllegalArgumentException(
-                            "Invalid scope '%s' — valid values are 'compile' and 'test'".formatted(scope));
-            };
         }
     }
 
@@ -164,6 +180,13 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
     public record ServiceDescriptor(
             Source source, @JsonProperty("class") String className, String ip, List<String> args) {
 
+        public ServiceDescriptor {
+            requireNonNull(source, "source");
+            requireNonNull(className, "class");
+            requireNonNull(ip, "ip");
+            args = args == null ? List.of() : args;
+        }
+
         @JsonCreator
         static ServiceDescriptor create(
                 @JsonProperty("artifact") String artifact,
@@ -173,7 +196,7 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
                 @JsonProperty("class") String className,
                 @JsonProperty("ip") String ip,
                 @JsonProperty("args") List<String> args) {
-            return new ServiceDescriptor(Source.of(artifact, dir, scope, projectArtifactId), className, ip, args);
+            return new ServiceDescriptor(Source.create(artifact, dir, scope, projectArtifactId), className, ip, args);
         }
 
         /** Returns the {@code apps/} subdirectory name for this service's source. */
@@ -182,7 +205,7 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
         }
 
         public String[] argsArray() {
-            return args == null ? new String[0] : args.toArray(String[]::new);
+            return args.toArray(String[]::new);
         }
     }
 
@@ -196,6 +219,11 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
     public record TraceAuditorDescriptor(
             Source source, @JsonProperty("class") String className) {
 
+        public TraceAuditorDescriptor {
+            requireNonNull(source, "source");
+            requireNonNull(className, "class");
+        }
+
         @JsonCreator
         static TraceAuditorDescriptor create(
                 @JsonProperty("artifact") String artifact,
@@ -203,7 +231,7 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
                 @JsonProperty("scope") String scope,
                 @JacksonInject(value = PROJECT_ARTIFACT_ID_KEY, useInput = OptBoolean.FALSE) String projectArtifactId,
                 @JsonProperty("class") String className) {
-            return new TraceAuditorDescriptor(Source.of(artifact, dir, scope, projectArtifactId), className);
+            return new TraceAuditorDescriptor(Source.create(artifact, dir, scope, projectArtifactId), className);
         }
 
         /** Returns the {@code apps/} subdirectory name for the trace auditor's source. */

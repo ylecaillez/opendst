@@ -31,7 +31,6 @@ import static tools.jackson.core.StreamReadFeature.AUTO_CLOSE_SOURCE;
 import static tools.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES;
 import static tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS;
 import static tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES;
-import static tools.jackson.databind.SerializationFeature.INDENT_OUTPUT;
 import static tools.jackson.databind.cfg.EnumFeature.WRITE_ENUMS_USING_TO_STRING;
 
 import com.pingidentity.opendst.common.Assertion;
@@ -71,7 +70,6 @@ import org.eclipse.aether.resolution.ArtifactRequest;
 import org.eclipse.aether.resolution.ArtifactResolutionException;
 import tools.jackson.databind.InjectableValues;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.module.SimpleModule;
 import tools.jackson.dataformat.yaml.YAMLMapper;
 
 /**
@@ -244,7 +242,7 @@ public class BuildMojo extends AbstractMojo {
                 var source = entry.getValue();
 
                 switch (source) {
-                    case Source.Artifact(var gav) -> {
+                    case Source.Artifact(var gav, var appDirName) -> {
                         var unpackedDir = resolveArtifact(basePath, appDir, gav);
                         allDiscovered.addAll(instrumentation.instrumentAppDir(appDir, unpackedDir));
                     }
@@ -459,29 +457,15 @@ public class BuildMojo extends AbstractMojo {
             addInstrumentedApps(jos, instrumentedAppsDir);
 
             // 5. deployment.yaml — enriched descriptor (serialized from object, not raw file)
-            addEntry(jos, "META-INF/opendst/deployment.yaml", serializeDescriptor(enrichedDescriptor));
+            addEntry(
+                    jos,
+                    "META-INF/opendst/deployment.yaml",
+                    DeploymentDescriptorSerializer.serialize(enrichedDescriptor));
 
             // 6. build-config.json — build-time defaults (runtime params are now CLI-only)
             var buildConfig = new BuildConfig(jvmArguments, defaultFaultsConfig());
             addEntry(jos, "META-INF/opendst/build-config.json", JSON_MAPPER.writeValueAsBytes(buildConfig));
         }
-    }
-
-    /**
-     * Serializes the enriched deployment descriptor to YAML bytes for baking into the JAR.
-     *
-     * <p>Custom serializers write the {@link Source} as flat YAML keys ({@code dir}, {@code artifact},
-     * or {@code scope}) rather than a nested {@code source} object.
-     */
-    private static byte[] serializeDescriptor(DeploymentDescriptor descriptor) throws IOException {
-        var serializerModule = new SimpleModule()
-                .addSerializer(ServiceDescriptor.class, new ServiceDescriptorSerializer())
-                .addSerializer(TraceAuditorDescriptor.class, new TraceAuditorDescriptorSerializer());
-        var yamlMapper = YAMLMapper.builder()
-                .addModule(serializerModule)
-                .enable(INDENT_OUTPUT)
-                .build();
-        return yamlMapper.writeValueAsBytes(descriptor);
     }
 
     /** Returns the default faults configuration with network faults enabled. */
