@@ -54,6 +54,14 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
      *   <li>Neither — the current project's {@code target/classes/} and runtime dependencies</li>
      * </ol>
      *
+     * <p>The optional {@code scope} field controls which classes and dependencies are used
+     * when the source is the current project (i.e., neither {@code artifact} nor {@code dir}):
+     * <ul>
+     *   <li>{@code "compile"} (default when absent) — {@code target/classes/} + compile/runtime deps</li>
+     *   <li>{@code "test"} — {@code target/classes/} + {@code target/test-classes/} + all deps (incl. test)</li>
+     * </ul>
+     * Using {@code scope} together with {@code artifact} or {@code dir} is an error.
+     *
      * <p>At build time, the plugin enriches every service with a {@code dir} value pointing
      * to the actual {@code apps/} subdirectory name in the output JAR. The baked descriptor
      * therefore always has {@code dir} set on every service.
@@ -63,7 +71,8 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
             String dir,
             @JsonProperty("class") String className,
             String ip,
-            List<String> args) {
+            List<String> args,
+            String scope) {
 
         /**
          * Returns the {@code apps/} subdirectory name for this service's source.
@@ -106,7 +115,8 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
     public record TraceAuditorDescriptor(
             String artifact,
             String dir,
-            @JsonProperty("class") String className) {
+            @JsonProperty("class") String className,
+            String scope) {
 
         /**
          * Returns the {@code apps/} subdirectory name for the trace auditor's source.

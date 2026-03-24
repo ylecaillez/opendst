@@ -8,8 +8,8 @@
         <version>@project.version@</version>
     </parent>
 
-    <artifactId>it-classloader</artifactId>
-    <name>OpenDST IT - ClassLoader Resolution</name>
+    <artifactId>it-instrumentation</artifactId>
+    <name>OpenDST IT - Instrumentation</name>
 
     <build>
         <plugins>

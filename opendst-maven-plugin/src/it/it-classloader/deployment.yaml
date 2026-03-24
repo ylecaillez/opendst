@@ -1,4 +1,0 @@
-services:
-  app:
-    class: com.pingidentity.opendst.it.classloader.RxApp
-    ip: 10.0.0.1

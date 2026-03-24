@@ -185,10 +185,12 @@ public class BuildMojo extends AbstractMojo {
      * <ul>
      *   <li>{@code artifact} set — {@code dir} set to {@code artifactId-version}, {@code artifact} cleared</li>
      *   <li>{@code dir} set — {@code dir} set to the last path component</li>
-     *   <li>Neither (current project) — {@code dir} set to the project's artifactId</li>
+     *   <li>Neither (current project) — {@code dir} set to the project's artifactId
+     *       (or {@code artifactId-tests} when {@code scope} is {@code "test"})</li>
      * </ul>
      *
-     * <p>The same enrichment applies to the optional trace auditor.
+     * <p>The same enrichment applies to the optional trace auditor. The {@code scope} field
+     * is not propagated to the enriched descriptor — it is only used at build time.
      */
     private DeploymentDescriptor enrichDescriptor(DeploymentDescriptor descriptor) {
         // Enrich services
@@ -201,10 +203,13 @@ public class BuildMojo extends AbstractMojo {
                 enrichedDir = svc.appDir(name); // artifactId-version
             } else if (svc.dir() != null && !svc.dir().isBlank()) {
                 enrichedDir = svc.appDir(name); // last path component
+            } else if ("test".equals(svc.scope())) {
+                enrichedDir = project.getArtifactId() + "-tests"; // current project, test scope
             } else {
-                enrichedDir = project.getArtifactId(); // current project
+                enrichedDir = project.getArtifactId(); // current project, compile scope
             }
-            enrichedServices.put(name, new ServiceDescriptor(null, enrichedDir, svc.className(), svc.ip(), svc.args()));
+            enrichedServices.put(
+                    name, new ServiceDescriptor(null, enrichedDir, svc.className(), svc.ip(), svc.args(), null));
         }
 
         // Enrich trace auditor
@@ -216,10 +221,12 @@ public class BuildMojo extends AbstractMojo {
                 enrichedDir = traceAuditor.appDir(); // artifactId-version
             } else if (traceAuditor.dir() != null && !traceAuditor.dir().isBlank()) {
                 enrichedDir = traceAuditor.appDir(); // last path component
+            } else if ("test".equals(traceAuditor.scope())) {
+                enrichedDir = project.getArtifactId() + "-tests"; // current project, test scope
             } else {
-                enrichedDir = project.getArtifactId(); // current project
+                enrichedDir = project.getArtifactId(); // current project, compile scope
             }
-            enrichedTraceAuditor = new TraceAuditorDescriptor(null, enrichedDir, traceAuditor.className());
+            enrichedTraceAuditor = new TraceAuditorDescriptor(null, enrichedDir, traceAuditor.className(), null);
         }
 
         return new DeploymentDescriptor(enrichedServices, enrichedTraceAuditor);
@@ -236,7 +243,8 @@ public class BuildMojo extends AbstractMojo {
      * <ul>
      *   <li><b>artifact</b> — resolved from Maven repositories, unpacked, then instrumented</li>
      *   <li><b>dir</b> — an existing directory on disk, instrumented in-place</li>
-     *   <li><b>current project</b> — {@code target/classes/} plus runtime dependency JARs</li>
+     *   <li><b>current project</b> — class directories plus dependency JARs, controlled by
+     *       the optional {@code scope} field ({@code "compile"} or {@code "test"})</li>
      * </ul>
      */
     private Set<Assertion> resolveAndInstrument(Path basePath, Path instrumentedAppsDir)
@@ -248,46 +256,53 @@ public class BuildMojo extends AbstractMojo {
 
         // Collect unique sources: enriched appDir → { artifact | dir | null (current project) }
         // We use a record to carry the source info needed for resolution.
-        record SourceInfo(String artifact, String dir, String label) {}
+        record SourceInfo(String artifact, String dir, String scope, String label) {}
         var uniqueSources = new LinkedHashMap<String, SourceInfo>();
 
         // From services
         for (var entry : originalDescriptor.services().entrySet()) {
             var serviceName = entry.getKey();
             var svc = entry.getValue();
+
+            // Validate scope
+            validateScope(svc.scope(), svc.artifact(), svc.dir(), "service '%s'".formatted(serviceName));
+
             // Compute enriched appDir using the same logic as enrichDescriptor()
             String appDir;
             if (svc.artifact() != null && !svc.artifact().isBlank()) {
                 appDir = svc.appDir(serviceName);
             } else if (svc.dir() != null && !svc.dir().isBlank()) {
                 appDir = svc.appDir(serviceName);
+            } else if ("test".equals(svc.scope())) {
+                appDir = project.getArtifactId() + "-tests";
             } else {
                 appDir = project.getArtifactId();
             }
             uniqueSources.putIfAbsent(
-                    appDir, new SourceInfo(svc.artifact(), svc.dir(), "service '%s'".formatted(serviceName)));
+                    appDir,
+                    new SourceInfo(svc.artifact(), svc.dir(), svc.scope(), "service '%s'".formatted(serviceName)));
         }
 
         // From trace auditor
         if (originalDescriptor.traceAuditor() != null) {
             var ta = originalDescriptor.traceAuditor();
+            validateScope(ta.scope(), ta.artifact(), ta.dir(), "traceAuditor");
             String appDir;
             if (ta.artifact() != null && !ta.artifact().isBlank()) {
                 appDir = ta.appDir();
             } else if (ta.dir() != null && !ta.dir().isBlank()) {
                 appDir = ta.appDir();
+            } else if ("test".equals(ta.scope())) {
+                appDir = project.getArtifactId() + "-tests";
             } else {
                 appDir = project.getArtifactId();
             }
-            uniqueSources.putIfAbsent(appDir, new SourceInfo(ta.artifact(), ta.dir(), "traceAuditor"));
+            uniqueSources.putIfAbsent(appDir, new SourceInfo(ta.artifact(), ta.dir(), ta.scope(), "traceAuditor"));
         }
 
         try (var executor = newFixedThreadPool(getRuntime().availableProcessors() * 2)) {
             var instrumentation = new Instrumentation(basePath, instrumentedAppsDir, executor, log);
             var allDiscovered = Instrumentation.newAssertionSet();
-
-            // Instrument test classes once (shared across all sources)
-            allDiscovered.addAll(instrumentation.instrumentTestClasses());
 
             for (var entry : uniqueSources.entrySet()) {
                 var appDir = entry.getKey();
@@ -306,12 +321,52 @@ public class BuildMojo extends AbstractMojo {
                     }
                     allDiscovered.addAll(instrumentation.instrumentAppDir(appDir, sourceDir));
                 } else {
-                    // Current project mode: instrument target/classes/ + runtime deps
-                    allDiscovered.addAll(instrumentation.instrumentClasses(appDir, collectRuntimeDependencyJars()));
+                    // Current project mode: instrument class dirs + dependency JARs
+                    var classesDirs = classesDirsForScope(basePath, source.scope());
+                    var dependencyJars = collectDependencyJars(source.scope());
+                    allDiscovered.addAll(instrumentation.instrumentClasses(appDir, classesDirs, dependencyJars));
                 }
             }
             return allDiscovered;
         }
+    }
+
+    /**
+     * Validates the {@code scope} field of a service or trace auditor descriptor.
+     *
+     * @throws MojoFailureException if scope is used with {@code artifact} or {@code dir},
+     *                              or if the value is not {@code "compile"} or {@code "test"}
+     */
+    private static void validateScope(String scope, String artifact, String dir, String label)
+            throws MojoFailureException {
+        if (scope == null || scope.isBlank()) {
+            return;
+        }
+        if (!"compile".equals(scope) && !"test".equals(scope)) {
+            throw new MojoFailureException(
+                    "%s has invalid scope '%s' — valid values are 'compile' and 'test'".formatted(label, scope));
+        }
+        if ((artifact != null && !artifact.isBlank()) || (dir != null && !dir.isBlank())) {
+            throw new MojoFailureException(
+                    "%s has 'scope' set together with '%s' — scope is only valid for current-project mode (neither 'artifact' nor 'dir' set)"
+                            .formatted(label, artifact != null && !artifact.isBlank() ? "artifact" : "dir"));
+        }
+    }
+
+    /**
+     * Returns the class directories to instrument for the given scope.
+     *
+     * <ul>
+     *   <li>{@code "compile"} (or null) — {@code [target/classes]}</li>
+     *   <li>{@code "test"} — {@code [target/classes, target/test-classes]}</li>
+     * </ul>
+     */
+    private static List<Path> classesDirsForScope(Path basePath, String scope) {
+        var targetDir = basePath.resolve("target");
+        if ("test".equals(scope)) {
+            return List.of(targetDir.resolve("classes"), targetDir.resolve("test-classes"));
+        }
+        return List.of(targetDir.resolve("classes"));
     }
 
     /**
@@ -340,14 +395,22 @@ public class BuildMojo extends AbstractMojo {
     }
 
     /**
-     * Collects the project's runtime dependency JARs, excluding {@code opendst-sdk}
+     * Collects dependency JARs for the given scope, excluding {@code opendst-sdk}
      * (which is compile-only — its classes are redirected by instrumentation).
+     *
+     * <ul>
+     *   <li>{@code "compile"} (or null) — compile + runtime scoped artifacts</li>
+     *   <li>{@code "test"} — compile + runtime + test scoped artifacts</li>
+     * </ul>
      */
-    private List<Path> collectRuntimeDependencyJars() {
+    private List<Path> collectDependencyJars(String scope) {
+        var includeTest = "test".equals(scope);
         var jars = new ArrayList<Path>();
         for (var artifact : project.getArtifacts()) {
-            if (!Artifact.SCOPE_COMPILE.equals(artifact.getScope())
-                    && !Artifact.SCOPE_RUNTIME.equals(artifact.getScope())) {
+            var artifactScope = artifact.getScope();
+            if (!Artifact.SCOPE_COMPILE.equals(artifactScope)
+                    && !Artifact.SCOPE_RUNTIME.equals(artifactScope)
+                    && !(includeTest && Artifact.SCOPE_TEST.equals(artifactScope))) {
                 continue;
             }
             if ("opendst-sdk".equals(artifact.getArtifactId())

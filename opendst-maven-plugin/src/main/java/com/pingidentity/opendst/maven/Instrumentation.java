@@ -92,33 +92,6 @@ final class Instrumentation {
     }
 
     /**
-     * Instruments test classes from {@code target/test-classes/} and bundles them into
-     * {@code instrumentedAppsDir/test-classes.jar}.
-     *
-     * <p>This method should be called once, before instrumenting application sources.
-     * Test classes are shared across all images.
-     *
-     * @return a set of all OpenDST assertions discovered in test classes
-     * @throws IOException if instrumentation fails due to I/O errors
-     * @throws AssertionValidationException if an assertion is invalid
-     */
-    Set<Assertion> instrumentTestClasses() throws IOException {
-        log.info("Instrumenting test classes");
-        var discovered = newAssertionSet();
-        createDirectories(instrumentedAppsDir);
-        var urls = collectClasspath(null, List.of());
-        try (var projectLoader = new URLClassLoader(urls, getClass().getClassLoader())) {
-            var classFile = newClassFile(projectLoader);
-            instrumentClassesFolder(
-                    classFile,
-                    basePath.resolve("target/test-classes"),
-                    instrumentedAppsDir.resolve("test-classes.jar"),
-                    discovered);
-        }
-        return discovered;
-    }
-
-    /**
      * Instruments an exploded application directory (e.g., an unpacked WAR or artifact)
      * and writes the instrumented output under {@code instrumentedAppsDir/<appName>/}.
      *
@@ -145,21 +118,26 @@ final class Instrumentation {
     }
 
     /**
-     * Instruments project classes from {@code target/classes/} and runtime dependency JARs,
-     * placing the output under {@code instrumentedAppsDir/<appName>/WEB-INF/}.
+     * Instruments project classes and runtime dependency JARs, placing the output under
+     * {@code instrumentedAppsDir/<appName>/WEB-INF/}.
      *
      * <p>Used when the project does <em>not</em> use {@code maven-war-plugin}. The source
-     * directories ({@code target/classes/}, {@code target/test-classes/}) are read but never
-     * modified; instrumented output is written entirely to {@code instrumentedAppsDir}.
+     * directories are read but never modified; instrumented output is written entirely to
+     * {@code instrumentedAppsDir}.
      *
      * @param appName        the application name (typically the Maven artifactId), used as
      *                       the directory name under {@code apps/} in the output JAR
-     * @param dependencyJars the project's runtime dependency JARs to instrument and copy
+     * @param classesDirs    the directories containing class files to instrument (e.g.,
+     *                       {@code [target/classes]} for compile scope, or
+     *                       {@code [target/classes, target/test-classes]} for test scope);
+     *                       all directories are combined into a single {@code classes.jar}
+     * @param dependencyJars the project's dependency JARs to instrument and copy
      * @return a set of all OpenDST assertions discovered during instrumentation
      * @throws IOException if instrumentation fails due to I/O errors
      * @throws AssertionValidationException if an assertion is invalid
      */
-    Set<Assertion> instrumentClasses(String appName, List<Path> dependencyJars) throws IOException {
+    Set<Assertion> instrumentClasses(String appName, List<Path> classesDirs, List<Path> dependencyJars)
+            throws IOException {
         log.info("Instrumenting classes for %s".formatted(appName));
         var discovered = newAssertionSet();
         createDirectories(instrumentedAppsDir);
@@ -167,10 +145,9 @@ final class Instrumentation {
         try (var projectLoader = new URLClassLoader(urls, getClass().getClassLoader())) {
             var classFile = newClassFile(projectLoader);
 
-            // Instrument target/classes/ → <appName>/WEB-INF/classes.jar
+            // Instrument class directories → <appName>/WEB-INF/classes.jar
             var webInfDir = instrumentedAppsDir.resolve(appName).resolve("WEB-INF");
-            instrumentClassesFolder(
-                    classFile, basePath.resolve("target/classes"), webInfDir.resolve("classes.jar"), discovered);
+            instrumentClassesFolders(classFile, classesDirs, webInfDir.resolve("classes.jar"), discovered);
 
             // Instrument runtime dependency JARs → <appName>/WEB-INF/lib/
             var libDir = webInfDir.resolve("lib");
@@ -262,13 +239,27 @@ final class Instrumentation {
     /** Instruments a directory of class files and bundles them into a JAR. */
     private void instrumentClassesFolder(ClassFile classFile, Path sourceDir, Path targetJar, Set<Assertion> discovered)
             throws IOException {
-        if (!exists(sourceDir)) {
-            return;
-        }
+        instrumentClassesFolders(classFile, List.of(sourceDir), targetJar, discovered);
+    }
+
+    /**
+     * Instruments one or more directories of class files and bundles them into a single JAR.
+     *
+     * <p>Directories that do not exist are silently skipped. If no directories contain any
+     * class files, the target JAR will be empty.
+     */
+    private void instrumentClassesFolders(
+            ClassFile classFile, List<Path> sourceDirs, Path targetJar, Set<Assertion> discovered) throws IOException {
         createDirectories(targetJar.getParent());
-        try (var jos = new JarOutputStream(newOutputStream(targetJar));
-                var stream = walk(sourceDir)) {
-            instrumentEntries(classFile, jos, discovered, sourceDir, stream.filter(Files::isRegularFile));
+        try (var jos = new JarOutputStream(newOutputStream(targetJar))) {
+            for (var sourceDir : sourceDirs) {
+                if (!exists(sourceDir)) {
+                    continue;
+                }
+                try (var stream = walk(sourceDir)) {
+                    instrumentEntries(classFile, jos, discovered, sourceDir, stream.filter(Files::isRegularFile));
+                }
+            }
         }
     }
 
