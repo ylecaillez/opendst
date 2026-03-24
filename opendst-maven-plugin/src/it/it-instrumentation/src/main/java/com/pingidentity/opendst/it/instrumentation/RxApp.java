@@ -13,13 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst.it.classloader;
+package com.pingidentity.opendst.it.instrumentation;
 
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 
 /**
- * Exercises RxJava's {@code Schedulers.io()} which internally uses {@code RxThreadFactory}.
+ * Exercises RxJava's {@code Schedulers.io()} which internally uses {@code RxThreadFactory},
+ * and also creates a {@code Thread} directly to verify call-site instrumentation.
  *
  * <p>{@code RxThreadFactory.newThread(Runnable)} has a conditional branch: one path creates
  * an {@code RxCustomThread} (a {@code Thread} subclass), the other creates a plain
@@ -31,6 +32,10 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * <p>If the resolver cannot load {@code RxCustomThread} (because the dependency JAR is
  * missing from the classloader), it falls back to {@code Object}, producing an incorrect
  * merge type and a {@code VerifyError} at runtime.
+ *
+ * <p>The {@link #createThread(Runnable)} method directly invokes {@code new Thread(Runnable)},
+ * which the call-site transform rewrites to {@code ThreadsInterceptors.newThread(Runnable)}.
+ * The verify.groovy script inspects the instrumented bytecode to confirm this redirection.
  */
 public final class RxApp {
     public static void main(String[] args) {
@@ -40,5 +45,25 @@ public final class RxApp {
                 .map(v -> v * 2)
                 .blockingFirst();
         System.out.println("RxJava result: " + result);
+    }
+
+    /**
+     * Creates a thread using {@code new Thread(Runnable)}.
+     *
+     * <p>After instrumentation, this bytecode is rewritten from:
+     * <pre>
+     *   NEW java/lang/Thread
+     *   DUP
+     *   ALOAD target
+     *   INVOKESPECIAL java/lang/Thread.&lt;init&gt;(Ljava/lang/Runnable;)V
+     * </pre>
+     * to:
+     * <pre>
+     *   ALOAD target
+     *   INVOKESTATIC com/pingidentity/opendst/ThreadsInterceptors.newThread(Ljava/lang/Runnable;)Ljava/lang/Thread;
+     * </pre>
+     */
+    public static Thread createThread(Runnable target) {
+        return new Thread(target);
     }
 }
