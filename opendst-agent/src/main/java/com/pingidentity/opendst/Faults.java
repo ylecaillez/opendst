@@ -277,12 +277,12 @@ public final class Faults {
             long a = current().nextLong(precision);
             long probabilityFastNanos = (long) (0.999 * precision);
             if (a <= probabilityFastNanos) {
-                long scaledA = Math.max(1, (a * precision) / probabilityFastNanos);
+                long scaledA = Math.max(1, a * precision / probabilityFastNanos);
                 return ofNanos((config.networkLatencyMinimum().toNanos() * (precision - scaledA)
                                 + (config.networkLatencyFast().toNanos() * precision / scaledA))
                         / (2 * probabilityFastNanos));
             }
-            long scaledA = ((a - probabilityFastNanos) * precision) / (precision - probabilityFastNanos);
+            long scaledA = (a - probabilityFastNanos) * precision / (precision - probabilityFastNanos);
             return ofNanos(((config.networkLatencyMinimum().toNanos() * (precision - scaledA))
                             + (config.networkLatencySlow().toNanos() * scaledA))
                     / (2 * precision));

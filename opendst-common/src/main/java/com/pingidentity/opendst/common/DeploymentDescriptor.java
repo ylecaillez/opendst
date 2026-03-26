@@ -130,6 +130,7 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
 
         /** A local directory path (absolute or relative to the project basedir). */
         record Dir(String path) implements Source {
+            @Override
             public String appDir() {
                 return Path.of(path).getFileName().toString();
             }
@@ -190,6 +191,7 @@ public record DeploymentDescriptor(Map<String, ServiceDescriptor> services, Trac
                 }
             }
 
+            @Override
             public String appDir() {
                 return scope.appDir(artifactId);
             }

@@ -41,7 +41,6 @@ public final class AssertImpl {
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysOrUnreachable(boolean,String,java.util.Map)")
     public static void alwaysOrUnreachable(boolean condition, String message, Map<String, Object> details) {
-        ;
         log("alwaysOrUnreachable", message, condition, details);
     }
 

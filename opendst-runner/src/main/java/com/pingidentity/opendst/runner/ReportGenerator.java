@@ -188,7 +188,7 @@ final class ReportGenerator {
     private String formatDuration(long start, long end) {
         long diff = Math.max(0, (end - start) / 1000);
         long h = diff / 3600;
-        long m = (diff % 3600) / 60;
+        long m = diff % 3600 / 60;
         long s = diff % 60;
         return "%02d:%02d:%02d".formatted(h, m, s);
     }

@@ -125,11 +125,11 @@ public final class OpenDSTExecutor {
 
         } catch (ReflectiveOperationException e) {
             err.println("Failed to instantiate trace auditor");
-            e.printStackTrace();
+            e.printStackTrace(err);
             getRuntime().halt(1);
         } catch (Exception e) {
             err.println("OpenDSTExecutor failed");
-            e.printStackTrace();
+            e.printStackTrace(err);
             getRuntime().halt(1);
         }
     }
