@@ -157,11 +157,11 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                     .setPairLatencyIfNotSet(
                             peerAddress,
                             binding.address(),
-                            ofNanos((node.faults()
-                                                    .network()
-                                                    .cloggingLatencyMaximum()
-                                                    .toNanos()
-                                            * current().nextInt(1000))
+                            ofNanos(node.faults()
+                                            .network()
+                                            .cloggingLatencyMaximum()
+                                            .toNanos()
+                                    * current().nextInt(1000)
                                     / 1000));
             this.sendBufferSize = toIntExact(max(current().nextLong(0, 5_000_000), 25_000 * (2 + latency.toMillis())));
             this.receiveBuffer = new NetBuffer();
@@ -336,7 +336,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             } else {
                 // Peer has written some bytes which needs to be sent
                 long twoNanosSec = MILLISECONDS.toNanos(2);
-                sleep(ofNanos((twoNanosSec * current().nextInt(0, 1000)) / 1000));
+                sleep(ofNanos(twoNanosSec * current().nextInt(0, 1000) / 1000));
                 if (closed) {
                     // Socket was closed during transit — just exit.
                     return null;
@@ -507,11 +507,11 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                     .setPairLatencyIfNotSet(
                             peerSocket.address,
                             address,
-                            ofNanos((node.faults()
-                                                    .network()
-                                                    .cloggingLatencyMaximum()
-                                                    .toNanos()
-                                            * current().nextInt(1000))
+                            ofNanos(node.faults()
+                                            .network()
+                                            .cloggingLatencyMaximum()
+                                            .toNanos()
+                                    * current().nextInt(1000)
                                     / 1000));
             acceptedLocalSocket.sendBufferSize =
                     toIntExact(max(current().nextLong(0, 5_000_000), 25_000 * (2 + latency.toMillis())));
@@ -623,7 +623,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
         public void close() {
             try {
                 closeable.close();
-            } catch (IOException e) {
+            } catch (IOException _) {
                 // Ignore silently
             }
         }

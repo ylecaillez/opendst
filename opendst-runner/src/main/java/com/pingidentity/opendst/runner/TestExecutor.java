@@ -298,7 +298,7 @@ final class TestExecutor {
                 lastLogs.addLast(line);
                 LogStatement log;
                 SignalEvent event;
-                if ((log = parseLog(line)) != null && ((event = extractSignal(log))) != null) {
+                if ((log = parseLog(line)) != null && (event = extractSignal(log)) != null) {
                     boolean interestingEvent = execution.interesting().test(event);
                     if (result.addSignal(event, interestingEvent)) {
                         return result;

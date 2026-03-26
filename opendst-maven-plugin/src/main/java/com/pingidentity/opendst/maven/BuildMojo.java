@@ -221,6 +221,7 @@ public class BuildMojo extends AbstractMojo {
      *   <li>{@link Source.Project} — class directories plus dependency JARs, controlled by scope</li>
      * </ul>
      */
+    @SuppressWarnings("PMD.UnusedLocalVariable") // record pattern bindings required by switch
     private Set<Assertion> resolveAndInstrument(Path basePath, Path instrumentedAppsDir)
             throws IOException, ArtifactResolutionException, MojoFailureException {
         var log = getLog();

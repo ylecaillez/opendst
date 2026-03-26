@@ -281,12 +281,12 @@ public final class Node {
     }
 
     /** Deterministic implementation of {@code java.util.ImmutableCollections#REVERSE}. */
-    final boolean immutableCollectionsReverse() {
+    boolean immutableCollectionsReverse() {
         return reverse;
     }
 
     /** Deterministic implementation of {@code java.util.ImmutableCollections#SALT32L}. */
-    final long immutableCollectionsSalt32l() {
+    long immutableCollectionsSalt32l() {
         return salt32l;
     }
 

@@ -94,7 +94,7 @@ final class PropertyDiscoverer {
                     }
                     updateStackForInvoke(inv, stack);
                 }
-                case LoadInstruction li -> stack.add(null);
+                case LoadInstruction _ -> stack.add(null);
                 case FieldInstruction fi -> updateStackForField(fi, stack);
                 case OperatorInstruction oi -> {
                     int pop = getOperatorPopCount(oi.opcode());

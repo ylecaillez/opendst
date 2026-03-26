@@ -54,6 +54,7 @@ final class DeploymentDescriptorSerializer {
         return yamlMapper.writeValueAsBytes(descriptor);
     }
 
+    @SuppressWarnings("PMD.UnusedLocalVariable") // record pattern bindings required by switch
     private static void writeSource(JsonGenerator gen, Source source) {
         switch (source) {
             case Source.Artifact(var gav, var appDirName) -> gen.writeStringProperty("artifact", gav);

@@ -52,6 +52,7 @@
     <maven-plugin-tools.version>3.15.2</maven-plugin-tools.version>
     <spotless.ratchet.ref>origin/main</spotless.ratchet.ref>
     <spotless.license-header.path>${maven.multiModuleProjectDirectory}/license-header</spotless.license-header.path>
+    <pmd.version>7.22.0</pmd.version>
   </properties>
 
   <dependencyManagement>
@@ -186,6 +187,31 @@
           <artifactId>maven-javadoc-plugin</artifactId>
           <version>3.11.2</version>
         </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-pmd-plugin</artifactId>
+          <version>3.28.0</version>
+          <configuration>
+            <rulesets>
+              <ruleset>${maven.multiModuleProjectDirectory}/pmd-ruleset.xml</ruleset>
+            </rulesets>
+            <failOnViolation>true</failOnViolation>
+            <printFailingErrors>true</printFailingErrors>
+            <linkXRef>false</linkXRef>
+          </configuration>
+          <dependencies>
+            <dependency>
+              <groupId>net.sourceforge.pmd</groupId>
+              <artifactId>pmd-core</artifactId>
+              <version>${pmd.version}</version>
+            </dependency>
+            <dependency>
+              <groupId>net.sourceforge.pmd</groupId>
+              <artifactId>pmd-java</artifactId>
+              <version>${pmd.version}</version>
+            </dependency>
+          </dependencies>
+        </plugin>
 
       </plugins>
     </pluginManagement>
@@ -198,6 +224,18 @@
           <execution>
             <id>spotless-check</id>
             <phase>validate</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>pmd-check</id>
             <goals>
               <goal>check</goal>
             </goals>
