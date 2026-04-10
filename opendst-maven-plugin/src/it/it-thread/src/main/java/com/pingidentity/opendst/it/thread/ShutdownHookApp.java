@@ -19,12 +19,14 @@ import com.pingidentity.opendst.sdk.Assert;
 import java.util.logging.LogManager;
 
 /**
- * Forces {@link LogManager} initialization inside the simulation context.
+ * Exercises platform thread guards inside the simulation context.
  *
- * <p>{@code LogManager} is a JVM singleton. When first initialized it registers a
- * {@code LogManager$Cleaner} shutdown hook — a platform thread. If this initialization happens
- * inside a simulation, the hook goes through the intercepted {@code Runtime.addShutdownHook()} and
- * the agent must skip it to preserve determinism.
+ * <ol>
+ *   <li>{@link LogManager} initialization registers a {@code LogManager$Cleaner} shutdown hook
+ *       (a platform thread). The agent's {@code addShutdownHook} guard must skip it.</li>
+ *   <li>The JDK's {@code VirtualThread-unblocker} is a platform thread started inside the
+ *       simulation. The agent's {@code ThreadStartAdvice} must detect and log it.</li>
+ * </ol>
  */
 public final class ShutdownHookApp {
     public static void main(String[] args) {
