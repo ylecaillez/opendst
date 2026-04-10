@@ -15,16 +15,13 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.common.CallSiteTransform.callSiteTransformMethod;
+import static com.pingidentity.opendst.ThreadsInterceptors.installSimulatorThreadCallback;
 import static java.lang.System.setProperty;
 import static net.bytebuddy.matcher.ElementMatchers.nameStartsWith;
 import static net.bytebuddy.matcher.ElementMatchers.not;
 
 import java.io.IOException;
-import java.lang.classfile.ClassFile;
-import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.Instrumentation;
-import java.security.ProtectionDomain;
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.agent.builder.AgentBuilder.Default;
@@ -70,7 +67,7 @@ public final class SimulatorAgent {
 
         agent.installOn(instrumentation);
 
-        instrumentation.addTransformer(new CallSiteInstrumentation());
+        installSimulatorThreadCallback();
         setProperty(AGENT_PROPERTY, "true");
 
         // Force VirtualThread class initialization outside the simulation context.
@@ -80,22 +77,6 @@ public final class SimulatorAgent {
         // UnblockVirtualThreadInterceptor and is not a source of non-determinism.
         // Pre-initializing here ensures the unblocker thread exists before any simulation runs.
         Thread.ofVirtual().name("opendst-warmup").unstarted(() -> {});
-    }
-
-    private static final class CallSiteInstrumentation implements ClassFileTransformer {
-        @Override
-        public byte[] transform(
-                ClassLoader loader,
-                String className,
-                Class<?> classBeingRedefined,
-                ProtectionDomain protectionDomain,
-                byte[] classfileBuffer) {
-            var classFile = ClassFile.of();
-            // Instrument the JDK ThreadBuilders to return VirtualThread rather than Thread
-            return className != null && className.startsWith("java/lang/ThreadBuilders")
-                    ? classFile.transformClass(classFile.parse(classfileBuffer), callSiteTransformMethod())
-                    : null;
-        }
     }
 
     private SimulatorAgent() {

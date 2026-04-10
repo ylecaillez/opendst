@@ -214,7 +214,10 @@ public final class Node {
         }
         virtualThreads.add(thread);
         setThreadLocal(thread, CURRENT_NODE, this);
-        thread.setUncaughtExceptionHandler(this::uncaughtExceptionHandler);
+        var ueh = thread.getUncaughtExceptionHandler();
+        if (ueh == null || ueh instanceof ThreadGroup) {
+            thread.setUncaughtExceptionHandler(this::uncaughtExceptionHandler);
+        }
         thread.setContextClassLoader(classLoader);
     }
 

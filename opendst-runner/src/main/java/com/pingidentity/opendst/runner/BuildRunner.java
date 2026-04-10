@@ -35,11 +35,13 @@ import com.pingidentity.opendst.runner.Orchestrator.ReplayOrchestrator;
 import com.pingidentity.opendst.runner.TestExecutor.JvmConfig;
 import com.pingidentity.opendst.runner.TestExecutor.RunConfig;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -146,14 +148,6 @@ public final class BuildRunner implements Callable<Integer> {
     private String extraJvmArgs;
 
     @Option(
-            names = "--cds",
-            negatable = true,
-            defaultValue = "false",
-            description = "Enable CDS shared archive for child JVMs to reduce cold-start time"
-                    + " (default: ${DEFAULT-VALUE})")
-    private boolean cds;
-
-    @Option(
             names = "--debug",
             arity = "0..1",
             fallbackValue = "5005",
@@ -216,6 +210,11 @@ public final class BuildRunner implements Callable<Integer> {
                 .resolve("system/opendst-agent.jar")
                 .toAbsolutePath()
                 .toString();
+        var patchModuleJarPath = deploymentDir
+                .resolve("system/opendst-patch.jar")
+                .toAbsolutePath()
+                .toString();
+        verifyPatchModuleJdkVersion(Path.of(patchModuleJarPath), logger);
 
         // Merge JVM arguments: build-time defaults + CLI --extra-jvm-args (additive)
         var buildTimeArgs = config.jvmArguments();
@@ -228,11 +227,11 @@ public final class BuildRunner implements Callable<Integer> {
         var jvmConfig = new JvmConfig(
                 instrumentedAppsDir,
                 agentJarPath,
+                patchModuleJarPath,
                 effectiveJvmArgs,
                 debugArgs,
                 null,
-                OpenDSTExecutor.class.getName(),
-                cds && !isDebug);
+                OpenDSTExecutor.class.getName());
 
         // Replay mode: load a saved plan and execute it once
         boolean isReplay = planFile != null;
@@ -257,7 +256,6 @@ public final class BuildRunner implements Callable<Integer> {
                 .with("branch", "%.2f".formatted(branchProbability))
                 .with("replay", "%.2f".formatted(replayProbability))
                 .with("stagnation", stagnationLimit)
-                .with("cds", cds && !isDebug)
                 .with(
                         "stop",
                         effectiveStopConditions.isEmpty()
@@ -338,8 +336,6 @@ public final class BuildRunner implements Callable<Integer> {
 
     /**
      * Builds the classpath for child JVMs from all library JARs in {@code deployment/system/}.
-     * The deployment root directory is intentionally excluded: CDS (Class Data Sharing) rejects
-     * non-empty directories as classpath entries, and the child JVM only needs the system JARs.
      */
     private static String buildChildClasspath(Path deploymentDir) {
         var sb = new StringBuilder();
@@ -370,5 +366,34 @@ public final class BuildRunner implements Callable<Integer> {
                         0.001)
                 : new Faults.Config.NetworkConfig();
         return new Faults.Config(net);
+    }
+
+    /**
+     * Verifies that the JDK used at build time (recorded in {@code opendst-patch.jar}'s MANIFEST)
+     * matches the current runtime JDK. The patch JAR contains a byte-for-byte copy of
+     * {@code VirtualThread.class} from the build JDK, so a version mismatch would cause
+     * unpredictable failures at runtime.
+     */
+    private static void verifyPatchModuleJdkVersion(Path patchJar, OpenDstLogger logger) {
+        try (var jar = new JarFile(patchJar.toFile())) {
+            var buildVersion = jar.getManifest().getMainAttributes().getValue("Build-Jdk-Version");
+            var buildMajor = Runtime.Version.parse(buildVersion).feature();
+            var runtimeMajor = Runtime.version().feature();
+            if (buildMajor != runtimeMajor) {
+                throw new IllegalStateException(
+                        "JDK version mismatch: opendst-patch.jar was built with JDK %s but running on JDK %s. "
+                                        .formatted(buildVersion, Runtime.version())
+                                + "The patch JAR contains VirtualThread.class from the build JDK and is incompatible "
+                                + "with a different JDK version. Rebuild with the current JDK.");
+            }
+            if (!buildVersion.equals(Runtime.version().toString())) {
+                logger.raw()
+                        .warn("opendst-patch.jar was built with JDK %s but running on JDK %s. "
+                                        .formatted(buildVersion, Runtime.version())
+                                + "Consider rebuilding to match exactly.");
+            }
+        } catch (IOException e) {
+            logger.raw().warn("Could not read opendst-patch.jar manifest: " + e.getMessage());
+        }
     }
 }

@@ -17,7 +17,6 @@ package com.pingidentity.opendst;
 
 import com.pingidentity.opendst.common.CallSiteTransform;
 import java.io.IOException;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
@@ -43,9 +42,9 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li><b>Advice Audit:</b> Uses reflection to find all classes/methods annotated with
  *       {@link Intercepts}. It verifies that all internal Advice classes are documented.
- *   <li><b>Call-Site Audit:</b> Iterates through {@link SimulatorAgent#REDIRECT_MAP} and
- *       cross-references JDK methods (via reflection) with their deterministic wrappers in
- *       {@code Simulated*} classes.
+ *   <li><b>Call-Site Audit:</b> Iterates through
+ *       {@link CallSiteTransform#REDIRECT_STATIC_METHODS} and cross-references JDK methods
+ *       (via reflection) with their deterministic wrappers.
  *   <li><b>Gap Analysis:</b> Compares the set of available JDK methods with the implemented ones.
  *       New gaps cause the test to fail unless they are explicitly listed in
  *       {@code src/test/resources/known-gaps.txt}.
@@ -92,12 +91,8 @@ public class InstrumentationAuditTest {
         auditDiscoveredAdvice();
 
         // 2. Audit Static Methods Redirections
-        for (var entry : CallSiteTransform.REDIRECT_MAP.entrySet()) {
+        for (var entry : CallSiteTransform.REDIRECT_STATIC_METHODS.entrySet()) {
             var jdkClassName = entry.getKey().replace('/', '.');
-            if (!CallSiteTransform.REDIRECT_STATIC_METHODS_OF.contains(entry.getKey())) {
-                continue;
-            }
-
             var jdkClass = Class.forName(jdkClassName);
             var simulatedClass = Class.forName(
                     entry.getValue().packageName() + "." + entry.getValue().displayName());
@@ -105,19 +100,8 @@ public class InstrumentationAuditTest {
             auditStaticMethods(jdkClass, simulatedClass);
         }
 
-        // 3. Audit Constructor Redirections
-        for (var entry : CallSiteTransform.REDIRECT_MAP.entrySet()) {
-            var jdkClassName = entry.getKey().replace('/', '.');
-            if (!CallSiteTransform.REDIRECT_CONSTRUCTORS_OF.contains(entry.getKey())) {
-                continue;
-            }
-
-            var jdkClass = Class.forName(jdkClassName);
-            var simulatedClass = Class.forName(
-                    entry.getValue().packageName() + "." + entry.getValue().displayName());
-
-            auditConstructors(jdkClass, simulatedClass);
-        }
+        // Thread constructors are handled by SimulatorThread (via build-time NEW Thread → NEW SimulatorThread
+        // rewriting), not by static factory methods — no constructor audit needed.
 
         generateReport();
 
@@ -198,22 +182,6 @@ public class InstrumentationAuditTest {
         }
     }
 
-    private void auditConstructors(Class<?> jdkClass, Class<?> simulatedClass) {
-        var factoryMethodName = "new" + jdkClass.getSimpleName();
-        for (var ctor : jdkClass.getConstructors()) {
-            if (Modifier.isPublic(ctor.getModifiers())) {
-                var memberName = formatConstructor(ctor);
-                var fullId = jdkClass.getName() + "#" + memberName;
-
-                boolean matched = hasMatchingConstructorFactory(simulatedClass, factoryMethodName, ctor);
-                boolean acknowledged = acknowledgedGaps.contains(fullId);
-
-                auditResults.add(new AuditResult(
-                        jdkClass.getName(), memberName, "CALL_SITE (Ctor)", matched, acknowledged, false, ""));
-            }
-        }
-    }
-
     private boolean hasMatchingMethod(Class<?> targetClass, Method sourceMethod) {
         try {
             var targetMethod = targetClass.getMethod(sourceMethod.getName(), sourceMethod.getParameterTypes());
@@ -223,25 +191,10 @@ public class InstrumentationAuditTest {
         }
     }
 
-    private boolean hasMatchingConstructorFactory(Class<?> targetClass, String name, Constructor<?> ctor) {
-        try {
-            var method = targetClass.getMethod(name, ctor.getParameterTypes());
-            return Modifier.isStatic(method.getModifiers()) && Modifier.isPublic(method.getModifiers());
-        } catch (NoSuchMethodException e) {
-            return false;
-        }
-    }
-
     private String formatMethod(Method m) {
         var params =
                 Arrays.stream(m.getParameterTypes()).map(Class::getSimpleName).collect(Collectors.joining(","));
         return String.format("%s(%s)", m.getName(), params);
-    }
-
-    private String formatConstructor(Constructor<?> c) {
-        var params =
-                Arrays.stream(c.getParameterTypes()).map(Class::getSimpleName).collect(Collectors.joining(","));
-        return String.format("<init>(%s)", params);
     }
 
     private void generateReport() throws IOException {

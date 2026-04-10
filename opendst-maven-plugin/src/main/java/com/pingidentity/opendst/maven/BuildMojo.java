@@ -149,6 +149,15 @@ public class BuildMojo extends AbstractMojo {
         var agentJarPath = extractEmbeddedJar(basePath, OPENDST_AGENT_JAR, "opendst-agent.jar");
         var runnerJarPath = extractEmbeddedJar(basePath, OPENDST_RUNNER_JAR, "opendst-runner.jar");
 
+        // 2b. Generate opendst-patch.jar (patched VirtualThread + SimulatorThread)
+        var patchModuleJarPath =
+                basePath.resolve("target").resolve("opendst-package").resolve("opendst-patch.jar");
+        try {
+            PatchModuleGenerator.generate(patchModuleJarPath);
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to generate opendst-patch.jar", e);
+        }
+
         // 3. Resolve external artifacts and instrument all unique sources
         var opendstBasePath = basePath.resolve("target").resolve("opendst-package");
         var instrumentedAppsDir = opendstBasePath.resolve(INSTRUMENTED_APPS_DIR);
@@ -171,7 +180,13 @@ public class BuildMojo extends AbstractMojo {
 
         // 4. Build the self-contained JAR
         try {
-            buildJar(instrumentedAppsDir, agentJarPath, runnerJarPath, enrichedDescriptor, discoveredProperties);
+            buildJar(
+                    instrumentedAppsDir,
+                    agentJarPath,
+                    runnerJarPath,
+                    patchModuleJarPath,
+                    enrichedDescriptor,
+                    discoveredProperties);
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to build self-contained JAR", e);
         }
@@ -408,6 +423,7 @@ public class BuildMojo extends AbstractMojo {
      * system/
      *   opendst-agent.jar               # Java agent (shaded fat JAR)
      *   opendst-runner.jar              # Runner (shaded: picocli + Jackson + SnakeYAML + common)
+     *   opendst-patch.jar               # Patched VirtualThread + SimulatorThread (--patch-module)
      * apps/
      *   &lt;appDir&gt;/                       # Instrumented application content
      *     WEB-INF/
@@ -419,6 +435,7 @@ public class BuildMojo extends AbstractMojo {
             Path instrumentedAppsDir,
             Path agentJarPath,
             Path runnerJarPath,
+            Path patchModuleJarPath,
             DeploymentDescriptor enrichedDescriptor,
             Set<Assertion> discoveredProperties)
             throws IOException {
@@ -439,6 +456,7 @@ public class BuildMojo extends AbstractMojo {
             // 3. system/ — all runtime JARs (loaded by Bootstrap's URLClassLoader after extraction)
             addEntry(jos, "system/opendst-agent.jar", readAllBytes(agentJarPath));
             addEntry(jos, "system/opendst-runner.jar", readAllBytes(runnerJarPath));
+            addEntry(jos, "system/opendst-patch.jar", readAllBytes(patchModuleJarPath));
 
             // 4. apps/ — instrumented application artifacts
             addInstrumentedApps(jos, instrumentedAppsDir);

@@ -25,7 +25,6 @@ import static com.pingidentity.opendst.ThreadsInterceptors.Internals.takeVirtual
 import static com.pingidentity.opendst.ThreadsInterceptors.Internals.unblockVirtualThread;
 import static java.lang.String.format;
 import static java.lang.Thread.State.TERMINATED;
-import static java.lang.Thread.ofVirtual;
 import static java.lang.Thread.onSpinWait;
 import static java.lang.invoke.MethodHandles.lookup;
 import static java.lang.invoke.MethodHandles.privateLookupIn;
@@ -42,6 +41,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.asm.Advice.Argument;
@@ -67,7 +68,6 @@ public final class ThreadsInterceptors {
         private static final MethodHandle VTHREAD_UNBLOCK;
         private static final MethodHandle THREAD_LOCAL_GET;
         private static final MethodHandle THREAD_LOCAL_SET;
-        private static final MethodHandle NEW_THREAD;
 
         static {
             try {
@@ -89,16 +89,6 @@ public final class ThreadsInterceptors {
                         .findVirtual(ThreadLocal.class, "get", methodType(Object.class, Thread.class));
                 THREAD_LOCAL_SET = privateLookupIn(ThreadLocal.class, lookup())
                         .findVirtual(ThreadLocal.class, "set", methodType(void.class, Thread.class, Object.class));
-                NEW_THREAD = privateLookupIn(Thread.class, lookup())
-                        .findConstructor(
-                                Thread.class,
-                                methodType(
-                                        void.class,
-                                        ThreadGroup.class,
-                                        String.class,
-                                        int.class,
-                                        Runnable.class,
-                                        long.class));
             } catch (Throwable e) {
                 throw new Simulator.SimulationError("Unable to find virtual thread internal APIs", e);
             }
@@ -109,14 +99,6 @@ public final class ThreadsInterceptors {
                 return (Thread) VTHREAD_CLASS.cast(VTHREAD_TAKE_LIST_TO_UNBLOCK.invoke());
             } catch (Throwable e) {
                 throw new Simulator.SimulationError("Unable to get the next virtual thread to unblock", e);
-            }
-        }
-
-        static Thread newThread(ThreadGroup group, String name, int characteristics, Runnable target, long stackSize) {
-            try {
-                return (Thread) NEW_THREAD.invoke(group, name, characteristics, target, stackSize);
-            } catch (Throwable e) {
-                throw new Simulator.SimulationError(e);
             }
         }
 
@@ -211,74 +193,6 @@ public final class ThreadsInterceptors {
         private VirtualThreadUnblocker() {}
     }
 
-    /** Deterministic implementation of {@link Thread#Thread()}. */
-    @SuppressWarnings({"MissingJavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod"})
-    public static Thread newThread() {
-        return currentNodeOrNull() != null ? ofVirtual().unstarted(() -> {}) : new Thread();
-    }
-
-    /** Deterministic implementation of {@link Thread#Thread(String)}. */
-    @SuppressWarnings({"MissingJavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod"})
-    public static Thread newThread(String name) {
-        return currentNodeOrNull() != null ? ofVirtual().name(name).unstarted(() -> {}) : new Thread(name);
-    }
-
-    /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, String)}. */
-    @SuppressWarnings({"MissingJavadocMethod", "unused", "InstantiatingAThreadWithDefaultRunMethod"})
-    public static Thread newThread(ThreadGroup group, String name) {
-        return currentNodeOrNull() != null ? ofVirtual().name(name).unstarted(() -> {}) : new Thread(group, name);
-    }
-
-    /** Deterministic implementation of {@link Thread#Thread(Runnable)}. */
-    @SuppressWarnings({"MissingJavadocMethod", "unused"})
-    public static Thread newThread(Runnable target) {
-        return currentNodeOrNull() != null ? ofVirtual().unstarted(target) : new Thread(target);
-    }
-
-    /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable)}. */
-    @SuppressWarnings({"MissingJavadocMethod", "unused"})
-    public static Thread newThread(ThreadGroup group, Runnable target) {
-        return currentNodeOrNull() != null ? ofVirtual().unstarted(target) : new Thread(group, target);
-    }
-
-    /** Deterministic implementation of {@link Thread#Thread(Runnable, String)}. */
-    @SuppressWarnings({"MissingJavadocMethod", "unused"})
-    public static Thread newThread(Runnable target, String name) {
-        return currentNodeOrNull() != null ? ofVirtual().name(name).unstarted(target) : new Thread(target, name);
-    }
-
-    /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String)}. */
-    @SuppressWarnings({"MissingJavadocMethod", "unused"})
-    public static Thread newThread(ThreadGroup group, Runnable target, String name) {
-        return currentNodeOrNull() != null ? ofVirtual().name(name).unstarted(target) : new Thread(group, target, name);
-    }
-
-    /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long)}. */
-    @SuppressWarnings({"MissingJavadocMethod", "unused"})
-    public static Thread newThread(ThreadGroup group, Runnable target, String name, long stackSize) {
-        return currentNodeOrNull() != null
-                ? ofVirtual().name(name).unstarted(target)
-                : new Thread(group, target, name, stackSize);
-    }
-
-    /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, Runnable, String, long, boolean)}. */
-    @SuppressWarnings({"MissingJavadocMethod", "unused"})
-    public static Thread newThread(
-            ThreadGroup group, Runnable target, String name, long stackSize, boolean inheritThreadLocal) {
-        return currentNodeOrNull() != null
-                ? ofVirtual().name(name).unstarted(target)
-                : new Thread(group, target, name, stackSize, inheritThreadLocal);
-    }
-
-    /** Deterministic implementation of {@link Thread#Thread(ThreadGroup, String, int, Runnable, long)} . */
-    @SuppressWarnings({"MissingJavadocMethod", "unused"})
-    public static Thread newThread(
-            ThreadGroup group, String name, int characteristics, Runnable target, long stackSize) {
-        return currentNodeOrNull() != null
-                ? ofVirtual().name(name).unstarted(target)
-                : Internals.newThread(group, name, characteristics, target, stackSize);
-    }
-
     /** Overrides {@code java.lang.ThreadBuilders#newVirtualThread(Executor, String, int, Runnable)}. */
     @Intercepts("java.lang.ThreadBuilders#newVirtualThread(Executor,String,int,Runnable)")
     public static final class NewVirtualThreadAdvice {
@@ -297,6 +211,52 @@ public final class ThreadsInterceptors {
         public static void onExit(@Enter Node node, @Return Thread thread) {
             if (node != null) {
                 node.attachThread(thread);
+            }
+        }
+    }
+
+    /**
+     * Intercepts platform thread creation in {@code ThreadBuilders} to replace platform threads
+     * with virtual threads when inside a simulation context.
+     *
+     * <p>Two JDK-internal paths create platform threads:
+     * <ul>
+     *   <li>{@code ThreadBuilders$PlatformThreadBuilder.unstarted(Runnable)} — behind
+     *       {@code Thread.ofPlatform().unstarted(r)} and {@code .start(r)}</li>
+     *   <li>{@code ThreadBuilders$PlatformThreadFactory.newThread(Runnable)} — behind
+     *       {@code Thread.ofPlatform().factory()} and {@code Executors.defaultThreadFactory()}</li>
+     * </ul>
+     *
+     * <p>Inside simulation: the original method still runs (creating a platform thread that is
+     * immediately discarded), and the return value is replaced with a virtual thread created via
+     * {@code Thread.ofVirtual().unstarted(runnable)} — which is intercepted by
+     * {@link NewVirtualThreadAdvice} to wire the node's executor and attach the thread.
+     * The thread name and uncaught exception handler are copied from the discarded
+     * platform thread to preserve the caller's configuration
+     * (e.g. counter-based names from {@code Thread.ofPlatform().name("pool-", 0)}).
+     *
+     * <p>Outside simulation: the advice is a no-op and the platform thread passes through.
+     */
+    @Intercepts("java.lang.ThreadBuilders$PlatformThreadFactory#newThread(Runnable)")
+    @Intercepts("java.lang.ThreadBuilders$PlatformThreadBuilder#unstarted(Runnable)")
+    public static final class NewPlatformThreadAdvice {
+        @OnMethodEnter
+        @SuppressWarnings("MissingJavadocMethod")
+        public static Runnable onEnter(@Argument(0) Runnable target) {
+            return currentNodeOrNull() != null ? target : null;
+        }
+
+        @OnMethodExit
+        @SuppressWarnings("MissingJavadocMethod")
+        public static void onExit(@Enter Runnable target, @Return(readOnly = false) Thread thread) {
+            if (target != null) {
+                var name = thread.getName();
+                var ueh = thread.getUncaughtExceptionHandler();
+                thread = Thread.ofVirtual().name(name).unstarted(target);
+                // Copy the UEH only if explicitly set (not the default ThreadGroup fallback)
+                if (ueh != null && !(ueh instanceof ThreadGroup)) {
+                    thread.setUncaughtExceptionHandler(ueh);
+                }
             }
         }
     }
@@ -389,10 +349,16 @@ public final class ThreadsInterceptors {
     /**
      * Intercepts {@link Thread#start()} to detect platform threads started inside a simulation context.
      *
-     * <p>This is a diagnostic guard: it logs a lifecycle warning when a platform thread is started
-     * inside a simulation. Platform threads escape the simulation's deterministic scheduling and are
-     * a source of non-determinism (e.g. Netty's {@code GlobalEventExecutor} creates a
-     * {@code FastThreadLocalThread} that calls {@code notifyAll()} at non-deterministic times).
+     * <p>This is a diagnostic safety net: it logs a lifecycle warning when a platform thread is
+     * started inside a simulation. Platform threads escape the simulation's deterministic scheduling
+     * and are a source of non-determinism.
+     *
+     * <p>In practice this advice should never fire. All {@code Thread} subclasses — including those
+     * from third-party libraries — are rewritten at build time to extend {@code SimulatorThread}
+     * (a {@code VirtualThread}) and run under the deterministic scheduler. The JDK's
+     * {@code VirtualThread-unblocker} platform thread is pre-initialized in {@code premain()} before
+     * any simulation starts. This leaves only unexpected JDK-internal platform threads (e.g. from a
+     * class initializer triggered during simulation) as potential triggers.
      */
     @Intercepts("java.lang.Thread#start()")
     public static final class ThreadStartAdvice {
@@ -427,10 +393,55 @@ public final class ThreadsInterceptors {
                 .log();
     }
 
+    /**
+     * Installs the {@code EXECUTOR_SUPPLIER} and {@code ON_CONSTRUCT} callback on
+     * {@code SimulatorThread} (if present via {@code --patch-module}).
+     *
+     * <p>{@code SimulatorThread} lives in {@code java.base} and cannot access agent classes
+     * like {@link Node} at runtime (module boundary). These callbacks use {@code java.base}
+     * types ({@link Supplier}, {@link Consumer}) to bridge the gap: closures set via reflection
+     * capture agent-side references ({@code node::scheduleNow}, {@code node.attachThread()}).
+     *
+     * <p>The {@code EXECUTOR_SUPPLIER} is called during each {@code SimulatorThread} constructor
+     * to provide the per-node deterministic scheduler as the VirtualThread executor. This avoids
+     * overwriting the final {@code scheduler} field after construction.
+     *
+     * <p>The {@code ON_CONSTRUCT} callback is invoked after each constructor completes to attach
+     * the new thread to the simulation node (sets thread-locals, uncaught handler, classloader).
+     *
+     * @throws Simulator.SimulationError if {@code SimulatorThread} is not on the classpath
+     *     (no {@code --patch-module}) or if the callback fields cannot be set
+     */
+    static void installSimulatorThreadCallback() {
+        try {
+            var stClass = Class.forName("java.lang.SimulatorThread");
+
+            // EXECUTOR_SUPPLIER: provides per-node scheduler during construction
+            var executorSupplierField = stClass.getField("EXECUTOR_SUPPLIER");
+            Supplier<Executor> executorSupplier = () -> currentNodeOrNull()::scheduleNow;
+            executorSupplierField.set(null, executorSupplier);
+
+            // ON_CONSTRUCT: attaches thread to node after construction
+            var onConstructField = stClass.getField("ON_CONSTRUCT");
+            Consumer<Thread> callback = thread -> currentNodeOrNull().attachThread(thread);
+            onConstructField.set(null, callback);
+        } catch (ReflectiveOperationException e) {
+            throw new Simulator.SimulationError("Failed to install SimulatorThread callback", e);
+        }
+    }
+
     static AgentBuilder instrument(AgentBuilder agent) {
         return agent.type(named("java.lang.ThreadBuilders"))
                 .transform((builder, _, _, _, _) ->
                         builder.visit(to(NewVirtualThreadAdvice.class).on(named("newVirtualThread"))))
+                .asTerminalTransformation()
+                .type(named("java.lang.ThreadBuilders$PlatformThreadBuilder"))
+                .transform((builder, _, _, _, _) ->
+                        builder.visit(to(NewPlatformThreadAdvice.class).on(named("unstarted"))))
+                .asTerminalTransformation()
+                .type(named("java.lang.ThreadBuilders$PlatformThreadFactory"))
+                .transform((builder, _, _, _, _) ->
+                        builder.visit(to(NewPlatformThreadAdvice.class).on(named("newThread"))))
                 .asTerminalTransformation()
                 .type(named("java.lang.Thread"))
                 .transform((builder, _, _, _, _) -> builder.visit(

@@ -1,7 +1,8 @@
 import groovy.json.JsonSlurper
 
-// Verify thread-related determinism guards: platform thread shutdown hooks
-// (e.g. JUL's LogManager$Cleaner) must be skipped by the agent to preserve determinism.
+// Verify thread-related determinism guards:
+// 1. Platform thread shutdown hooks (e.g. JUL's LogManager$Cleaner) must be skipped
+// 2. Thread subclasses are rewritten to extend SimulatorThread and run correctly
 
 File logFile = new File(basedir, "build.log")
 assert logFile.exists() : "The build.log file was not found!"
@@ -27,6 +28,16 @@ def jarFiles = targetDir.listFiles({ dir, name -> name.endsWith("-opendst.jar") 
 check(jarFiles != null && jarFiles.length == 1,
       "Expected exactly one *-opendst.jar in target/, found: ${jarFiles?.length ?: 0}", logFile)
 File jarFile = jarFiles[0]
+
+// Verify opendst-patch.jar is in the output JAR
+import java.util.jar.JarFile
+def jar = new JarFile(jarFile)
+try {
+    check(jar.getEntry("system/opendst-patch.jar") != null,
+          "opendst-patch.jar missing from system/ in output JAR", logFile)
+} finally {
+    jar.close()
+}
 
 def javaHome = System.getProperty("java.home")
 def javaBin = new File(javaHome, "bin/java").absolutePath
@@ -65,18 +76,35 @@ assert report.count > 0 : "report.count should be > 0"
 def reportAssertions = report.assertions.collectEntries { [it.name, it] }
 println "Report assertions: ${reportAssertions.keySet()}"
 
-assert reportAssertions.containsKey("shutdown-hook-completed") :
-    "assertion 'shutdown-hook-completed' not found in report: ${reportAssertions.keySet()}"
-assert reportAssertions["shutdown-hook-completed"].pass == true :
-    "assertion 'shutdown-hook-completed' should pass"
+// All assertions should pass
+def failed = reportAssertions.findAll { name, entry -> entry.pass == false }
+assert failed.isEmpty() : "The following assertions failed: ${failed.keySet().join(', ')}"
+
+// Verify expected assertions were reached
+def expectedAssertions = [
+    "shutdown-hook-completed",
+    "worker-run",
+    "worker-identity",
+    "worker-instanceof",
+    "worker-joined",
+    "special-worker-run",
+    "special-worker-instanceof",
+    "special-joined",
+    "simple-run",
+    "simple-joined",
+    "all-done",
+]
+def labels = report.assertions.collect { it.name }
+for (a in expectedAssertions) {
+    check(labels.contains(a), "assertion '${a}' not found in report: ${labels}", logFile)
+}
 
 assert reportAssertions.containsKey("no internal error") :
     "assertion 'no internal error' not found in report"
 assert reportAssertions["no internal error"].pass == true :
-    "Non-determinism detected — 'no internal error' failed. " +
-    "The shutdown hook guard may not be working correctly."
+    "Non-determinism detected — 'no internal error' failed."
 
-// ---- Phase 2: Replay a plan and verify the guard fires ----
+// ---- Phase 2: Replay a plan and verify the shutdown hook guard fires ----
 // The log.json files from Phase 1 may be truncated (known bug), so we replay
 // one plan to get the full lifecycle output and verify the guard message.
 
@@ -121,4 +149,4 @@ check(p2Output.toString().contains("LogManager\$Cleaner"),
 check(!p2Output.toString().contains("platform thread started"),
       "Unexpected 'platform thread started' in replay — VirtualThread warmup may not be working", logFile)
 
-println "All verifications passed — platform thread guards are working correctly."
+println "All verifications passed."
