@@ -108,10 +108,17 @@ check(p2Exit == 0, "Replay failed with exit code ${p2Exit}", logFile)
 check(p2Output.toString().contains("Replay complete."),
       "Replay output does not contain 'Replay complete.'", logFile)
 
-// The replay stdout contains JSON lifecycle events. Verify the guard fired.
+// The replay stdout contains JSON lifecycle events. Verify the guards fired.
+
+// Shutdown hook guard: LogManager$Cleaner platform thread hook was skipped
 check(p2Output.toString().contains("platform thread shutdown hook skipped"),
       "Guard did not fire — expected 'platform thread shutdown hook skipped' in replay output", logFile)
 check(p2Output.toString().contains("LogManager\$Cleaner"),
       "Expected LogManager\$Cleaner hook class in replay output", logFile)
 
-println "All verifications passed — platform thread shutdown hooks are handled deterministically."
+// Thread start guard: VirtualThread-unblocker is pre-initialized in premain(), so no
+// "platform thread started" events should appear — their absence proves the warmup works.
+check(!p2Output.toString().contains("platform thread started"),
+      "Unexpected 'platform thread started' in replay — VirtualThread warmup may not be working", logFile)
+
+println "All verifications passed — platform thread guards are working correctly."

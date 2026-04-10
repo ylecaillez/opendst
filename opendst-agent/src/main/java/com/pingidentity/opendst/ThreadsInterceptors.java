@@ -386,14 +386,56 @@ public final class ThreadsInterceptors {
         }
     }
 
+    /**
+     * Intercepts {@link Thread#start()} to detect platform threads started inside a simulation context.
+     *
+     * <p>This is a diagnostic guard: it logs a lifecycle warning when a platform thread is started
+     * inside a simulation. Platform threads escape the simulation's deterministic scheduling and are
+     * a source of non-determinism (e.g. Netty's {@code GlobalEventExecutor} creates a
+     * {@code FastThreadLocalThread} that calls {@code notifyAll()} at non-deterministic times).
+     */
+    @Intercepts("java.lang.Thread#start()")
+    public static final class ThreadStartAdvice {
+        @OnMethodEnter
+        @SuppressWarnings("MissingJavadocMethod")
+        public static void onEnter(@Advice.This Thread self) {
+            if (currentNodeOrNull() != null && !self.isVirtual()) {
+                logPlatformThreadStart(self);
+            }
+        }
+    }
+
+    /**
+     * Logs a lifecycle warning when a platform thread is started inside a simulation context.
+     *
+     * <p>Separate from the advice to avoid accessing package-private {@link Node} fields from
+     * code inlined into {@code java.lang.Thread} (module {@code java.base}). Must be
+     * {@code public} for the same module-access reason.
+     */
+    public static void logPlatformThreadStart(Thread platformThread) {
+        var node = currentNodeOrNull();
+        if (node == null) {
+            return;
+        }
+        var simulator = node.simulator();
+        node.logger()
+                .logLifecycle("platform thread started", simulator.instant(), simulator.iteration())
+                .withString("vhost", node.hostName)
+                .withString("threadName", platformThread.getName())
+                .withString("threadClass", platformThread.getClass().getName())
+                .withString("caller", Thread.currentThread().getName())
+                .log();
+    }
+
     static AgentBuilder instrument(AgentBuilder agent) {
         return agent.type(named("java.lang.ThreadBuilders"))
                 .transform((builder, _, _, _, _) ->
                         builder.visit(to(NewVirtualThreadAdvice.class).on(named("newVirtualThread"))))
                 .asTerminalTransformation()
                 .type(named("java.lang.Thread"))
-                .transform((builder, _, _, _, _) ->
-                        builder.visit(to(ThreadSetDaemonAdvice.class).on(named("setDaemon"))))
+                .transform((builder, _, _, _, _) -> builder.visit(
+                                to(ThreadSetDaemonAdvice.class).on(named("setDaemon")))
+                        .visit(to(ThreadStartAdvice.class).on(named("start").and(takesArguments(0)))))
                 .asTerminalTransformation()
                 .type(named("java.lang.Thread$ThreadIdentifiers"))
                 .transform((builder, _, _, _, _) ->

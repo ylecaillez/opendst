@@ -72,6 +72,14 @@ public final class SimulatorAgent {
 
         instrumentation.addTransformer(new CallSiteInstrumentation());
         setProperty(AGENT_PROPERTY, "true");
+
+        // Force VirtualThread class initialization outside the simulation context.
+        // VirtualThread.<clinit> starts the "VirtualThread-unblocker" platform thread
+        // (an InnocuousThread). If this happens inside a simulation, the ThreadStartAdvice
+        // would flag it as a platform thread escape — but it's already handled by
+        // UnblockVirtualThreadInterceptor and is not a source of non-determinism.
+        // Pre-initializing here ensures the unblocker thread exists before any simulation runs.
+        Thread.ofVirtual().name("opendst-warmup").unstarted(() -> {});
     }
 
     private static final class CallSiteInstrumentation implements ClassFileTransformer {
