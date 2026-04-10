@@ -74,11 +74,11 @@ final class TestExecutor {
     record JvmConfig(
             Path instrumentedAppsDir,
             String agentJarPath,
+            String patchModuleJarPath,
             String jvmArguments,
             String debugArgs,
             File logSpy,
-            String mainClass,
-            boolean cds) {}
+            String mainClass) {}
 
     /** Execution loop control parameters. */
     record RunConfig(
@@ -262,7 +262,7 @@ final class TestExecutor {
             return monitorExecutionOutput(proc, execution);
         } finally {
             if (proc != null) {
-                // Graceful SIGTERM lets the child JVM run shutdown hooks (CDS archive dump).
+                // Graceful SIGTERM lets the child JVM run shutdown hooks.
                 // Falls back to SIGKILL if the child doesn't exit within 30 seconds.
                 proc.destroy();
                 if (!proc.waitFor(30, TimeUnit.SECONDS)) {
@@ -354,15 +354,10 @@ final class TestExecutor {
         var command = new ArrayList<String>();
         command.add(JAVA_BIN);
         command.addAll(JAVA_BASE_OPTIONS);
-        // CDS (Class Data Sharing) reduces child JVM cold-start time by reusing a shared archive.
-        // Controlled via --cds / --no-cds (default: off). Also requires non-debug mode since CDS
-        // dumping is incompatible with the JDWP native agent.
-        if (jvm.cds()) {
-            command.addAll(List.of(
-                    "-XX:+AutoCreateSharedArchive",
-                    "-XX:SharedArchiveFile=%s"
-                            .formatted(jvm.instrumentedAppsDir().getParent().resolve("opendst.jsa"))));
-        }
+        // --patch-module allows Thread subclasses to run as virtual threads by injecting
+        // SimulatorThread (extends non-final VirtualThread) into java.base.
+        command.add("--patch-module");
+        command.add("java.base=%s".formatted(jvm.patchModuleJarPath()));
         command.addAll(List.of(
                 "-javaagent:%s".formatted(jvm.agentJarPath()),
                 "-Djava.io.tmpdir=%s".formatted(runTmpDir),

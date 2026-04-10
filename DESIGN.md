@@ -70,6 +70,7 @@ simulation-opendst.jar
     opendst-agent.jar                 # Shaded Java agent (ByteBuddy, jackson-jr)
     opendst-runner.jar                # Orchestrator + child entry point
     opendst-sdk.jar                   # SDK API (Assert, Signals, TraceAuditor)
+    opendst-patch.jar                 # Non-final VirtualThread + SimulatorThread
     jackson-*.jar                     # Jackson databind + YAML
     picocli.jar                       # CLI framework
   apps/
@@ -130,8 +131,12 @@ Parent JVM (opendst-runner)                    Child JVM (opendst-agent)
 
 ### Child process lifecycle
 
-1. The child JVM starts with `-javaagent:opendst-agent.jar`. The agent rewrites JDK classes
+1. The child JVM starts with `-javaagent:opendst-agent.jar` and
+   `--patch-module java.base=opendst-patch.jar`. The agent rewrites JDK classes
    (threads, sockets, time, `System.exit`, ...) to route through deterministic interceptors.
+   The patch module injects `SimulatorThread` (a `VirtualThread` subclass) into `java.base`,
+   enabling `Thread` subclasses in the SUT to run as virtual threads under simulation.
+   **Experimental** — this may be reverted if it causes more issues than it solves.
 2. `OpenDSTExecutor.main()` reads the execution plan from stdin, parses `deployment.yaml`, and for
    each service creates a `URLClassLoader` pointing at its `apps/<service>/WEB-INF/` directory
    (parented to the platform classloader for isolation).
@@ -147,6 +152,10 @@ Parent JVM (opendst-runner)                    Child JVM (opendst-agent)
 opendst-sdk            Compile-only API for SUT code (Assert, Signals, TraceAuditor)
      ^
      |
+opendst-common         Shared types used by both the agent and the maven plugin
+     ^                 (deployment descriptors, assertion metadata, build config,
+     |                 call-site transforms). Shaded into dependent modules.
+     |
 opendst-agent          Shaded Java agent -- simulation engine, bytecode rewriting,
      ^                 deterministic interceptors. Minimal dependencies (jackson-jr,
      |                 ByteBuddy). Runs in the child JVM.
@@ -160,6 +169,8 @@ opendst-runner         Orchestration + child entry point. Runs in both JVMs:
      |
 opendst-maven-plugin   Build-time only. Instruments SUT bytecode, resolves
                        dependencies, packages the self-contained JAR.
+                       Also generates opendst-patch.jar (non-final VirtualThread
+                       + SimulatorThread compiled from source via javac).
 ```
 
 **Why is `OpenDSTExecutor` in `opendst-runner` and not in `opendst-agent`?** It needs Jackson

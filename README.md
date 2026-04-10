@@ -33,7 +33,7 @@ OpenDST uses two instrumentation strategies. Application code is instrumented **
 
 When running inside a simulation:
 *   **Time:** `System.currentTimeMillis()` and `System.nanoTime()` return a simulated time that advances only when the simulator decides.
-*   **Threads:** `new Thread()` and `startVirtualThread()` are intercepted to run as virtual threads managed by the simulator's scheduler.
+*   **Threads:** `new Thread()` and `startVirtualThread()` are intercepted to run as virtual threads managed by the simulator's scheduler. Classes that extend `Thread` are automatically rewritten to extend `SimulatorThread` (a `VirtualThread` subclass injected into `java.base` via `--patch-module`), so thread subclasses work transparently under simulation. *Experimental — may be reverted.*
 *   **Randomness:** `ThreadLocalRandom`, `SecureRandom`, and `Random` are seeded deterministically.
 *   **Network:** Network interactions are simulated with a virtual TCP stack, with configurable latency, connection clogging, connection resets, and timeouts. See [Fault Injection](#fault-injection) for the full list.
 
@@ -72,7 +72,7 @@ These are not faults per se, but JVM behaviors that OpenDST overrides to ensure 
 *   **Collection salt:** `ImmutableCollections.SALT32L` and `REVERSE` overridden per node
 *   **RNG:** `ThreadLocalRandom`, `SecureRandom`, and `Random` seeded deterministically
 *   **Time:** `System.currentTimeMillis()`, `System.nanoTime()`, `Instant.now()` return simulated virtual time
-*   **Threads:** All `Thread` constructors redirected to virtual threads on the simulator's scheduler
+*   **Threads:** All `Thread` constructors redirected to virtual threads on the simulator's scheduler. `Thread` subclasses are rewritten to extend `SimulatorThread` via `--patch-module`. *Experimental — may be reverted.*
 *   **GC:** `ReferenceQueue.poll()` returns `null` (deterministic GC behavior)
 *   **Process exit:** `Runtime.exit()` throws `SystemExitError` instead of halting the JVM
 
@@ -186,9 +186,14 @@ Available CLI options:
 | `--replay-probability` | 0.05 | Probability of replaying a previous trace |
 | `--fork-count` | max(1, CPUs/2 - 1) | Number of concurrent simulation forks. Supports `C` suffix (e.g. `1C`, `0.5C`) |
 | `--working-dir` | (JAR name sans `.jar`) | Persistent working directory for deployment, runs, and reports |
-| `--stop` | (none) | Early-stopping conditions (combinable): `first-fail` (stop on first assertion failure), `first-pass` (stop when all assertions pass after stagnation-limit runs). Omit for default behavior (run until stagnation) |
+| `--stop` | (none) | Early-stopping conditions (combinable): `any-fail` (stop on first assertion failure), `all-pass` (stop when all assertions pass after stagnation-limit runs). Omit for default behavior (run until stagnation) |
 | `--plan` | (none) | Replay a saved plan file instead of exploring |
 | `--extra-jvm-args` | (none) | Additional JVM arguments appended to build-time defaults |
+| `--debug` | (none) | Enable JDWP remote debugging on the child JVM (default port: 5005) |
+
+> **JDK version constraint:** The build and runtime JDK must match. `opendst-patch.jar` contains
+> `VirtualThread.class` extracted from the build JDK, and a version mismatch will cause an error
+> at startup.
 
 The working directory has the following structure:
 

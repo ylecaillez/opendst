@@ -16,6 +16,8 @@
 package com.pingidentity.opendst.maven;
 
 import static com.pingidentity.opendst.common.CallSiteTransform.callSiteTransformMethod;
+import static com.pingidentity.opendst.common.CallSiteTransform.isDirectThreadSubclass;
+import static com.pingidentity.opendst.common.CallSiteTransform.threadSubclassTransform;
 import static java.lang.classfile.ClassHierarchyResolver.ofClassLoading;
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static java.nio.file.FileVisitResult.SKIP_SUBTREE;
@@ -196,11 +198,26 @@ final class Instrumentation {
         });
     }
 
-    /** Creates a {@link ClassFile} instance configured with the given classloader for hierarchy resolution. */
+    private static final ClassDesc VIRTUAL_THREAD_DESC = ClassDesc.ofDescriptor("Ljava/lang/VirtualThread;");
+    private static final ClassDesc OBJECT_DESC = ClassDesc.ofDescriptor("Ljava/lang/Object;");
+
+    /**
+     * Creates a {@link ClassFile} instance configured with the given classloader for hierarchy resolution.
+     *
+     * <p>The fallback resolver handles {@code SimulatorThread} explicitly: it is injected via
+     * {@code --patch-module} at runtime but is not visible to the classloader at build time.
+     * Without this, stack map frame recomputation would resolve {@code SimulatorThread} as
+     * {@code Object}, causing {@link VerifyError} at runtime for any class that extends
+     * {@code SimulatorThread} (i.e. rewritten Thread subclasses).
+     */
     private static ClassFile newClassFile(URLClassLoader loader) {
-        return ClassFile.of(ClassHierarchyResolverOption.of(ofClassLoading(loader)
-                .orElse(desc -> ClassHierarchyResolver.ClassHierarchyInfo.ofClass(
-                        ClassDesc.ofDescriptor("Ljava/lang/Object;")))));
+        return ClassFile.of(
+                ClassHierarchyResolverOption.of(ofClassLoading(loader).orElse(desc -> {
+                    if ("Ljava/lang/SimulatorThread;".equals(desc.descriptorString())) {
+                        return ClassHierarchyResolver.ClassHierarchyInfo.ofClass(VIRTUAL_THREAD_DESC);
+                    }
+                    return ClassHierarchyResolver.ClassHierarchyInfo.ofClass(OBJECT_DESC);
+                })));
     }
 
     /**
@@ -299,8 +316,11 @@ final class Instrumentation {
                 completionService.submit(() -> {
                     var model = classFile.parse(readAllBytes(path));
                     PropertyDiscoverer.discover(model, discovered);
-                    return new TransformationResult(
-                            entryName, classFile.transformClass(model, callSiteTransformMethod()));
+                    var superclass = model.superclass().orElse(null);
+                    var transform = superclass != null && isDirectThreadSubclass(superclass.asInternalName())
+                            ? threadSubclassTransform().andThen(callSiteTransformMethod())
+                            : callSiteTransformMethod();
+                    return new TransformationResult(entryName, classFile.transformClass(model, transform));
                 });
             } else if (!name.isEmpty()) {
                 var newEntry = new JarEntry(name);

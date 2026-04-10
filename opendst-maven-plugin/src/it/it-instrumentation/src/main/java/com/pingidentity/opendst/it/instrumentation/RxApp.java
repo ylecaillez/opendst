@@ -25,8 +25,8 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * <p>{@code RxThreadFactory.newThread(Runnable)} has a conditional branch: one path creates
  * an {@code RxCustomThread} (a {@code Thread} subclass), the other creates a plain
  * {@code Thread}. When the call-site transform rewrites the plain {@code new Thread(...)}
- * to {@code INVOKESTATIC ThreadsInterceptors.newThread(...)}, the stack map frame at the
- * join point must merge {@code RxCustomThread} and {@code Thread} — which requires the
+ * to {@code new SimulatorThread(...)}, the stack map frame at the join point must merge
+ * {@code RxCustomThread} and {@code SimulatorThread} — which requires the
  * {@code ClassHierarchyResolver} to know that {@code RxCustomThread extends Thread}.
  *
  * <p>If the resolver cannot load {@code RxCustomThread} (because the dependency JAR is
@@ -34,7 +34,7 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * merge type and a {@code VerifyError} at runtime.
  *
  * <p>The {@link #createThread(Runnable)} method directly invokes {@code new Thread(Runnable)},
- * which the call-site transform rewrites to {@code ThreadsInterceptors.newThread(Runnable)}.
+ * which the call-site transform rewrites to {@code new SimulatorThread(Runnable)}.
  * The verify.groovy script inspects the instrumented bytecode to confirm this redirection.
  */
 public final class RxApp {
@@ -59,8 +59,10 @@ public final class RxApp {
      * </pre>
      * to:
      * <pre>
+     *   NEW java/lang/SimulatorThread
+     *   DUP
      *   ALOAD target
-     *   INVOKESTATIC com/pingidentity/opendst/ThreadsInterceptors.newThread(Ljava/lang/Runnable;)Ljava/lang/Thread;
+     *   INVOKESPECIAL java/lang/SimulatorThread.&lt;init&gt;(Ljava/lang/Runnable;)V
      * </pre>
      */
     public static Thread createThread(Runnable target) {
