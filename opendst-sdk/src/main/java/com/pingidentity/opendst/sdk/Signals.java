@@ -16,7 +16,7 @@
 package com.pingidentity.opendst.sdk;
 
 /**
- * Provides methods to signal properties and interesting states to the OpenDST orchestrator.
+ * Provides methods to signal properties and interesting states to the OpenDST runner.
  */
 public final class Signals {
 

@@ -31,7 +31,7 @@ import tools.jackson.databind.JsonNode;
  * Represents a structured signal emitted by the simulator during a run.
  *
  * <p>Signals are deserialized from the child JVM's JSON stdout stream and dispatched
- * by the parent orchestrator. The five subtypes cover lifecycle events (start/stop),
+ * by the parent planner. The five subtypes cover lifecycle events (start/stop),
  * assertion outcomes, guidance data for comparative assertions, console output,
  * and fault injection notices.
  */
@@ -96,7 +96,7 @@ public sealed interface Signal permits ConsoleSignal, AssertSignal, GuidanceSign
     /**
      * Guidance data emitted alongside comparative assertions (e.g. {@code alwaysLessThan}).
      *
-     * <p>Carries the {@code left} and {@code right} operand values so the orchestrator
+     * <p>Carries the {@code left} and {@code right} operand values so the planner
      * can compute how far the assertion is from being violated and steer exploration
      * toward narrower distances.
      */

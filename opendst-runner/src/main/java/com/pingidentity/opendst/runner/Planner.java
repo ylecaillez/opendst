@@ -32,19 +32,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
 /**
- * Orchestrates the simulation by generating plans and handling their results.
+ * Produces execution plans for the simulation. Implementations decide how the next plan is chosen — by exploring (guided) or by replaying a saved plan.
  */
-interface Orchestrator {
+interface Planner {
 
     record ExecutionPlan(Plan plan, Predicate<SignalEvent> interesting) {}
 
     ExecutionPlan nextPlan();
 
     /**
-     * An orchestrator that uses signals (assertions) to guide the exploration.
+     * A planner that uses signals (assertions) to guide the exploration.
      * It branches from interesting states to increase coverage.
      */
-    final class GuidedOrchestrator implements Orchestrator {
+    final class GuidedPlanner implements Planner {
         private final OpenDstLogger logger;
         private final long duration;
         private final double branchProbability;
@@ -59,7 +59,7 @@ interface Orchestrator {
 
         /**
          * Tracks two prefixes per signal (one for condition=true, one for condition=false)
-         * along with hit counts per condition. This allows the orchestrator to preferentially
+         * along with hit counts per condition. This allows the planner to preferentially
          * branch from the minority outcome, balancing exploration across both branches.
          */
         private static final class ConditionPrefixes {
@@ -69,7 +69,7 @@ interface Orchestrator {
             final AtomicInteger falseHits = new AtomicInteger();
         }
 
-        GuidedOrchestrator(OpenDstLogger logger, long duration, double branchProbability, Faults.Config faultsConfig) {
+        GuidedPlanner(OpenDstLogger logger, long duration, double branchProbability, Faults.Config faultsConfig) {
             this.logger = logger;
             this.duration = duration;
             this.branchProbability = branchProbability;
@@ -161,7 +161,7 @@ interface Orchestrator {
                 base *= distanceBoost;
             }
             // Boost the minority condition outcome to balance exploration.
-            // If one outcome is observed much less frequently, boost it so the orchestrator
+            // If one outcome is observed much less frequently, boost it so the planner
             // preferentially branches from the rare outcome's prefix.
             int trueCount = state.trueHits.get();
             int falseCount = state.falseHits.get();
@@ -234,7 +234,7 @@ interface Orchestrator {
 
             /**
              * Handles guidance signals by tracking the minimum distance-to-violation per signal.
-             * Returns {@code true} if the distance narrowed (interesting for the orchestrator).
+             * Returns {@code true} if the distance narrowed (interesting for the planner).
              */
             private boolean handleGuidance(GuidanceSignal guidanceSignal, long iteration) {
                 double distance = guidanceSignal.distanceToViolation();
@@ -347,10 +347,10 @@ interface Orchestrator {
         }
     }
 
-    final class ReplayOrchestrator implements Orchestrator {
+    final class ReplayPlanner implements Planner {
         private final Plan plan;
 
-        ReplayOrchestrator(Plan plan) {
+        ReplayPlanner(Plan plan) {
             this.plan = plan;
         }
 

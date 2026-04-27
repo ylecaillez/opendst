@@ -21,7 +21,7 @@
  * <ul>
  *   <li><b>Parent process</b> -- {@link com.pingidentity.opendst.runner.Bootstrap} extracts the
  *       self-contained JAR, {@link com.pingidentity.opendst.runner.RunnerCli} drives the CLI,
- *       {@link com.pingidentity.opendst.runner.Orchestrator} generates execution plans, and
+ *       {@link com.pingidentity.opendst.runner.Planner} generates execution plans, and
  *       {@link com.pingidentity.opendst.runner.SimulationDriver} spawns and monitors child JVMs.</li>
  *   <li><b>Child process</b> -- {@link com.pingidentity.opendst.runner.SimulationLauncher} parses
  *       the deployment descriptor, creates classloader-isolated nodes per service, and hands off

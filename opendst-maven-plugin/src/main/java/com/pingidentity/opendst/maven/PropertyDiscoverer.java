@@ -39,7 +39,7 @@ import java.util.Set;
  * Scans class bytecode for OpenDST assertion calls and builds a catalog of discovered properties.
  *
  * <p>OpenDST requires a complete, static catalog of all reachable properties before any simulation
- * begins. This allows the orchestrator to track coverage and generate heatmaps accurately.
+ * begins. This allows the runner to track coverage and generate heatmaps accurately.
  * To ensure this catalog is static, this class enforces that the {@code message} argument of
  * every {@link com.pingidentity.opendst.sdk.Assert} call is a <b>string literal</b>.
  *

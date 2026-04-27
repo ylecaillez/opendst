@@ -104,7 +104,7 @@ final class ConsoleCapture {
 
     /**
      * Creates a guidance logger. Guidance signals carry distance-to-violation data for
-     * the orchestrator but must NOT affect the deterministic state hash — they are
+     * the runner but must NOT affect the deterministic state hash — they are
      * framework-internal metadata, not application-observable behavior.
      */
     InternalLogger logGuidance(String message, String vhost, Instant time, long iteration) {

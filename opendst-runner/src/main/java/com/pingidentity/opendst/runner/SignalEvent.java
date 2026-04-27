@@ -19,7 +19,7 @@ package com.pingidentity.opendst.runner;
  * A {@link Signal} paired with the simulator iteration at which it was emitted.
  *
  * <p>The parent JVM produces these from each line of the child JVM's JSON stdout
- * stream and feeds them to both the {@link Orchestrator} (for guidance / interestingness)
+ * stream and feeds them to both the {@link Planner} (for guidance / interestingness)
  * and the {@link RunResult} (for assertion tracking).
  */
 record SignalEvent(long iteration, Signal signal) {}
