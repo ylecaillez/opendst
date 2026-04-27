@@ -16,11 +16,10 @@
 package com.pingidentity.opendst.runner;
 
 import static com.pingidentity.opendst.common.AssertType.SOMETIMES;
-import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
+import static com.pingidentity.opendst.runner.Commons.JSON_OBJECT_PRETTY;
 import static java.lang.System.currentTimeMillis;
 import static java.util.Comparator.comparing;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.pingidentity.opendst.common.Assertion;
 import com.pingidentity.opendst.runner.RunResult.TrackedAssertion;
 import java.nio.file.Path;
@@ -50,17 +49,11 @@ final class ReportGenerator {
         this.startTime = Instant.now();
     }
 
-    @JsonInclude(JsonInclude.Include.NON_NULL)
     private record AssertionState(String name, boolean pass, Examples examples) {}
 
-    @JsonInclude(JsonInclude.Include.NON_NULL)
     private record Example(String plan, long iteration, Map<String, Object> details) {}
 
-    private record Examples(
-            int passCount,
-            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<Example> passExamples,
-            int failCount,
-            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<Example> failExamples) {
+    private record Examples(int passCount, List<Example> passExamples, int failCount, List<Example> failExamples) {
         Examples add(TrackedAssertion assertion, Path planFile, Path reportDir) {
             return new Examples(
                     passCount + assertion.passCount(), appendInto(passExamples, planFile, assertion, true, reportDir),
@@ -171,17 +164,28 @@ final class ReportGenerator {
         for (var assertion : assertions) {
             var hit = examples.get(assertion.message());
             var noExamples = hit == null || (hit.passCount() == 0 && hit.failCount() == 0);
-            state.add(new AssertionState(assertion.message(), isPassing(assertion), noExamples ? null : hit));
+            state.add(
+                    new AssertionState(assertion.message(), isPassing(assertion), noExamples ? null : nullEmpty(hit)));
         }
-        JSON_MAPPER
-                .writer()
-                .withDefaultPrettyPrinter()
-                .writeValue(
-                        reportFile,
-                        new ReportState(
-                                totalPlans.get(),
-                                formatDuration(startTime.toEpochMilli(), currentTimeMillis()),
-                                List.copyOf(state)));
+        try {
+            JSON_OBJECT_PRETTY.write(
+                    new ReportState(
+                            totalPlans.get(),
+                            formatDuration(startTime.toEpochMilli(), currentTimeMillis()),
+                            List.copyOf(state)),
+                    reportFile.toFile());
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to write report to " + reportFile, e);
+        }
+    }
+
+    /** Replaces empty example lists with {@code null} so they are omitted on serialization. */
+    private static Examples nullEmpty(Examples e) {
+        return new Examples(
+                e.passCount(),
+                e.passExamples().isEmpty() ? null : e.passExamples(),
+                e.failCount(),
+                e.failExamples().isEmpty() ? null : e.failExamples());
     }
 
     private String formatDuration(long start, long end) {
