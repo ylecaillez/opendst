@@ -44,6 +44,9 @@ import com.pingidentity.opendst.common.DeploymentDescriptor.ServiceDescriptor;
 import com.pingidentity.opendst.common.DeploymentDescriptor.Source;
 import com.pingidentity.opendst.common.DeploymentDescriptor.Source.Project.Scope;
 import com.pingidentity.opendst.common.DeploymentDescriptor.TraceAuditorDescriptor;
+import com.pingidentity.opendst.common.RuntimeDeployment;
+import com.pingidentity.opendst.common.RuntimeDeployment.RuntimeAuditor;
+import com.pingidentity.opendst.common.RuntimeDeployment.RuntimeService;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -417,7 +420,7 @@ public class BuildMojo extends AbstractMojo {
      *   MANIFEST.MF                     # Main-Class: Bootstrap
      *   opendst/
      *     assertions.json               # Serialized Set&lt;Assertion&gt;
-     *     deployment.yaml               # Enriched descriptor (all services have dir set)
+     *     deployment.json               # Runtime view of the enriched descriptor
      *     build-config.json             # Build-time defaults (JVM args, faults)
      * com/pingidentity/opendst/runner/Bootstrap.class  # Bootstrap (only class at root)
      * system/
@@ -461,11 +464,11 @@ public class BuildMojo extends AbstractMojo {
             // 4. apps/ — instrumented application artifacts
             addInstrumentedApps(jos, instrumentedAppsDir);
 
-            // 5. deployment.yaml — enriched descriptor (serialized from object, not raw file)
+            // 5. deployment.json — runtime view of the enriched descriptor (jackson-jr-friendly)
             addEntry(
                     jos,
-                    "META-INF/opendst/deployment.yaml",
-                    DeploymentDescriptorSerializer.serialize(enrichedDescriptor));
+                    "META-INF/opendst/deployment.json",
+                    JSON_MAPPER.writeValueAsBytes(toRuntimeDeployment(enrichedDescriptor)));
 
             // 6. build-config.json — build-time defaults (runtime params are now CLI-only)
             var buildConfig = new BuildConfig(jvmArguments, defaultFaultsConfig());
@@ -476,6 +479,36 @@ public class BuildMojo extends AbstractMojo {
     /** Returns the default faults configuration with network faults enabled. */
     private static FaultsConfig defaultFaultsConfig() {
         return new FaultsConfig(new NetworkFaultsConfig(true, "100us", "800us", "100ms", "100ms"));
+    }
+
+    /**
+     * Converts an enriched {@link DeploymentDescriptor} into the runtime-only view that
+     * gets baked into the self-contained JAR as {@code META-INF/opendst/deployment.json}.
+     *
+     * <p>By contract, every service's source has been resolved to a {@link Source.Dir}
+     * during enrichment (see {@code enrichDescriptor}); this method enforces that
+     * invariant explicitly.
+     */
+    private static RuntimeDeployment toRuntimeDeployment(DeploymentDescriptor descriptor) {
+        var services = new LinkedHashMap<String, RuntimeService>();
+        descriptor
+                .services()
+                .forEach((name, svc) -> services.put(
+                        name, new RuntimeService(dirOf(svc.source()), svc.className(), svc.ip(), svc.args())));
+        var auditor = descriptor.traceAuditor() == null
+                ? null
+                : new RuntimeAuditor(
+                        dirOf(descriptor.traceAuditor().source()),
+                        descriptor.traceAuditor().className());
+        return new RuntimeDeployment(services, auditor);
+    }
+
+    private static String dirOf(Source source) {
+        if (source instanceof Source.Dir dir) {
+            return dir.path();
+        }
+        throw new IllegalStateException("Expected enriched descriptor with Source.Dir, got "
+                + source.getClass().getSimpleName());
     }
 
     /**
