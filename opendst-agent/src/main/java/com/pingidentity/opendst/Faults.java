@@ -47,7 +47,7 @@ import java.util.Map.Entry;
  *
  * <p>The fault configuration originates in the Maven plugin ({@code <faults>} in the POM or
  * defaults in {@code BuildMojo}), is baked into {@code build-config.json} inside the
- * self-contained JAR, converted to a {@link Config} by {@code BuildRunner.toFaultsConfig()},
+ * self-contained JAR, converted to a {@link Config} by {@code RunnerCli.toFaultsConfig()},
  * serialized into each {@link Plan}, and deserialized in the child JVM by the {@link Simulator}
  * constructor.
  */
