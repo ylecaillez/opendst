@@ -22,7 +22,13 @@ import static com.pingidentity.opendst.runner.RunResult.TrackedAssertion.newPass
 
 import com.pingidentity.opendst.common.AssertType;
 import com.pingidentity.opendst.common.Signal.AssertSignal;
-import com.pingidentity.opendst.common.Signal.LifecycleSignal;
+import com.pingidentity.opendst.common.Signal.InternalErrorSignal;
+import com.pingidentity.opendst.common.Signal.NonDeterminismSignal;
+import com.pingidentity.opendst.common.Signal.SegmentCompletedSignal;
+import com.pingidentity.opendst.common.Signal.StartedSignal;
+import com.pingidentity.opendst.common.Signal.StoppedSignal;
+import com.pingidentity.opendst.common.Signal.TraceAuditorExceptionSignal;
+import com.pingidentity.opendst.common.Signal.UncaughtExceptionSignal;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -145,66 +151,44 @@ final class RunResult {
 
     boolean addSignal(SignalEvent signal, boolean isInteresting) {
         interesting |= isInteresting;
-        if (signal.signal() instanceof LifecycleSignal lifecycleSignal) {
-            switch (lifecycleSignal.message()) {
-                case "started" -> trackAssertion(ALWAYS, "simulation started", true, signal.iteration(), null);
-                case "segment-completed" -> segmentHashes.add(lifecycleSignal.hash());
-                case "uncaught exception" ->
-                    trackAssertion(
-                            ALWAYS_OR_UNREACHABLE,
-                            "no uncaught exception",
-                            false,
-                            signal.iteration(),
-                            causeDetails(lifecycleSignal));
-                case "trace auditor exception" ->
-                    trackAssertion(
-                            ALWAYS_OR_UNREACHABLE,
-                            "no exception thrown in trace auditor",
-                            false,
-                            signal.iteration(),
-                            causeDetails(lifecycleSignal));
-                case "internal error" ->
-                    trackAssertion(
-                            ALWAYS_OR_UNREACHABLE,
-                            "no internal error",
-                            false,
-                            signal.iteration(),
-                            causeDetails(lifecycleSignal));
-                case "non-determinism detected" ->
-                    trackAssertion(
-                            ALWAYS_OR_UNREACHABLE,
-                            "no internal error",
-                            false,
-                            signal.iteration(),
-                            nonDeterminismDetails(lifecycleSignal));
-                case "stopped" -> {
-                    trackAssertion(ALWAYS, "simulation terminated", true, signal.iteration(), null);
-                    runHash = lifecycleSignal.hash();
-                    return true;
-                }
-                default -> {
-                    // Ignore unknown lifecycle messages
-                }
+        var s = signal.signal();
+        var iteration = signal.iteration();
+        switch (s) {
+            case StartedSignal _ -> trackAssertion(ALWAYS, "simulation started", true, iteration, null);
+            case SegmentCompletedSignal seg -> segmentHashes.add(seg.hash());
+            case StoppedSignal stopped -> {
+                trackAssertion(ALWAYS, "simulation terminated", true, iteration, null);
+                runHash = stopped.hash();
+                return true;
             }
-        } else if (signal.signal() instanceof AssertSignal assertSignal) {
-            trackAssertion(
-                    assertSignal.kind(),
-                    assertSignal.message(),
-                    assertSignal.condition(),
-                    signal.iteration(),
-                    assertSignal.details());
+            case UncaughtExceptionSignal _ ->
+                // Original wire format had no cause field for uncaught exception; preserve empty details.
+                trackAssertion(ALWAYS_OR_UNREACHABLE, "no uncaught exception", false, iteration, causeDetails(null));
+            case TraceAuditorExceptionSignal trace ->
+                trackAssertion(
+                        ALWAYS_OR_UNREACHABLE,
+                        "no exception thrown in trace auditor",
+                        false,
+                        iteration,
+                        causeDetails(trace.cause()));
+            case InternalErrorSignal err ->
+                trackAssertion(ALWAYS_OR_UNREACHABLE, "no internal error", false, iteration, causeDetails(err.cause()));
+            case NonDeterminismSignal nd ->
+                trackAssertion(ALWAYS_OR_UNREACHABLE, "no internal error", false, iteration, nonDeterminismDetails(nd));
+            case AssertSignal a -> trackAssertion(a.kind(), a.message(), a.condition(), iteration, a.details());
+            default -> {
+                // GuidanceSignals are handled by the planner only.
+                // ConsoleSignal/FaultSignal/PlatformThread*Signal are diagnostic-only here.
+            }
         }
-        // GuidanceSignals are handled by the planner only; no tracking needed here.
         return false;
     }
 
-    /**
-     * Builds a details map for lifecycle signals that carry a cause message.
-     */
-    private static Map<String, Object> causeDetails(LifecycleSignal signal) {
+    /** Builds a details map for lifecycle signals that carry a cause message. */
+    private static Map<String, Object> causeDetails(String cause) {
         var node = new LinkedHashMap<String, Object>();
-        if (signal.cause() != null) {
-            node.put("cause", signal.cause());
+        if (cause != null) {
+            node.put("cause", cause);
         }
         return node;
     }
@@ -213,7 +197,7 @@ final class RunResult {
      * Builds a details map for non-determinism lifecycle signals,
      * including the expected and actual hash codes.
      */
-    private static Map<String, Object> nonDeterminismDetails(LifecycleSignal signal) {
+    private static Map<String, Object> nonDeterminismDetails(NonDeterminismSignal signal) {
         var node = new LinkedHashMap<String, Object>();
         node.put("expectedHash", Integer.toHexString(signal.expectedHash()));
         node.put("actualHash", Integer.toHexString(signal.actualHash()));

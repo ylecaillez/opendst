@@ -121,7 +121,7 @@ public final class Simulator {
         // Assemble the immutable context last — passed only to Node
         this.context = new SimulationContext(this, scheduler, random, faults, network, faultInjector, logger);
 
-        logger.logLifecycle("started", START_TIME, 0).log();
+        logger.logStarted(START_TIME);
     }
 
     public RandomInterceptors.Source random() {
@@ -230,16 +230,9 @@ public final class Simulator {
         if (departingSegment.hash() == 0) {
             // Nothing to check
         } else if (departingSegment.hash() == actualHash) {
-            context.logger()
-                    .logLifecycle("segment-completed", instant(), iteration())
-                    .withNumber("hash", actualHash)
-                    .log();
+            context.logger().logSegmentCompleted(actualHash, instant(), iteration());
         } else {
-            context.logger()
-                    .logLifecycle("non-determinism detected", instant(), iteration())
-                    .withNumber("expectedHash", departingSegment.hash())
-                    .withNumber("actualHash", actualHash)
-                    .log();
+            context.logger().logNonDeterminism(departingSegment.hash(), actualHash, instant(), iteration());
             exitSimulation(INTERNAL_ERROR);
         }
     }
@@ -248,16 +241,10 @@ public final class Simulator {
         int actualHash = hasher.getHash();
         // Check for run-level non-determinism before emitting the stopped signal
         if (!INTERNAL_ERROR.equals(reason) && plan.hash() != 0 && plan.hash() != actualHash) {
-            context.logger()
-                    .logLifecycle("non-determinism detected", instant(), iteration())
-                    .withNumber("expectedHash", plan.hash())
-                    .withNumber("actualHash", actualHash)
-                    .log();
+            context.logger().logNonDeterminism(plan.hash(), actualHash, instant(), iteration());
         }
-        var finalLog =
-                context.logger().logLifecycle("stopped", instant(), iteration()).withNumber("hash", actualHash);
         try {
-            finalLog.log();
+            context.logger().logStopped(actualHash, instant(), iteration());
             context.logger().flush();
         } catch (Throwable e) {
             e.printStackTrace(context.logger().getOut());
@@ -278,15 +265,14 @@ public final class Simulator {
      */
     void reportInternalError(SimulationError cause) {
         context.logger()
-                .logLifecycle("internal error", instant(), iteration())
-                .withString("cause", cause.getMessage())
-                .withPOJO(
-                        "stacktrace",
+                .logInternalError(
+                        cause.getMessage(),
                         stream(cause.getStackTrace())
                                 .limit(10)
                                 .map(StackTraceElement::toString)
-                                .toList())
-                .log();
+                                .toList(),
+                        instant(),
+                        iteration());
         exitSimulation(INTERNAL_ERROR);
     }
 
@@ -428,12 +414,12 @@ public final class Simulator {
 
     void uncaughtExceptionHandler(Node node, Thread thread, Throwable throwable) {
         context.logger()
-                .logLifecycle(
-                        "uncaught exception", instant(), node.context.random().iteration())
-                .withString("vhost", node.hostName)
-                .withString("thread", thread.getName())
-                .withPOJO("exception", throwable)
-                .log();
+                .logUncaughtException(
+                        node.hostName,
+                        thread.getName(),
+                        throwable,
+                        instant(),
+                        node.context.random().iteration());
     }
 
     /**

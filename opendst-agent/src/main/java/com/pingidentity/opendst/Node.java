@@ -318,11 +318,12 @@ public final class Node {
             // Platform thread hooks cannot run deterministically inside the simulation.
             // This is expected for JUL's LogManager$Cleaner and similar JDK housekeeping threads.
             var simulator = simulator();
-            logger().logLifecycle("platform thread shutdown hook skipped", simulator.instant(), simulator.iteration())
-                    .withString("vhost", hostName)
-                    .withString("hookClass", hook.getClass().getName())
-                    .withString("hookName", hook.getName())
-                    .log();
+            logger().logPlatformThreadShutdownHookSkipped(
+                            hostName,
+                            hook.getClass().getName(),
+                            hook.getName(),
+                            simulator.instant(),
+                            simulator.iteration());
             return;
         }
         shutdownHooks.add(hook);

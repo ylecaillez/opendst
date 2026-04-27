@@ -45,7 +45,7 @@ try {
     // Check essential entries exist
     check(jar.getEntry("META-INF/opendst/assertions.json") != null, "assertions.json missing", logFile)
     check(jar.getEntry("system/opendst-agent.jar") != null, "opendst-agent.jar missing", logFile)
-    check(jar.getEntry("META-INF/opendst/deployment.yaml") != null, "deployment.yaml missing", logFile)
+    check(jar.getEntry("META-INF/opendst/deployment.json") != null, "deployment.json missing", logFile)
     check(jar.getEntry("META-INF/opendst/build-config.json") != null, "build-config.json missing", logFile)
 
     // Check apps/ has instrumented application content
