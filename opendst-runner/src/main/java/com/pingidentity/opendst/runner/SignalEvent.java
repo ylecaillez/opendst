@@ -15,6 +15,8 @@
  */
 package com.pingidentity.opendst.runner;
 
+import com.pingidentity.opendst.common.Signal;
+
 /**
  * A {@link Signal} paired with the simulator iteration at which it was emitted.
  *

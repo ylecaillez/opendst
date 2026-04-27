@@ -43,6 +43,12 @@ import com.pingidentity.opendst.common.Assertion;
 import com.pingidentity.opendst.common.BuildConfig;
 import com.pingidentity.opendst.common.Faults;
 import com.pingidentity.opendst.common.Plan;
+import com.pingidentity.opendst.common.Signal;
+import com.pingidentity.opendst.common.Signal.AssertSignal;
+import com.pingidentity.opendst.common.Signal.ConsoleSignal;
+import com.pingidentity.opendst.common.Signal.FaultSignal;
+import com.pingidentity.opendst.common.Signal.GuidanceSignal;
+import com.pingidentity.opendst.common.Signal.LifecycleSignal;
 import com.pingidentity.opendst.runner.Commons.DurationUtils;
 import com.pingidentity.opendst.runner.Planner.ExecutionPlan;
 import com.pingidentity.opendst.runner.Planner.GuidedPlanner;
@@ -59,6 +65,7 @@ import java.util.EnumSet;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -75,7 +82,6 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import tools.jackson.core.JacksonException;
-import tools.jackson.databind.JsonNode;
 
 /**
  * Planner entry point for the self-contained JAR. Invoked reflectively by
@@ -517,9 +523,29 @@ public final class RunnerCli implements Callable<Integer> {
     }
 
     private SignalEvent extractSignal(LogStatement log) {
+        var payload = log.log();
+        if (payload == null) {
+            return null;
+        }
+        var typeObj = payload.get("type");
+        if (!(typeObj instanceof String type)) {
+            return null;
+        }
+        Class<? extends Signal> target =
+                switch (type) {
+                    case "stdout" -> ConsoleSignal.class;
+                    case "assert" -> AssertSignal.class;
+                    case "guidance" -> GuidanceSignal.class;
+                    case "lifecycle" -> LifecycleSignal.class;
+                    case "fault" -> FaultSignal.class;
+                    default -> null;
+                };
+        if (target == null) {
+            return null;
+        }
         try {
-            return new SignalEvent(log.iteration(), JSON_MAPPER.treeToValue(log.log(), Signal.class));
-        } catch (JacksonException e) {
+            return new SignalEvent(log.iteration(), JSON_MAPPER.convertValue(payload, target));
+        } catch (IllegalArgumentException e) {
             // Ignore badly formatted log
             return null;
         }
@@ -689,5 +715,5 @@ public final class RunnerCli implements Callable<Integer> {
         }
     }
 
-    record LogStatement(@JsonProperty("it") long iteration, String source, JsonNode log) {}
+    record LogStatement(@JsonProperty("it") long iteration, String source, Map<String, Object> log) {}
 }

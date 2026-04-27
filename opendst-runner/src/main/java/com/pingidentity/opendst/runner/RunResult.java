@@ -17,19 +17,18 @@ package com.pingidentity.opendst.runner;
 
 import static com.pingidentity.opendst.common.AssertType.ALWAYS;
 import static com.pingidentity.opendst.common.AssertType.ALWAYS_OR_UNREACHABLE;
-import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.RunResult.TrackedAssertion.newFailAssertion;
 import static com.pingidentity.opendst.runner.RunResult.TrackedAssertion.newPassAssertion;
 
 import com.pingidentity.opendst.common.AssertType;
-import com.pingidentity.opendst.runner.Signal.AssertSignal;
-import com.pingidentity.opendst.runner.Signal.LifecycleSignal;
+import com.pingidentity.opendst.common.Signal.AssertSignal;
+import com.pingidentity.opendst.common.Signal.LifecycleSignal;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import tools.jackson.databind.JsonNode;
 
 /**
  * Tracks the outcome of a single simulation run, including assertion results,
@@ -42,16 +41,18 @@ final class RunResult {
             String name,
             int passCount,
             long firstPassIteration,
-            JsonNode firstPassDetails,
+            Map<String, Object> firstPassDetails,
             int failCount,
             long firstFailIteration,
-            JsonNode firstFailDetails) {
+            Map<String, Object> firstFailDetails) {
 
-        static TrackedAssertion newPassAssertion(AssertType kind, String name, long iteration, JsonNode details) {
+        static TrackedAssertion newPassAssertion(
+                AssertType kind, String name, long iteration, Map<String, Object> details) {
             return new TrackedAssertion(kind, name, 1, iteration, details, 0, -1, null);
         }
 
-        static TrackedAssertion newFailAssertion(AssertType kind, String name, long iteration, JsonNode details) {
+        static TrackedAssertion newFailAssertion(
+                AssertType kind, String name, long iteration, Map<String, Object> details) {
             return new TrackedAssertion(kind, name, 0, -1, null, 1, iteration, details);
         }
 
@@ -134,10 +135,10 @@ final class RunResult {
      * so that {@link #runFailed()} and {@link #isInteresting()} return {@code true}.
      */
     void synthesizeCrash(int exitCode, Collection<String> lastLogs) {
-        var details = JSON_MAPPER.createObjectNode();
+        var details = new LinkedHashMap<String, Object>();
         details.put("exitCode", exitCode);
         details.put("cause", "child process exited unexpectedly (code %d)".formatted(exitCode));
-        details.set("lastLogs", JSON_MAPPER.valueToTree(lastLogs));
+        details.put("lastLogs", List.copyOf(lastLogs));
         trackAssertion(ALWAYS_OR_UNREACHABLE, "no internal error", false, 0, details);
         trackAssertion(ALWAYS, "simulation terminated", true, 0, null);
     }
@@ -198,10 +199,10 @@ final class RunResult {
     }
 
     /**
-     * Builds a details {@link JsonNode} for lifecycle signals that carry a cause message.
+     * Builds a details map for lifecycle signals that carry a cause message.
      */
-    private static JsonNode causeDetails(LifecycleSignal signal) {
-        var node = JSON_MAPPER.createObjectNode();
+    private static Map<String, Object> causeDetails(LifecycleSignal signal) {
+        var node = new LinkedHashMap<String, Object>();
         if (signal.cause() != null) {
             node.put("cause", signal.cause());
         }
@@ -209,17 +210,18 @@ final class RunResult {
     }
 
     /**
-     * Builds a details {@link JsonNode} for non-determinism lifecycle signals,
+     * Builds a details map for non-determinism lifecycle signals,
      * including the expected and actual hash codes.
      */
-    private static JsonNode nonDeterminismDetails(LifecycleSignal signal) {
-        var node = JSON_MAPPER.createObjectNode();
+    private static Map<String, Object> nonDeterminismDetails(LifecycleSignal signal) {
+        var node = new LinkedHashMap<String, Object>();
         node.put("expectedHash", Integer.toHexString(signal.expectedHash()));
         node.put("actualHash", Integer.toHexString(signal.actualHash()));
         return node;
     }
 
-    private void trackAssertion(AssertType kind, String name, boolean pass, long iteration, JsonNode details) {
+    private void trackAssertion(
+            AssertType kind, String name, boolean pass, long iteration, Map<String, Object> details) {
         assertionsHit.compute(
                 name,
                 (_, existing) -> existing == null
