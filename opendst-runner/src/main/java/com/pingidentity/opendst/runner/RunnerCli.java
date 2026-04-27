@@ -592,7 +592,12 @@ public final class RunnerCli implements Callable<Integer> {
         command.addAll(asList(
                 "-cp",
                 buildChildClasspath(deploymentDir),
-                SimulationLauncher.class.getName(),
+                // FQN of the child JVM entry point. Hard-coded as a string rather than
+                // {@code SimulationLauncher.class.getName()} because {@code SimulationLauncher}
+                // lives in {@code opendst-agent} (so the agent's existing jackson-jr can parse
+                // the deployment descriptor without dragging jackson-databind into the agent JAR),
+                // and adding a compile dependency on the agent here would defeat that goal.
+                "com.pingidentity.opendst.SimulationLauncher",
                 deploymentDir.toAbsolutePath().toString()));
         return List.copyOf(command);
     }

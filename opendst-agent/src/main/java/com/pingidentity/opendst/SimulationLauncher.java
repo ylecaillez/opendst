@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst.runner;
+package com.pingidentity.opendst;
 
 import static com.pingidentity.opendst.Simulator.runSimulation;
 import static com.pingidentity.opendst.Simulator.startNode;
@@ -24,11 +24,10 @@ import static java.lang.System.exit;
 import static java.net.InetAddress.getByName;
 import static java.nio.file.Files.exists;
 import static java.nio.file.Files.isRegularFile;
+import static java.nio.file.Files.newInputStream;
 import static java.nio.file.Files.walk;
-import static tools.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES;
-import static tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES;
 
-import com.pingidentity.opendst.common.DeploymentDescriptor;
+import com.pingidentity.opendst.common.RuntimeDeployment;
 import com.pingidentity.opendst.sdk.TraceAuditor;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -38,21 +37,25 @@ import java.net.URLClassLoader;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import tools.jackson.databind.InjectableValues;
-import tools.jackson.dataformat.yaml.YAMLMapper;
+import tools.jackson.jr.ob.JSON;
 
 /**
  * Child JVM entry point for the self-contained JAR.
  *
- * <p>Reads a {@code META-INF/opendst/deployment.yaml} descriptor from the deployment directory,
- * resolves classpaths from the {@code apps/} subdirectories, and starts each service as a
- * classloader-isolated node inside a deterministic simulation.
+ * <p>Reads {@code META-INF/opendst/deployment.json} (the runtime view of the enriched deployment
+ * descriptor written by the build plugin), resolves classpaths from the {@code apps/}
+ * subdirectories, and starts each service as a classloader-isolated node inside a deterministic
+ * simulation.
+ *
+ * <p>Lives in {@code opendst-agent} so the child JVM can reuse the agent's existing
+ * {@code jackson-jr} dependency for descriptor parsing — avoiding the heavier
+ * {@code jackson-databind} + {@code jackson-yaml} stack.
  *
  * <p>Arguments: {@code <deploymentDir>}
  *
  * <p>The deployment directory is expected to contain:
  * <ul>
- *   <li>{@code META-INF/opendst/deployment.yaml} — the enriched deployment descriptor (all services have {@code dir} set)</li>
+ *   <li>{@code META-INF/opendst/deployment.json} — the runtime deployment view</li>
  *   <li>{@code apps/} — instrumented application artifacts</li>
  *   <li>{@code system/opendst-agent.jar} — the agent JAR added to each service's classpath</li>
  * </ul>
@@ -66,20 +69,12 @@ public final class SimulationLauncher {
 
         try {
             var deploymentDir = Path.of(args[0]);
-            var descriptorFile = deploymentDir.resolve("META-INF/opendst/deployment.yaml");
+            var descriptorFile = deploymentDir.resolve("META-INF/opendst/deployment.json");
 
-            // Parse deployment descriptor — enriched descriptors always have 'dir' set,
-            // so the injected projectArtifactId (null) is never used.
-            var yamlMapper = YAMLMapper.builder()
-                    .disable(FAIL_ON_NULL_FOR_PRIMITIVES)
-                    .disable(FAIL_ON_UNKNOWN_PROPERTIES)
-                    .build();
-            var injectables =
-                    new InjectableValues.Std().addValue(DeploymentDescriptor.PROJECT_ARTIFACT_ID_KEY, (String) null);
-            var descriptor = (DeploymentDescriptor) yamlMapper
-                    .readerFor(DeploymentDescriptor.class)
-                    .with(injectables)
-                    .readValue(descriptorFile.toFile());
+            RuntimeDeployment deployment;
+            try (var in = newInputStream(descriptorFile)) {
+                deployment = JSON.std.beanFrom(RuntimeDeployment.class, in);
+            }
 
             // The opendst-agent JAR must be on each service's classpath so that the
             // URLClassLoader (parented to getPlatformClassLoader()) can resolve
@@ -88,20 +83,16 @@ public final class SimulationLauncher {
             var coreJarUrl =
                     deploymentDir.resolve("system/opendst-agent.jar").toUri().toURL();
 
-            // Resolve trace auditor if specified. The trace auditor is self-contained: its source
-            // is identified by its own appDir() (from dir/artifact), not by referencing a service.
+            // Resolve trace auditor if specified. The auditor is self-contained: its source
+            // directory is identified by its own {@code dir}, not by referencing a service.
             TraceAuditor traceAuditor = _ -> {};
-            if (descriptor.traceAuditor() != null) {
-                var auditorAppDir = descriptor.traceAuditor().appDir();
-                if (auditorAppDir == null) {
-                    throw new IllegalStateException(
-                            "Trace auditor has no 'dir' or 'artifact' — the deployment descriptor may not have been enriched by the build plugin");
-                }
+            if (deployment.traceAuditor() != null) {
+                var auditor = deployment.traceAuditor();
                 var auditorClassLoader = classLoader(
                         "trace-auditor-loader",
-                        appsDir.resolve(auditorAppDir),
+                        appsDir.resolve(auditor.dir()),
                         SimulationLauncher.class.getClassLoader());
-                var auditorClass = Class.forName(descriptor.traceAuditor().className(), true, auditorClassLoader);
+                var auditorClass = Class.forName(auditor.className(), true, auditorClassLoader);
                 traceAuditor =
                         (TraceAuditor) auditorClass.getDeclaredConstructor().newInstance();
             }
@@ -109,10 +100,10 @@ public final class SimulationLauncher {
             // Run the simulation — start each service as a classloader-isolated node.
             runSimulation(
                     () -> {
-                        for (var entry : descriptor.services().entrySet()) {
+                        for (var entry : deployment.services().entrySet()) {
                             var serviceName = entry.getKey();
                             var svc = entry.getValue();
-                            var appDir = appsDir.resolve(svc.appDir());
+                            var appDir = appsDir.resolve(svc.dir());
                             var serviceClassLoader =
                                     classLoader(serviceName, appDir, getPlatformClassLoader(), coreJarUrl);
                             var mainMethod = serviceClassLoader
