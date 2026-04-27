@@ -15,62 +15,103 @@
  */
 package com.pingidentity.opendst.runner;
 
+import static com.pingidentity.opendst.Constants.APPS_DIR_PROPERTY;
 import static com.pingidentity.opendst.common.Assertion.NO_INTERNAL_ERROR;
 import static com.pingidentity.opendst.common.Assertion.NO_TRACE_AUDITOR_EXCEPTION;
 import static com.pingidentity.opendst.common.Assertion.NO_UNCAUGHT_EXCEPTION;
 import static com.pingidentity.opendst.common.Assertion.SIMULATION_STARTED;
 import static com.pingidentity.opendst.common.Assertion.SIMULATION_TERMINATED;
+import static com.pingidentity.opendst.runner.Commons.JAVA_BASE_OPTIONS;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
+import static com.pingidentity.opendst.runner.Commons.deleteRecursively;
 import static com.pingidentity.opendst.runner.OpenDstLogger.ofConsole;
+import static java.lang.Runtime.getRuntime;
 import static java.lang.System.exit;
+import static java.lang.System.out;
+import static java.lang.Thread.ofVirtual;
+import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
+import static java.nio.file.Files.exists;
+import static java.nio.file.Files.newOutputStream;
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import static java.nio.file.StandardOpenOption.CREATE_NEW;
+import static java.util.Arrays.asList;
+import static java.util.concurrent.ThreadLocalRandom.current;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.pingidentity.opendst.Faults;
 import com.pingidentity.opendst.Plan;
 import com.pingidentity.opendst.common.Assertion;
 import com.pingidentity.opendst.common.BuildConfig;
 import com.pingidentity.opendst.runner.Commons.DurationUtils;
+import com.pingidentity.opendst.runner.Orchestrator.ExecutionPlan;
 import com.pingidentity.opendst.runner.Orchestrator.GuidedOrchestrator;
 import com.pingidentity.opendst.runner.Orchestrator.ReplayOrchestrator;
+import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
 
 /**
- * Orchestrator entry point for the self-contained JAR.
+ * Orchestrator entry point for the self-contained JAR. Invoked reflectively by
+ * {@link Bootstrap} after extraction and classloader setup; the first argument is
+ * always the working directory path (prepended by the launcher).
  *
- * <p>Invoked reflectively by {@link Bootstrap} after extraction and classloader setup.
- * The first argument is always the working directory path (prepended by the launcher).
+ * <p>This class is both the picocli command (top: {@code @Option} fields, {@link #main}
+ * and {@link #call}) and the parent-side simulation driver (bottom: per-fork run loop,
+ * child JVM spawning, signal monitoring). The run-loop methods read derived state set
+ * up by {@link #call} before forking.
  *
  * <p>The working directory has the following structure:
  * <pre>
  *   &lt;workingDir&gt;/
  *     deployment/     — extracted JAR contents (configs, classes, system JARs, apps)
+ *       META-INF/opendst/{assertions.json, build-config.json, deployment.yaml}
+ *       system/*.jar  — child JVM classpath (incl. opendst-agent.jar, opendst-patch.jar)
+ *       apps/         — instrumented application JARs
  *     runs/           — ephemeral per-fork directories (created/deleted each run)
  *     report/         — simulation output (persists across runs)
  *       report.json
- *       plans/        — execution plan files (accumulated)
+ *       plans/        — execution plan files + log.json for failures
  * </pre>
- *
- * <p>This class:
- * <ol>
- *   <li>Loads the assertion catalog from {@code deployment/META-INF/opendst/assertions.json}</li>
- *   <li>Loads the build configuration from {@code deployment/META-INF/opendst/build-config.json}</li>
- *   <li>Spawns child JVMs running {@link SimulationLauncher} via {@link SimulationDriver}</li>
- *   <li>Uses {@link Orchestrator.GuidedOrchestrator} to drive exploration</li>
- * </ol>
  */
 @Command(name = "opendst", description = "Run OpenDST deterministic simulation tests", mixinStandardHelpOptions = true)
 public final class RunnerCli implements Callable<Integer> {
+
+    /** Number of consecutive infrastructure crashes before aborting all forks. */
+    private static final int MAX_CONSECUTIVE_CRASHES = 3;
+
+    /** How often (in runs) to emit a progress line to the console. */
+    private static final int PROGRESS_INTERVAL = 10;
+
+    // ------------------------------------------------------------------
+    // CLI options (populated by picocli via reflection)
+    // ------------------------------------------------------------------
 
     @Parameters(index = "0", hidden = true, description = "Working directory (set by Bootstrap)")
     private Path workingDir;
@@ -127,6 +168,31 @@ public final class RunnerCli implements Callable<Integer> {
                     + " (default address: ${FALLBACK-VALUE})")
     private String debugAddress;
 
+    // ------------------------------------------------------------------
+    // Run-loop state (initialized at the start of call() before forking)
+    // ------------------------------------------------------------------
+
+    private Path deploymentDir;
+    private Path reportDir;
+    private Path runsDir;
+    private OpenDstLogger logger;
+    private Orchestrator orchestrator;
+    private String effectiveJvmArgs;
+    private String debugArgs;
+    private Set<StopCondition> effectiveStopConditions;
+    private int forkCount;
+    private boolean isReplay;
+    private boolean isDebugOrReplay;
+
+    private final AtomicInteger runSequence = new AtomicInteger();
+    private final AtomicInteger boringRunStreak = new AtomicInteger();
+    private final Queue<Plan> pastPlans = new ArrayBlockingQueue<>(10);
+    private final AtomicBoolean earlyExit = new AtomicBoolean();
+
+    // ==================================================================
+    // CLI lifecycle
+    // ==================================================================
+
     public static void main(String[] args) {
         var cmd = new CommandLine(new RunnerCli());
         cmd.setCaseInsensitiveEnumValuesAllowed(true);
@@ -136,12 +202,12 @@ public final class RunnerCli implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
         boolean isDebug = debugAddress != null;
-        int forkCount = resolveForkCount(forkCountSpec);
+        forkCount = resolveForkCount(forkCountSpec);
 
         // Derive directory layout from working directory
-        var deploymentDir = workingDir.resolve("deployment");
-        var reportDir = workingDir.resolve("report");
-        var runsDir = workingDir.resolve("runs");
+        deploymentDir = workingDir.resolve("deployment");
+        reportDir = workingDir.resolve("report");
+        runsDir = workingDir.resolve("runs");
         createDirectories(reportDir.resolve("plans"));
         createDirectories(runsDir);
 
@@ -163,8 +229,8 @@ public final class RunnerCli implements Callable<Integer> {
         var configFile = deploymentDir.resolve("META-INF/opendst/build-config.json");
         var config = JSON_MAPPER.readValue(configFile.toFile(), BuildConfig.class);
 
-        // 3. Set up orchestrator and run
-        var logger = ofConsole(isDebug);
+        // 3. Set up logger and JVM wiring
+        logger = ofConsole(isDebug);
         if (isDebug) {
             logger.raw()
                     .info(logger.colored(
@@ -178,16 +244,14 @@ public final class RunnerCli implements Callable<Integer> {
 
         // Merge JVM arguments: build-time defaults + CLI --extra-jvm-args (additive)
         var buildTimeArgs = config.jvmArguments();
-        var effectiveJvmArgs = buildTimeArgs != null && extraJvmArgs != null
+        effectiveJvmArgs = buildTimeArgs != null && extraJvmArgs != null
                 ? buildTimeArgs + " " + extraJvmArgs
                 : buildTimeArgs != null ? buildTimeArgs : extraJvmArgs;
 
-        var debugArgs =
-                isDebug ? "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=" + debugAddress : null;
+        debugArgs = isDebug ? "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=" + debugAddress : null;
 
-        // Replay mode: load a saved plan and execute it once
-        boolean isReplay = planFile != null;
-        Orchestrator orchestrator;
+        // 4. Pick orchestrator: replay mode loads a saved plan, otherwise explore
+        isReplay = planFile != null;
         if (isReplay) {
             var plan = JSON_MAPPER.readValue(planFile.toFile(), Plan.class);
             orchestrator = new ReplayOrchestrator(plan);
@@ -198,8 +262,9 @@ public final class RunnerCli implements Callable<Integer> {
         if (isDebug) {
             forkCount = 1;
         }
+        isDebugOrReplay = isReplay || isDebug;
 
-        var effectiveStopConditions =
+        effectiveStopConditions =
                 stopConditions != null ? EnumSet.copyOf(stopConditions) : EnumSet.noneOf(StopCondition.class);
 
         logger.run("settings")
@@ -217,17 +282,11 @@ public final class RunnerCli implements Callable<Integer> {
                                         .collect(Collectors.joining(",")))
                 .log();
 
-        var runConfig = new RunConfig(
-                isReplay ? 0 : replayProbability,
-                isReplay || isDebug,
-                stagnationLimit,
-                forkCount,
-                effectiveStopConditions);
-
+        // 5. Run the parallel fork loops
         var reportGenerator = new ReportGenerator(assertions, reportDir);
-        new SimulationDriver(workingDir, effectiveJvmArgs, debugArgs, logger, orchestrator, runConfig)
-                .execute(reportGenerator);
+        runForks(reportGenerator);
 
+        // 6. Final reporting
         if (isReplay) {
             logger.raw().info(logger.colored(OpenDstLogger.GREEN, "\uD83D\uDD01 Replay complete."));
             return 0;
@@ -251,6 +310,310 @@ public final class RunnerCli implements Callable<Integer> {
                         "\u2705 Simulation complete. All assertions passed. Report: " + reportFile));
         return 0;
     }
+
+    // ==================================================================
+    // Parent-side simulation driver: per-fork run loops
+    // ==================================================================
+
+    /** Spawns {@link #forkCount} virtual threads, each running its own {@link #runLoop}, and waits for them. */
+    private void runForks(ReportGenerator reportGenerator) throws Exception {
+        var futures = new ArrayList<Future<Void>>();
+        for (int i = 0; i < forkCount; i++) {
+            int count = i;
+            var future = new FutureTask<>(() -> runLoop(count, reportGenerator));
+            ofVirtual().name("opendst-executor-" + i).start(future);
+            futures.add(future);
+        }
+        for (var future : futures) {
+            future.get();
+        }
+    }
+
+    private Void runLoop(int count, ReportGenerator reportGenerator) throws IOException, InterruptedException {
+        int consecutiveCrashes = 0;
+        for (; ; ) {
+            if (earlyExit.get()) {
+                return null;
+            }
+            var executionPlan = getNewExecutionPlanOrReplay();
+            int runCount = runSequence.incrementAndGet();
+
+            var runBaseDir = createRunBaseDir(count);
+            RunResult runResult;
+            try {
+                runResult = runOnce(runBaseDir, executionPlan);
+            } catch (IOException | InterruptedException e) {
+                deleteRecursively(runsDir, runBaseDir);
+                throw e;
+            }
+
+            // Detect infrastructure crashes (child JVM dies before the simulator starts).
+            // If this happens repeatedly, the classpath or environment is broken — continuing
+            // would just rapid-fire spawn doomed processes across all forks.
+            if (runResult.isInfrastructureCrash()) {
+                consecutiveCrashes++;
+                if (consecutiveCrashes >= MAX_CONSECUTIVE_CRASHES) {
+                    logger.raw()
+                            .error("Child JVM crashed %d times consecutively without starting the simulation — aborting"
+                                    .formatted(consecutiveCrashes));
+                    earlyExit.set(true);
+                    deleteRecursively(runsDir, runBaseDir);
+                    return null;
+                }
+            } else {
+                consecutiveCrashes = 0;
+            }
+
+            if (isDebugOrReplay) {
+                deleteRecursively(runsDir, runBaseDir);
+                return null;
+            }
+            if (runResult.runFailed()) {
+                logger.run("fail").error().withHash(runResult.runHash()).log();
+            } else if (executionPlan.plan().hash() == 0) {
+                pastPlans.offer(executionPlan.plan().withHash(runResult.runHash()));
+            } else if (executionPlan.plan().hash() == runResult.runHash()) {
+                logger.run("verified").withHash(runResult.runHash()).log();
+            }
+
+            var hexHash = HexFormat.of().toHexDigits(runResult.runHash());
+            var planFile = reportDir.resolve("plans").resolve(hexHash + ".plan.json");
+            savePlan(executionPlan.plan().withHash(runResult.runHash()), planFile);
+            reportGenerator.addRunResult(runResult, planFile);
+
+            // Capture simulator.log for interesting runs before deleting the run directory
+            if (runResult.isInteresting()) {
+                var simulatorLog = runBaseDir.resolve("simulator.log");
+                if (exists(simulatorLog)) {
+                    var logDest = reportDir.resolve("plans").resolve(hexHash + ".log.json");
+                    copy(simulatorLog, logDest, REPLACE_EXISTING);
+                }
+            }
+
+            // Run directory is ephemeral — clean up after capturing any interesting artifacts
+            deleteRecursively(runsDir, runBaseDir);
+
+            if (effectiveStopConditions.contains(StopCondition.ANY_FAIL)
+                    && reportGenerator.hasFailures()
+                    && earlyExit.compareAndSet(false, true)) {
+                logger.raw().warn("Assertion failure detected \u2014 stopping (--stop any-fail)");
+            }
+            if (effectiveStopConditions.contains(StopCondition.ALL_PASS)
+                    && runCount >= stagnationLimit
+                    && reportGenerator.allPassed()
+                    && earlyExit.compareAndSet(false, true)) {
+                logger.raw().info("All assertions passing \u2014 stopping (--stop all-pass)");
+            }
+
+            if (runResult.isInteresting()) {
+                reportGenerator.generate(reportDir.resolve("report.json"));
+                boringRunStreak.set(0);
+            } else if (boringRunStreak.incrementAndGet() >= stagnationLimit) {
+                return null;
+            }
+
+            if (runCount % PROGRESS_INTERVAL == 0) {
+                var counts = reportGenerator.passingCount();
+                logger.run("progress")
+                        .with("run", runCount)
+                        .with("stagnation", boringRunStreak.get())
+                        .withPassing(counts[0], counts[1])
+                        .log();
+            }
+        }
+    }
+
+    private ExecutionPlan getNewExecutionPlanOrReplay() {
+        if (!isReplay && current().nextDouble() < replayProbability) {
+            var plan = pastPlans.poll();
+            if (plan != null) {
+                logger.run("check").withHash(plan.hash()).log();
+                return new ExecutionPlan(plan, _ -> false);
+            }
+        }
+        return orchestrator.nextPlan();
+    }
+
+    private RunResult runOnce(Path runBaseDir, ExecutionPlan execution) throws IOException, InterruptedException {
+        Process proc = null;
+        Thread runKiller = null;
+        try {
+            proc = startProcess(runBaseDir);
+            runKiller = new Thread(proc::destroyForcibly);
+            getRuntime().addShutdownHook(runKiller);
+            JSON_MAPPER.writeValue(proc.getOutputStream(), execution.plan());
+            return monitorExecutionOutput(proc, execution);
+        } finally {
+            if (proc != null) {
+                // Graceful SIGTERM lets the child JVM run shutdown hooks.
+                // Falls back to SIGKILL if the child doesn't exit within 30 seconds.
+                proc.destroy();
+                if (!proc.waitFor(30, TimeUnit.SECONDS)) {
+                    proc.destroyForcibly();
+                }
+            }
+            if (runKiller != null) {
+                try {
+                    getRuntime().removeShutdownHook(runKiller);
+                } catch (IllegalStateException ignored) {
+                    // JVM is shutting down; hook will run naturally
+                }
+            }
+        }
+    }
+
+    private Process startProcess(Path runBaseDir) throws IOException {
+        return new ProcessBuilder(buildChildCommandLine(runBaseDir))
+                .directory(runBaseDir.toFile())
+                .redirectErrorStream(true)
+                .start();
+    }
+
+    private RunResult monitorExecutionOutput(Process proc, ExecutionPlan execution)
+            throws IOException, InterruptedException {
+        var lastLogs = new ArrayDeque<String>();
+        var result = new RunResult();
+        try (var logs = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+            for (var line = logs.readLine(); line != null; line = logs.readLine()) {
+                if (lastLogs.size() >= 50) {
+                    lastLogs.removeFirst();
+                }
+                lastLogs.addLast(line);
+                LogStatement log;
+                SignalEvent event;
+                if ((log = parseLog(line)) != null && (event = extractSignal(log)) != null) {
+                    boolean interestingEvent = execution.interesting().test(event);
+                    if (result.addSignal(event, interestingEvent)) {
+                        return result;
+                    }
+                }
+            }
+            // Child exited without sending "stopped" — synthesize an error result so the failure
+            // flows through the normal reporting pipeline (fail line, report.json, log.json preservation).
+            int exitCode = proc.waitFor();
+            result.synthesizeCrash(exitCode, lastLogs);
+            logger.raw()
+                    .error("child process exited unexpectedly (code %d). Last %d log lines preserved in report."
+                            .formatted(exitCode, lastLogs.size()));
+            return result;
+        }
+    }
+
+    private LogStatement parseLog(String line) {
+        if (isDebugOrReplay) {
+            out.println(line);
+        }
+        if (isJson(line)) {
+            try {
+                return JSON_MAPPER.readValue(line, LogStatement.class);
+            } catch (JacksonException e) {
+                // Ignore invalid format, the line will be logged below
+                if (!isDebugOrReplay) {
+                    logger.raw().debug(line);
+                }
+            }
+        }
+        return null;
+    }
+
+    private SignalEvent extractSignal(LogStatement log) {
+        try {
+            return new SignalEvent(log.iteration(), JSON_MAPPER.treeToValue(log.log(), Signal.class));
+        } catch (JacksonException e) {
+            // Ignore badly formatted log
+            return null;
+        }
+    }
+
+    private Path createRunBaseDir(int count) throws IOException {
+        var runBaseDir =
+                runsDir.resolve(Commons.RUN_DIR_FORMAT.formatted(count)).toAbsolutePath();
+        deleteRecursively(runsDir, runBaseDir);
+        if (!runBaseDir.toFile().mkdirs()) {
+            throw new IllegalStateException(
+                    "The run base dir '%s' is unexpectedly already present".formatted(runBaseDir));
+        }
+        return runBaseDir;
+    }
+
+    private static void savePlan(Plan plan, Path file) throws IOException {
+        try (var os = newOutputStream(file, CREATE_NEW)) {
+            JSON_MAPPER.writeValue(os, plan);
+        } catch (FileAlreadyExistsException e) {
+            // Ignore: This plan has already been saved
+        }
+    }
+
+    private static boolean isJson(String line) {
+        return line.length() > 2 && line.charAt(0) == '{' && line.charAt(line.length() - 1) == '}';
+    }
+
+    // ==================================================================
+    // Child JVM wiring
+    // ==================================================================
+
+    /**
+     * Builds the {@code java ...} command line for a child JVM rooted at {@code runBaseDir}.
+     * Each run gets its own {@code tmp} directory and a {@code simulator.log} sink.
+     *
+     * <p>Layout under {@link #deploymentDir} is fixed by convention:
+     * {@code system/*.jar} on the classpath, {@code system/opendst-agent.jar} as the
+     * Java agent, {@code system/opendst-patch.jar} as the {@code java.base} patch
+     * module, {@code apps/} as the instrumented application directory.
+     */
+    private List<String> buildChildCommandLine(Path runBaseDir) {
+        var runTmpDir = runBaseDir.resolve("tmp");
+        if (!runTmpDir.toFile().mkdirs()) {
+            throw new IllegalStateException("The run tmp directory already exists: %s".formatted(runBaseDir));
+        }
+        var javaBin = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+        var agentJar = deploymentDir.resolve("system/opendst-agent.jar").toAbsolutePath();
+        var patchJar = deploymentDir.resolve("system/opendst-patch.jar").toAbsolutePath();
+        var instrumentedAppsDir = deploymentDir.resolve("apps");
+        var command = new ArrayList<String>();
+        command.add(javaBin);
+        command.addAll(JAVA_BASE_OPTIONS);
+        // --patch-module allows Thread subclasses to run as virtual threads by injecting
+        // SimulatorThread (extends non-final VirtualThread) into java.base.
+        command.add("--patch-module");
+        command.add("java.base=%s".formatted(patchJar));
+        command.addAll(List.of(
+                "-javaagent:%s".formatted(agentJar),
+                "-Djava.io.tmpdir=%s".formatted(runTmpDir),
+                "-D%s=%s".formatted(APPS_DIR_PROPERTY, instrumentedAppsDir)));
+        command.add("-Dopendst.log-spy=%s"
+                .formatted(runBaseDir.resolve("simulator.log").toAbsolutePath()));
+        if (effectiveJvmArgs != null && !effectiveJvmArgs.isBlank()) {
+            command.addAll(asList(effectiveJvmArgs.split(" +")));
+        }
+        if (debugArgs != null) {
+            command.addAll(asList(debugArgs.split(" +")));
+        }
+        command.addAll(asList(
+                "-cp",
+                buildChildClasspath(deploymentDir),
+                SimulationLauncher.class.getName(),
+                deploymentDir.toAbsolutePath().toString()));
+        return List.copyOf(command);
+    }
+
+    /** Builds the classpath for child JVMs from all library JARs in {@code deployment/system/}. */
+    private static String buildChildClasspath(Path deploymentDir) {
+        var sb = new StringBuilder();
+        var systemDir = deploymentDir.resolve("system").toFile();
+        var jars = systemDir.listFiles((_, name) -> name.endsWith(".jar"));
+        if (jars != null) {
+            for (int i = 0; i < jars.length; i++) {
+                if (i > 0) sb.append(File.pathSeparatorChar);
+                sb.append(jars[i].getAbsolutePath());
+            }
+        }
+        return sb.toString();
+    }
+
+    // ==================================================================
+    // Helpers
+    // ==================================================================
 
     /**
      * Resolves the {@code --fork-count} specification into a concrete thread count.
@@ -276,7 +639,6 @@ public final class RunnerCli implements Callable<Integer> {
     }
 
     private static Faults.Config toFaultsConfig(BuildConfig.FaultsConfig faults) {
-
         if (faults == null) {
             return new Faults.Config();
         }
@@ -321,4 +683,6 @@ public final class RunnerCli implements Callable<Integer> {
             logger.raw().warn("Could not read opendst-patch.jar manifest: " + e.getMessage());
         }
     }
+
+    record LogStatement(@JsonProperty("it") long iteration, String source, JsonNode log) {}
 }
