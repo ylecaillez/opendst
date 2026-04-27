@@ -68,7 +68,7 @@ simulation-opendst.jar
   deployment.yaml                     # Enriched deployment descriptor
   system/
     opendst-agent.jar                 # Shaded Java agent (ByteBuddy, jackson-jr)
-    opendst-runner.jar                # Orchestrator + child entry point
+    opendst-runner.jar                # Runner + child entry point
     opendst-sdk.jar                   # SDK API (Assert, Signals, TraceAuditor)
     opendst-patch.jar                 # Non-final VirtualThread + SimulatorThread
     jackson-*.jar                     # Jackson databind + YAML
@@ -94,16 +94,16 @@ Parent JVM (opendst-runner)                    Child JVM (opendst-agent)
 |                                 |   plan)    |   creates classloader per       |
 | RunnerCli (CLI via picocli)     |            |     service from apps/          |
 |   reads deployment descriptor   |  stdout    |   calls Simulator.startNode()   |
-|   manages Orchestrator          | <--------- |                                 |
-|                                 |  (JSON     | Simulator                       |
-| Orchestrator                    |   signals) |   deterministic scheduler       |
-|   generates execution plans     |            |   intercepted time/net/threads  |
-|   coverage-guided exploration   |  stderr    |   assertion evaluation          |
-|                                 | <--------- |   state hashing                 |
-| SimulationDriver                |  (human    |                                 |
-|   spawns child JVM              |   logs)    | SimulatorAgent                  |
-|   feeds plan via stdin          |            |   bytecode rewriting            |
-|   parses signals from stdout    |            |   JDK method interception       |
+|   spawns child JVM per plan     | <--------- |                                 |
+|   feeds plan via stdin          |  (JSON     | Simulator                       |
+|   parses signals from stdout    |   signals) |   deterministic scheduler       |
+|                                 |            |   intercepted time/net/threads  |
+| Planner                         |  stderr    |   assertion evaluation          |
+|   generates execution plans     | <--------- |   state hashing                 |
+|   coverage-guided exploration   |  (human    |                                 |
+|                                 |   logs)    | SimulatorAgent                  |
+|                                 |            |   bytecode rewriting            |
+|                                 |            |   JDK method interception       |
 |                                 |            |                                 |
 | ReportGenerator                 |            |                                 |
 |   aggregates results            |            |                                 |
@@ -121,11 +121,11 @@ Parent JVM (opendst-runner)                    Child JVM (opendst-agent)
 
 1. `Bootstrap` extracts the JAR contents to a temporary directory, builds a `URLClassLoader` from
    `system/*.jar`, and reflectively invokes `RunnerCli.main()`.
-2. `RunnerCli` parses CLI arguments, scans assertion bytecode in the SUT, creates an
-   `Orchestrator` and a `SimulationDriver`.
-3. For each iteration, the `Orchestrator` produces a `Plan` (random seed + segments + fault config).
-   `SimulationDriver` spawns a child JVM, writes the plan to its stdin, and collects signals from its
-   stdout until the child exits.
+2. `RunnerCli` parses CLI arguments, scans assertion bytecode in the SUT, and creates a
+   `Planner` (guided exploration or replay).
+3. For each iteration, the `Planner` produces an `ExecutionPlan` (random seed + segments + fault
+   config). `RunnerCli` spawns a child JVM, writes the plan to its stdin, and collects signals from
+   its stdout until the child exits.
 4. After all iterations, `ReportGenerator` writes `report.json` with per-assertion pass/fail counts
    and shortest-path examples.
 
@@ -160,9 +160,9 @@ opendst-agent          Shaded Java agent -- simulation engine, bytecode rewritin
      ^                 deterministic interceptors. Minimal dependencies (jackson-jr,
      |                 ByteBuddy). Runs in the child JVM.
      |
-opendst-runner         Orchestration + child entry point. Runs in both JVMs:
-     ^                   - Parent side: Bootstrap, RunnerCli, Orchestrator,
-     |                     SimulationDriver, ReportGenerator
+opendst-runner         Runner + child entry point. Runs in both JVMs:
+     ^                   - Parent side: Bootstrap, RunnerCli (CLI + child JVM
+     |                     management), Planner, ReportGenerator
      |                   - Child side: SimulationLauncher (parses deployment.yaml,
      |                     starts classloader-isolated nodes)
      |                 Heavier dependencies (Jackson databind + YAML, picocli).
