@@ -91,7 +91,7 @@ import tools.jackson.databind.JsonNode;
  * <pre>
  *   &lt;workingDir&gt;/
  *     deployment/     — extracted JAR contents (configs, classes, system JARs, apps)
- *       META-INF/opendst/{assertions.json, build-config.json, deployment.yaml}
+ *       META-INF/opendst/{assertions.json, build-config.json, deployment.json}
  *       system/*.jar  — child JVM classpath (incl. opendst-agent.jar, opendst-patch.jar)
  *       apps/         — instrumented application JARs
  *     runs/           — ephemeral per-fork directories (created/deleted each run)
