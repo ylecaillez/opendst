@@ -18,8 +18,8 @@ package com.pingidentity.opendst.runner;
 import static com.pingidentity.opendst.common.AssertType.ALWAYS;
 import static com.pingidentity.opendst.common.AssertType.ALWAYS_OR_UNREACHABLE;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
-import static com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion.newFailAssertion;
-import static com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion.newPassAssertion;
+import static com.pingidentity.opendst.runner.RunResult.TrackedAssertion.newFailAssertion;
+import static com.pingidentity.opendst.runner.RunResult.TrackedAssertion.newPassAssertion;
 
 import com.pingidentity.opendst.common.AssertType;
 import com.pingidentity.opendst.runner.Signal.AssertSignal;
@@ -35,7 +35,7 @@ import tools.jackson.databind.JsonNode;
  * Tracks the outcome of a single simulation run, including assertion results,
  * per-segment hashes, and the final run hash used for flakiness detection.
  */
-final class ExecutionResult {
+final class RunResult {
 
     record TrackedAssertion(
             AssertType kind,

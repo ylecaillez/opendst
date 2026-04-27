@@ -20,6 +20,6 @@ package com.pingidentity.opendst.runner;
  *
  * <p>The parent JVM produces these from each line of the child JVM's JSON stdout
  * stream and feeds them to both the {@link Orchestrator} (for guidance / interestingness)
- * and the {@link ExecutionResult} (for assertion tracking).
+ * and the {@link RunResult} (for assertion tracking).
  */
 record SignalEvent(long iteration, Signal signal) {}

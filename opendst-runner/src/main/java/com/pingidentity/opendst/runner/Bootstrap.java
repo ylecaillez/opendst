@@ -41,11 +41,11 @@ import java.util.jar.JarFile;
  *   <li>Resolves the working directory (from {@code --working-dir} or derived from JAR path)</li>
  *   <li>Extracts the JAR contents into {@code <workingDir>/deployment/} (skipped if already present)</li>
  *   <li>Builds a {@link URLClassLoader} from every {@code deployment/system/*.jar} plus the deployment root</li>
- *   <li>Reflectively invokes {@link BuildRunner#main(String[])}</li>
+ *   <li>Reflectively invokes {@link RunnerCli#main(String[])}</li>
  * </ol>
  *
  * <p>The working directory path is prepended to the argument array so that
- * {@code BuildRunner} knows where to find configuration and write output.
+ * {@code RunnerCli} knows where to find configuration and write output.
  */
 public final class Bootstrap {
     public static void main(String[] args) {
@@ -88,7 +88,7 @@ public final class Bootstrap {
             // Parent is platform classloader — isolates from system CL (which only sees the bootstrap JAR)
             try (var cl = new URLClassLoader(urls.toArray(URL[]::new), getPlatformClassLoader())) {
                 Thread.currentThread().setContextClassLoader(cl);
-                Class<?> runnerClass = cl.loadClass("com.pingidentity.opendst.runner.BuildRunner");
+                Class<?> runnerClass = cl.loadClass("com.pingidentity.opendst.runner.RunnerCli");
                 Method mainMethod = runnerClass.getMethod("main", String[].class);
 
                 // Prepend workingDir as the first argument

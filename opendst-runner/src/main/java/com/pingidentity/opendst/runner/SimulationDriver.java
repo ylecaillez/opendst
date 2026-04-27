@@ -54,7 +54,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 
 /** Executes OpenDST simulations for a single test class in external JVM processes. */
-final class TestExecutor {
+final class SimulationDriver {
     private static final String JAVA_BIN =
             Path.of(System.getProperty("java.home"), "bin", "java").toString();
 
@@ -81,7 +81,7 @@ final class TestExecutor {
     private final Queue<Plan> pastPlans = new ArrayBlockingQueue<>(10);
     private final AtomicBoolean earlyExit = new AtomicBoolean();
 
-    TestExecutor(
+    SimulationDriver(
             Path reportDir,
             Path runsDir,
             String testClass,
@@ -126,9 +126,9 @@ final class TestExecutor {
             int runCount = runSequence.incrementAndGet();
 
             var runBaseDir = createRunBaseDir(count);
-            ExecutionResult executionResult;
+            RunResult runResult;
             try {
-                executionResult = runOnce(runBaseDir, executionPlan);
+                runResult = runOnce(runBaseDir, executionPlan);
             } catch (IOException | InterruptedException e) {
                 deleteRecursively(runsDir, runBaseDir);
                 throw e;
@@ -137,7 +137,7 @@ final class TestExecutor {
             // Detect infrastructure crashes (child JVM dies before the simulator starts).
             // If this happens repeatedly, the classpath or environment is broken — continuing
             // would just rapid-fire spawn doomed processes across all forks.
-            if (executionResult.isInfrastructureCrash()) {
+            if (runResult.isInfrastructureCrash()) {
                 consecutiveCrashes++;
                 if (consecutiveCrashes >= MAX_CONSECUTIVE_CRASHES) {
                     logger.raw()
@@ -155,21 +155,21 @@ final class TestExecutor {
                 deleteRecursively(runsDir, runBaseDir);
                 return null;
             }
-            if (executionResult.runFailed()) {
-                logger.run("fail").error().withHash(executionResult.runHash()).log();
+            if (runResult.runFailed()) {
+                logger.run("fail").error().withHash(runResult.runHash()).log();
             } else if (executionPlan.plan().hash() == 0) {
-                pastPlans.offer(executionPlan.plan().withHash(executionResult.runHash()));
-            } else if (executionPlan.plan().hash() == executionResult.runHash()) {
-                logger.run("verified").withHash(executionResult.runHash()).log();
+                pastPlans.offer(executionPlan.plan().withHash(runResult.runHash()));
+            } else if (executionPlan.plan().hash() == runResult.runHash()) {
+                logger.run("verified").withHash(runResult.runHash()).log();
             }
 
-            var hexHash = HexFormat.of().toHexDigits(executionResult.runHash());
+            var hexHash = HexFormat.of().toHexDigits(runResult.runHash());
             var planFile = reportDir.resolve("plans").resolve(hexHash + ".plan.json");
-            savePlan(executionPlan.plan().withHash(executionResult.runHash()), planFile);
-            reportGenerator.addExecutionResult(executionResult, planFile);
+            savePlan(executionPlan.plan().withHash(runResult.runHash()), planFile);
+            reportGenerator.addRunResult(runResult, planFile);
 
             // Capture simulator.log for interesting runs before deleting the run directory
-            if (executionResult.isInteresting()) {
+            if (runResult.isInteresting()) {
                 var simulatorLog = runBaseDir.resolve("simulator.log");
                 if (exists(simulatorLog)) {
                     var logDest = reportDir.resolve("plans").resolve(hexHash + ".log.json");
@@ -192,7 +192,7 @@ final class TestExecutor {
                 logger.raw().info("All assertions passing \u2014 stopping (--stop all-pass)");
             }
 
-            if (executionResult.isInteresting()) {
+            if (runResult.isInteresting()) {
                 reportGenerator.generate(reportDir.resolve("report.json"));
                 boringRunStreak.set(0);
             } else if (boringRunStreak.incrementAndGet() >= runConfig.stagnationLimit()) {
@@ -229,7 +229,7 @@ final class TestExecutor {
         return orchestrator.nextPlan();
     }
 
-    private ExecutionResult runOnce(Path runBaseDir, ExecutionPlan execution) throws IOException, InterruptedException {
+    private RunResult runOnce(Path runBaseDir, ExecutionPlan execution) throws IOException, InterruptedException {
         Process proc = null;
         Thread runKiller = null;
         try {
@@ -264,10 +264,10 @@ final class TestExecutor {
                 .start();
     }
 
-    private ExecutionResult monitorExecutionOutput(Process proc, ExecutionPlan execution)
+    private RunResult monitorExecutionOutput(Process proc, ExecutionPlan execution)
             throws IOException, InterruptedException {
         var lastLogs = new ArrayDeque<String>();
-        var result = new ExecutionResult();
+        var result = new RunResult();
         try (var logs = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
             for (var line = logs.readLine(); line != null; line = logs.readLine()) {
                 if (lastLogs.size() >= 50) {
