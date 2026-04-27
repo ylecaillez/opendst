@@ -15,14 +15,15 @@
  */
 
 /**
- * Orchestration runtime and child JVM entry point for OpenDST.
+ * Runner runtime and child JVM entry point for OpenDST.
  *
  * <p>This package runs in both JVM processes:
  * <ul>
  *   <li><b>Parent process</b> -- {@link com.pingidentity.opendst.runner.Bootstrap} extracts the
- *       self-contained JAR, {@link com.pingidentity.opendst.runner.RunnerCli} drives the CLI,
- *       {@link com.pingidentity.opendst.runner.Planner} generates execution plans, and
- *       {@link com.pingidentity.opendst.runner.SimulationDriver} spawns and monitors child JVMs.</li>
+ *       self-contained JAR and reflectively invokes
+ *       {@link com.pingidentity.opendst.runner.RunnerCli}, which drives the CLI, spawns and
+ *       monitors child JVMs, and feeds them execution plans produced by a
+ *       {@link com.pingidentity.opendst.runner.Planner}.</li>
  *   <li><b>Child process</b> -- {@link com.pingidentity.opendst.runner.SimulationLauncher} parses
  *       the deployment descriptor, creates classloader-isolated nodes per service, and hands off
  *       to {@link com.pingidentity.opendst.Simulator}.</li>
