@@ -31,7 +31,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import tools.jackson.databind.JsonNode;
 
 /**
  * Collects simulation signals and generates a JSON report for OpenDST runs.
@@ -55,7 +54,7 @@ final class ReportGenerator {
     private record AssertionState(String name, boolean pass, Examples examples) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    private record Example(String plan, long iteration, JsonNode details) {}
+    private record Example(String plan, long iteration, Map<String, Object> details) {}
 
     private record Examples(
             int passCount,
