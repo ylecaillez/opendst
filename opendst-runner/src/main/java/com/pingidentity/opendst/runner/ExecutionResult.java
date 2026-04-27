@@ -22,7 +22,6 @@ import static com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion.n
 import static com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion.newPassAssertion;
 
 import com.pingidentity.opendst.common.AssertType;
-import com.pingidentity.opendst.runner.Commons.SignalEvent;
 import com.pingidentity.opendst.runner.Signal.AssertSignal;
 import com.pingidentity.opendst.runner.Signal.LifecycleSignal;
 import java.util.ArrayList;

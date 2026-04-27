@@ -32,11 +32,8 @@ import static java.util.concurrent.ThreadLocalRandom.current;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.pingidentity.opendst.Plan;
-import com.pingidentity.opendst.runner.BuildRunner.StopCondition;
-import com.pingidentity.opendst.runner.Commons.SignalEvent;
 import com.pingidentity.opendst.runner.Orchestrator.ExecutionPlan;
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.FileAlreadyExistsException;
@@ -46,7 +43,6 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Queue;
-import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -69,24 +65,6 @@ final class TestExecutor {
     private static final int PROGRESS_INTERVAL = 10;
 
     record LogStatement(@JsonProperty("it") long iteration, String source, JsonNode log) {}
-
-    /** JVM launch configuration for child processes. */
-    record JvmConfig(
-            Path instrumentedAppsDir,
-            String agentJarPath,
-            String patchModuleJarPath,
-            String jvmArguments,
-            String debugArgs,
-            File logSpy,
-            String mainClass) {}
-
-    /** Execution loop control parameters. */
-    record RunConfig(
-            double replayProbability,
-            boolean isDebugOrReplay,
-            int stagnationLimit,
-            int forkCount,
-            Set<BuildRunner.StopCondition> stopConditions) {}
 
     private final Path reportDir;
     private final Path runsDir;

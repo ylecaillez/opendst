@@ -72,8 +72,6 @@ public final class Commons {
     public static final String INSTRUMENTED_APPS_DIR = "instrumented-apps";
     static final String RUN_DIR_FORMAT = "run-%d";
 
-    record SignalEvent(long iteration, Signal signal) {}
-
     public static void deleteRecursively(Path basePath, Path directoryToDelete) throws IOException {
         if (!exists(directoryToDelete)) {
             return;
