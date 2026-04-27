@@ -57,10 +57,10 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
  *   <li>{@code system/opendst-agent.jar} — the agent JAR added to each service's classpath</li>
  * </ul>
  */
-public final class OpenDSTExecutor {
+public final class SimulationLauncher {
     public static void main(String[] args) {
         if (args.length < 1) {
-            err.println("Usage: java OpenDSTExecutor <deploymentDir>");
+            err.println("Usage: java SimulationLauncher <deploymentDir>");
             exit(1);
         }
 
@@ -98,7 +98,9 @@ public final class OpenDSTExecutor {
                             "Trace auditor has no 'dir' or 'artifact' — the deployment descriptor may not have been enriched by the build plugin");
                 }
                 var auditorClassLoader = classLoader(
-                        "trace-auditor-loader", appsDir.resolve(auditorAppDir), OpenDSTExecutor.class.getClassLoader());
+                        "trace-auditor-loader",
+                        appsDir.resolve(auditorAppDir),
+                        SimulationLauncher.class.getClassLoader());
                 var auditorClass = Class.forName(descriptor.traceAuditor().className(), true, auditorClassLoader);
                 traceAuditor =
                         (TraceAuditor) auditorClass.getDeclaredConstructor().newInstance();
@@ -128,7 +130,7 @@ public final class OpenDSTExecutor {
             e.printStackTrace(err);
             getRuntime().halt(1);
         } catch (Exception e) {
-            err.println("OpenDSTExecutor failed");
+            err.println("SimulationLauncher failed");
             e.printStackTrace(err);
             getRuntime().halt(1);
         }

@@ -22,7 +22,7 @@ import static java.util.Comparator.comparing;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.pingidentity.opendst.common.Assertion;
-import com.pingidentity.opendst.runner.ExecutionResult.TrackedAssertion;
+import com.pingidentity.opendst.runner.RunResult.TrackedAssertion;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -98,9 +98,9 @@ final class ReportGenerator {
         }
     }
 
-    void addExecutionResult(ExecutionResult executionResult, Path planFile) {
+    void addRunResult(RunResult runResult, Path planFile) {
         totalPlans.incrementAndGet();
-        executionResult
+        runResult
                 .assertionsHit()
                 .forEach((name, assertionTrack) -> examples.computeIfPresent(
                         name, (_, examples) -> examples.add(assertionTrack, planFile, reportDir)));

@@ -66,12 +66,12 @@ import picocli.CommandLine.Parameters;
  * <ol>
  *   <li>Loads the assertion catalog from {@code deployment/META-INF/opendst/assertions.json}</li>
  *   <li>Loads the build configuration from {@code deployment/META-INF/opendst/build-config.json}</li>
- *   <li>Spawns child JVMs running {@link OpenDSTExecutor} via {@link TestExecutor}</li>
+ *   <li>Spawns child JVMs running {@link SimulationLauncher} via {@link SimulationDriver}</li>
  *   <li>Uses {@link Orchestrator.GuidedOrchestrator} to drive exploration</li>
  * </ol>
  */
 @Command(name = "opendst", description = "Run OpenDST deterministic simulation tests", mixinStandardHelpOptions = true)
-public final class BuildRunner implements Callable<Integer> {
+public final class RunnerCli implements Callable<Integer> {
 
     @Parameters(index = "0", hidden = true, description = "Working directory (set by Bootstrap)")
     private Path workingDir;
@@ -129,7 +129,7 @@ public final class BuildRunner implements Callable<Integer> {
     private String debugAddress;
 
     public static void main(String[] args) {
-        var cmd = new CommandLine(new BuildRunner());
+        var cmd = new CommandLine(new RunnerCli());
         cmd.setCaseInsensitiveEnumValuesAllowed(true);
         exit(cmd.execute(args));
     }
@@ -204,7 +204,7 @@ public final class BuildRunner implements Callable<Integer> {
                 effectiveJvmArgs,
                 debugArgs,
                 null,
-                OpenDSTExecutor.class.getName());
+                SimulationLauncher.class.getName());
 
         // Replay mode: load a saved plan and execute it once
         boolean isReplay = planFile != null;
@@ -245,10 +245,10 @@ public final class BuildRunner implements Callable<Integer> {
                 forkCount,
                 effectiveStopConditions);
 
-        // TestExecutor uses testClass/testMethod as child JVM args.
-        // For OpenDSTExecutor, we pass the deployment dir path so the child knows where to find deployment.yaml.
+        // SimulationDriver uses testClass/testMethod as child JVM args.
+        // For SimulationLauncher, we pass the deployment dir path so the child knows where to find deployment.yaml.
         var reportGenerator = new ReportGenerator(assertions, reportDir);
-        new TestExecutor(
+        new SimulationDriver(
                         reportDir,
                         runsDir,
                         deploymentDir.toAbsolutePath().toString(), // passed as "testClass" arg to child JVM

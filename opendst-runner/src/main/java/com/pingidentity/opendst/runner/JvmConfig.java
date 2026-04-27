@@ -21,8 +21,8 @@ import java.nio.file.Path;
 /**
  * Launch configuration for a child simulation JVM.
  *
- * <p>Built once per run by the parent {@link BuildRunner} and reused for every
- * fork spawned by {@link TestExecutor}.
+ * <p>Built once per run by the parent {@link RunnerCli} and reused for every
+ * fork spawned by {@link SimulationDriver}.
  *
  * @param instrumentedAppsDir directory containing instrumented application JARs
  *     ({@code deployment/apps/*})
@@ -32,7 +32,7 @@ import java.nio.file.Path;
  * @param debugArgs           JDWP options when {@code --debug} is set, otherwise {@code null}
  * @param logSpy              optional fixed log spy file (if {@code null}, a per-run {@code simulator.log} is used)
  * @param mainClass           fully-qualified class name of the child JVM entry point
- *     (currently {@link OpenDSTExecutor})
+ *     (currently {@link SimulationLauncher})
  */
 record JvmConfig(
         Path instrumentedAppsDir,
