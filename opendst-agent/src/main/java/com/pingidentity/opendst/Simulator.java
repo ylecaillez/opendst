@@ -261,7 +261,7 @@ public final class Simulator {
             e.printStackTrace(context.logger().getOut());
         } finally {
             try {
-                // Let the orchestrator kill this process once it received the "stopped" signal
+                // Let the runner kill this process once it received the "stopped" signal
                 sleep(60_000);
             } catch (InterruptedException _) {
             }

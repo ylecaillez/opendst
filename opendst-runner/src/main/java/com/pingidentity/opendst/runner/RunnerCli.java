@@ -44,9 +44,9 @@ import com.pingidentity.opendst.Plan;
 import com.pingidentity.opendst.common.Assertion;
 import com.pingidentity.opendst.common.BuildConfig;
 import com.pingidentity.opendst.runner.Commons.DurationUtils;
-import com.pingidentity.opendst.runner.Orchestrator.ExecutionPlan;
-import com.pingidentity.opendst.runner.Orchestrator.GuidedOrchestrator;
-import com.pingidentity.opendst.runner.Orchestrator.ReplayOrchestrator;
+import com.pingidentity.opendst.runner.Planner.ExecutionPlan;
+import com.pingidentity.opendst.runner.Planner.GuidedPlanner;
+import com.pingidentity.opendst.runner.Planner.ReplayPlanner;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -78,7 +78,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 
 /**
- * Orchestrator entry point for the self-contained JAR. Invoked reflectively by
+ * Planner entry point for the self-contained JAR. Invoked reflectively by
  * {@link Bootstrap} after extraction and classloader setup; the first argument is
  * always the working directory path (prepended by the launcher).
  *
@@ -176,7 +176,7 @@ public final class RunnerCli implements Callable<Integer> {
     private Path reportDir;
     private Path runsDir;
     private OpenDstLogger logger;
-    private Orchestrator orchestrator;
+    private Planner planner;
     private String effectiveJvmArgs;
     private String debugArgs;
     private Set<StopCondition> effectiveStopConditions;
@@ -250,14 +250,14 @@ public final class RunnerCli implements Callable<Integer> {
 
         debugArgs = isDebug ? "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=" + debugAddress : null;
 
-        // 4. Pick orchestrator: replay mode loads a saved plan, otherwise explore
+        // 4. Pick planner: replay mode loads a saved plan, otherwise explore
         isReplay = planFile != null;
         if (isReplay) {
             var plan = JSON_MAPPER.readValue(planFile.toFile(), Plan.class);
-            orchestrator = new ReplayOrchestrator(plan);
+            planner = new ReplayPlanner(plan);
             forkCount = 1;
         } else {
-            orchestrator = new GuidedOrchestrator(logger, duration, branchProbability, faultsConfig);
+            planner = new GuidedPlanner(logger, duration, branchProbability, faultsConfig);
         }
         if (isDebug) {
             forkCount = 1;
@@ -431,7 +431,7 @@ public final class RunnerCli implements Callable<Integer> {
                 return new ExecutionPlan(plan, _ -> false);
             }
         }
-        return orchestrator.nextPlan();
+        return planner.nextPlan();
     }
 
     private RunResult runOnce(Path runBaseDir, ExecutionPlan execution) throws IOException, InterruptedException {

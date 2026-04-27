@@ -22,9 +22,9 @@ import com.pingidentity.opendst.sdk.Signals;
 
 /**
  * Tests that comparative assertions emit guidance data (left/right values)
- * that the orchestrator can use for distance-guided exploration.
+ * that the runner can use for distance-guided exploration.
  *
- * <p>The random value will vary across simulation runs. The orchestrator should
+ * <p>The random value will vary across simulation runs. The runner should
  * track the minimum distance-to-violation and prefer plans that narrow the gap.
  * The assertion always passes (value is always >= 0 and we assert > -1),
  * so this scenario should succeed.

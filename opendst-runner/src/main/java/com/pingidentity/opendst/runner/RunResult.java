@@ -193,7 +193,7 @@ final class RunResult {
                     signal.iteration(),
                     assertSignal.details());
         }
-        // GuidanceSignals are handled by the orchestrator only; no tracking needed here.
+        // GuidanceSignals are handled by the planner only; no tracking needed here.
         return false;
     }
 

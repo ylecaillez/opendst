@@ -59,7 +59,7 @@ public interface TraceAuditor {
      * Called for each log entry emitted by simulated nodes.
      *
      * <p>Throwing any exception (typically {@link AssertionError}) immediately stops the simulation
-     * and marks the run as a failure. The orchestrator saves the exact plan for deterministic replay.
+     * and marks the run as a failure. The runner saves the exact plan for deterministic replay.
      *
      * @param log the log entry to process
      * @throws Throwable if the log indicates a property violation
