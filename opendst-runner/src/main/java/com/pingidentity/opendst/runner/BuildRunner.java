@@ -32,8 +32,6 @@ import com.pingidentity.opendst.common.BuildConfig;
 import com.pingidentity.opendst.runner.Commons.DurationUtils;
 import com.pingidentity.opendst.runner.Orchestrator.GuidedOrchestrator;
 import com.pingidentity.opendst.runner.Orchestrator.ReplayOrchestrator;
-import com.pingidentity.opendst.runner.TestExecutor.JvmConfig;
-import com.pingidentity.opendst.runner.TestExecutor.RunConfig;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -78,34 +76,9 @@ public final class BuildRunner implements Callable<Integer> {
     @Parameters(index = "0", hidden = true, description = "Working directory (set by Bootstrap)")
     private Path workingDir;
 
-    /**
-     * Early-stopping conditions that can be combined via repeated {@code --stop} flags.
-     *
-     * <ul>
-     *   <li>{@code ANY_FAIL} — stop immediately on the first assertion failure</li>
-     *   <li>{@code ALL_PASS} — stop early when all assertions are passing,
-     *       after at least {@code stagnation-limit} executions for confidence</li>
-     * </ul>
-     *
-     * <p>When no {@code --stop} flag is given, the runner uses the default strategy:
-     * run until the stagnation limit is reached (no early stopping).
-     */
-    public enum StopCondition {
-        ANY_FAIL,
-        ALL_PASS
-    }
-
-    /** Converts CLI values like {@code any-fail} to {@link StopCondition#ANY_FAIL}. */
-    static class StopConditionConverter implements CommandLine.ITypeConverter<StopCondition> {
-        @Override
-        public StopCondition convert(String value) {
-            return StopCondition.valueOf(value.toUpperCase().replace('-', '_'));
-        }
-    }
-
     @Option(
             names = "--stop",
-            converter = StopConditionConverter.class,
+            converter = StopCondition.Converter.class,
             description =
                     "Early-stopping conditions (combinable): any-fail, all-pass. Default: none (run until stagnation)")
     private Set<StopCondition> stopConditions;
