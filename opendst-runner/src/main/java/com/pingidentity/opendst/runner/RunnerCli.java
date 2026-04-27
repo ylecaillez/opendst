@@ -32,7 +32,6 @@ import com.pingidentity.opendst.common.BuildConfig;
 import com.pingidentity.opendst.runner.Commons.DurationUtils;
 import com.pingidentity.opendst.runner.Orchestrator.GuidedOrchestrator;
 import com.pingidentity.opendst.runner.Orchestrator.ReplayOrchestrator;
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.EnumSet;
@@ -164,10 +163,7 @@ public final class RunnerCli implements Callable<Integer> {
         var configFile = deploymentDir.resolve("META-INF/opendst/build-config.json");
         var config = JSON_MAPPER.readValue(configFile.toFile(), BuildConfig.class);
 
-        // 3. Build classpath for child JVMs
-        var classpath = buildChildClasspath(deploymentDir);
-
-        // 4. Set up orchestrator and run
+        // 3. Set up orchestrator and run
         var logger = ofConsole(isDebug);
         if (isDebug) {
             logger.raw()
@@ -178,16 +174,7 @@ public final class RunnerCli implements Callable<Integer> {
         }
         var faultsConfig = toFaultsConfig(config.faults());
 
-        var instrumentedAppsDir = deploymentDir.resolve("apps");
-        var agentJarPath = deploymentDir
-                .resolve("system/opendst-agent.jar")
-                .toAbsolutePath()
-                .toString();
-        var patchModuleJarPath = deploymentDir
-                .resolve("system/opendst-patch.jar")
-                .toAbsolutePath()
-                .toString();
-        verifyPatchModuleJdkVersion(Path.of(patchModuleJarPath), logger);
+        verifyPatchModuleJdkVersion(deploymentDir.resolve("system/opendst-patch.jar"), logger);
 
         // Merge JVM arguments: build-time defaults + CLI --extra-jvm-args (additive)
         var buildTimeArgs = config.jvmArguments();
@@ -197,14 +184,6 @@ public final class RunnerCli implements Callable<Integer> {
 
         var debugArgs =
                 isDebug ? "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=" + debugAddress : null;
-        var jvmConfig = new JvmConfig(
-                instrumentedAppsDir,
-                agentJarPath,
-                patchModuleJarPath,
-                effectiveJvmArgs,
-                debugArgs,
-                null,
-                SimulationLauncher.class.getName());
 
         // Replay mode: load a saved plan and execute it once
         boolean isReplay = planFile != null;
@@ -245,19 +224,8 @@ public final class RunnerCli implements Callable<Integer> {
                 forkCount,
                 effectiveStopConditions);
 
-        // SimulationDriver uses testClass/testMethod as child JVM args.
-        // For SimulationLauncher, we pass the deployment dir path so the child knows where to find deployment.yaml.
         var reportGenerator = new ReportGenerator(assertions, reportDir);
-        new SimulationDriver(
-                        reportDir,
-                        runsDir,
-                        deploymentDir.toAbsolutePath().toString(), // passed as "testClass" arg to child JVM
-                        "run", // passed as "testMethod" arg (unused but required)
-                        classpath,
-                        jvmConfig,
-                        logger,
-                        orchestrator,
-                        runConfig)
+        new SimulationDriver(workingDir, effectiveJvmArgs, debugArgs, logger, orchestrator, runConfig)
                 .execute(reportGenerator);
 
         if (isReplay) {
@@ -305,22 +273,6 @@ public final class RunnerCli implements Callable<Integer> {
             return Math.max(1, (int) (multiplier * cores));
         }
         return Math.max(1, Integer.parseInt(spec));
-    }
-
-    /**
-     * Builds the classpath for child JVMs from all library JARs in {@code deployment/system/}.
-     */
-    private static String buildChildClasspath(Path deploymentDir) {
-        var sb = new StringBuilder();
-        var systemDir = deploymentDir.resolve("system").toFile();
-        var jars = systemDir.listFiles((_, name) -> name.endsWith(".jar"));
-        if (jars != null) {
-            for (int i = 0; i < jars.length; i++) {
-                if (i > 0) sb.append(File.pathSeparatorChar);
-                sb.append(jars[i].getAbsolutePath());
-            }
-        }
-        return sb.toString();
     }
 
     private static Faults.Config toFaultsConfig(BuildConfig.FaultsConfig faults) {

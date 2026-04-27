@@ -34,6 +34,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.pingidentity.opendst.Plan;
 import com.pingidentity.opendst.runner.Orchestrator.ExecutionPlan;
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.FileAlreadyExistsException;
@@ -53,10 +54,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 
-/** Executes OpenDST simulations for a single test class in external JVM processes. */
+/**
+ * Drives the parent-side run loop: spawns child JVMs, streams JSON signals from
+ * their stdout, applies orchestration / stop conditions, and feeds results to the
+ * {@link ReportGenerator}.
+ *
+ * <p>The child JVM layout under {@code deploymentDir} is fixed by convention:
+ * {@code system/*.jar} on the classpath, {@code system/opendst-agent.jar} as the
+ * Java agent, {@code system/opendst-patch.jar} as the {@code java.base} patch
+ * module, {@code apps/} as the instrumented application directory. The entry
+ * point is {@link SimulationLauncher}, invoked with {@code deploymentDir} as
+ * its sole argument.
+ */
 final class SimulationDriver {
-    private static final String JAVA_BIN =
-            Path.of(System.getProperty("java.home"), "bin", "java").toString();
 
     /** Number of consecutive infrastructure crashes before aborting all forks. */
     private static final int MAX_CONSECUTIVE_CRASHES = 3;
@@ -66,12 +76,11 @@ final class SimulationDriver {
 
     record LogStatement(@JsonProperty("it") long iteration, String source, JsonNode log) {}
 
+    private final Path deploymentDir;
     private final Path reportDir;
     private final Path runsDir;
-    private final String testClass;
-    private final String testMethod;
-    private final String classpath;
-    private final JvmConfig jvm;
+    private final String jvmArguments;
+    private final String debugArgs;
     private final RunConfig runConfig;
     private final OpenDstLogger logger;
     private final Orchestrator orchestrator;
@@ -82,21 +91,17 @@ final class SimulationDriver {
     private final AtomicBoolean earlyExit = new AtomicBoolean();
 
     SimulationDriver(
-            Path reportDir,
-            Path runsDir,
-            String testClass,
-            String testMethod,
-            String classpath,
-            JvmConfig jvm,
+            Path workingDir,
+            String jvmArguments,
+            String debugArgs,
             OpenDstLogger logger,
             Orchestrator orchestrator,
             RunConfig run) {
-        this.reportDir = reportDir;
-        this.runsDir = runsDir;
-        this.testClass = testClass;
-        this.testMethod = testMethod;
-        this.classpath = classpath;
-        this.jvm = jvm;
+        this.deploymentDir = workingDir.resolve("deployment");
+        this.reportDir = workingDir.resolve("report");
+        this.runsDir = workingDir.resolve("runs");
+        this.jvmArguments = jvmArguments;
+        this.debugArgs = debugArgs;
         this.runConfig = run;
         this.logger = logger;
         this.orchestrator = orchestrator;
@@ -258,10 +263,64 @@ final class SimulationDriver {
     }
 
     private Process startProcess(Path runBaseDir) throws IOException {
-        return new ProcessBuilder(buildJvmCommandLine(runBaseDir))
+        return new ProcessBuilder(buildChildCommandLine(runBaseDir))
                 .directory(runBaseDir.toFile())
                 .redirectErrorStream(true)
                 .start();
+    }
+
+    /**
+     * Builds the {@code java ...} command line for a child JVM rooted at {@code runBaseDir}.
+     * Each run gets its own {@code tmp} directory and a {@code simulator.log} sink.
+     */
+    private List<String> buildChildCommandLine(Path runBaseDir) {
+        var runTmpDir = runBaseDir.resolve("tmp");
+        if (!runTmpDir.toFile().mkdirs()) {
+            throw new IllegalStateException("The run tmp directory already exists: %s".formatted(runBaseDir));
+        }
+        var javaBin = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+        var agentJar = deploymentDir.resolve("system/opendst-agent.jar").toAbsolutePath();
+        var patchJar = deploymentDir.resolve("system/opendst-patch.jar").toAbsolutePath();
+        var instrumentedAppsDir = deploymentDir.resolve("apps");
+        var command = new ArrayList<String>();
+        command.add(javaBin);
+        command.addAll(JAVA_BASE_OPTIONS);
+        // --patch-module allows Thread subclasses to run as virtual threads by injecting
+        // SimulatorThread (extends non-final VirtualThread) into java.base.
+        command.add("--patch-module");
+        command.add("java.base=%s".formatted(patchJar));
+        command.addAll(List.of(
+                "-javaagent:%s".formatted(agentJar),
+                "-Djava.io.tmpdir=%s".formatted(runTmpDir),
+                "-D%s=%s".formatted(APPS_DIR_PROPERTY, instrumentedAppsDir)));
+        command.add("-Dopendst.log-spy=%s"
+                .formatted(runBaseDir.resolve("simulator.log").toAbsolutePath()));
+        if (jvmArguments != null && !jvmArguments.isBlank()) {
+            command.addAll(asList(jvmArguments.split(" +")));
+        }
+        if (debugArgs != null) {
+            command.addAll(asList(debugArgs.split(" +")));
+        }
+        command.addAll(asList(
+                "-cp",
+                buildChildClasspath(deploymentDir),
+                SimulationLauncher.class.getName(),
+                deploymentDir.toAbsolutePath().toString()));
+        return List.copyOf(command);
+    }
+
+    /** Builds the classpath for child JVMs from all library JARs in {@code deployment/system/}. */
+    private static String buildChildClasspath(Path deploymentDir) {
+        var sb = new StringBuilder();
+        var systemDir = deploymentDir.resolve("system").toFile();
+        var jars = systemDir.listFiles((_, name) -> name.endsWith(".jar"));
+        if (jars != null) {
+            for (int i = 0; i < jars.length; i++) {
+                if (i > 0) sb.append(File.pathSeparatorChar);
+                sb.append(jars[i].getAbsolutePath());
+            }
+        }
+        return sb.toString();
     }
 
     private RunResult monitorExecutionOutput(Process proc, ExecutionPlan execution)
@@ -322,36 +381,6 @@ final class SimulationDriver {
             // Ignore badly formatted log
             return null;
         }
-    }
-
-    private List<String> buildJvmCommandLine(Path runBaseDir) {
-        var runTmpDir = runBaseDir.resolve("tmp");
-        if (!runTmpDir.toFile().mkdirs()) {
-            throw new IllegalStateException("The run tmp directory already exists: %s".formatted(runBaseDir));
-        }
-        var command = new ArrayList<String>();
-        command.add(JAVA_BIN);
-        command.addAll(JAVA_BASE_OPTIONS);
-        // --patch-module allows Thread subclasses to run as virtual threads by injecting
-        // SimulatorThread (extends non-final VirtualThread) into java.base.
-        command.add("--patch-module");
-        command.add("java.base=%s".formatted(jvm.patchModuleJarPath()));
-        command.addAll(List.of(
-                "-javaagent:%s".formatted(jvm.agentJarPath()),
-                "-Djava.io.tmpdir=%s".formatted(runTmpDir),
-                "-D%s=%s".formatted(APPS_DIR_PROPERTY, jvm.instrumentedAppsDir())));
-        var spy = jvm.logSpy() != null
-                ? jvm.logSpy()
-                : runBaseDir.resolve("simulator.log").toFile();
-        command.add("-Dopendst.log-spy=%s".formatted(spy.getAbsolutePath()));
-        if (jvm.jvmArguments() != null && !jvm.jvmArguments().isBlank()) {
-            command.addAll(asList(jvm.jvmArguments().split(" +")));
-        }
-        if (jvm.debugArgs() != null) {
-            command.addAll(asList(jvm.debugArgs().split(" +")));
-        }
-        command.addAll(asList("-cp", classpath, jvm.mainClass(), testClass, testMethod));
-        return List.copyOf(command);
     }
 
     private Path createRunBaseDir(int count) throws IOException {
