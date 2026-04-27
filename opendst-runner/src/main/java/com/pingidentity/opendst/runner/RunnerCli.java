@@ -22,7 +22,7 @@ import static com.pingidentity.opendst.common.Assertion.SIMULATION_STARTED;
 import static com.pingidentity.opendst.common.Assertion.SIMULATION_TERMINATED;
 import static com.pingidentity.opendst.common.Constants.APPS_DIR_PROPERTY;
 import static com.pingidentity.opendst.runner.Commons.JAVA_BASE_OPTIONS;
-import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
+import static com.pingidentity.opendst.runner.Commons.JSON_OBJECT;
 import static com.pingidentity.opendst.runner.Commons.deleteRecursively;
 import static com.pingidentity.opendst.runner.OpenDstLogger.ofConsole;
 import static java.lang.Runtime.getRuntime;
@@ -38,7 +38,6 @@ import static java.nio.file.StandardOpenOption.CREATE_NEW;
 import static java.util.Arrays.asList;
 import static java.util.concurrent.ThreadLocalRandom.current;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.pingidentity.opendst.common.Assertion;
 import com.pingidentity.opendst.common.BuildConfig;
 import com.pingidentity.opendst.common.Faults;
@@ -227,9 +226,8 @@ public final class RunnerCli implements Callable<Integer> {
 
         // 1. Load assertions
         var assertionsFile = deploymentDir.resolve("META-INF/opendst/assertions.json");
-        Set<Assertion> discoveredAssertions = JSON_MAPPER.readValue(
-                assertionsFile.toFile(),
-                JSON_MAPPER.getTypeFactory().constructCollectionType(Set.class, Assertion.class));
+        Set<Assertion> discoveredAssertions =
+                Set.copyOf(JSON_OBJECT.listOfFrom(Assertion.class, assertionsFile.toFile()));
 
         // Merge discovered assertions with built-in lifecycle assertions
         var assertions = new LinkedHashSet<>(discoveredAssertions);
@@ -241,7 +239,7 @@ public final class RunnerCli implements Callable<Integer> {
 
         // 2. Load build config
         var configFile = deploymentDir.resolve("META-INF/opendst/build-config.json");
-        var config = JSON_MAPPER.readValue(configFile.toFile(), BuildConfig.class);
+        var config = JSON_OBJECT.beanFrom(BuildConfig.class, configFile.toFile());
 
         // 3. Set up logger and JVM wiring
         logger = ofConsole(isDebug);
@@ -267,7 +265,7 @@ public final class RunnerCli implements Callable<Integer> {
         // 4. Pick planner: replay mode loads a saved plan, otherwise explore
         isReplay = planFile != null;
         if (isReplay) {
-            var plan = JSON_MAPPER.readValue(planFile.toFile(), Plan.class);
+            var plan = JSON_OBJECT.beanFrom(Plan.class, planFile.toFile());
             planner = new ReplayPlanner(plan);
             forkCount = 1;
         } else {
@@ -455,7 +453,7 @@ public final class RunnerCli implements Callable<Integer> {
             proc = startProcess(runBaseDir);
             runKiller = new Thread(proc::destroyForcibly);
             getRuntime().addShutdownHook(runKiller);
-            JSON_MAPPER.writeValue(proc.getOutputStream(), execution.plan());
+            JSON_OBJECT.write(execution.plan(), proc.getOutputStream());
             return monitorExecutionOutput(proc, execution);
         } finally {
             if (proc != null) {
@@ -519,7 +517,7 @@ public final class RunnerCli implements Callable<Integer> {
         }
         if (isJson(line)) {
             try {
-                return JSON_MAPPER.readValue(line, LogStatement.class);
+                return JSON_OBJECT.beanFrom(LogStatement.class, line);
             } catch (JacksonException e) {
                 // Ignore invalid format, the line will be logged below
                 if (!isDebugOrReplay) {
@@ -560,7 +558,8 @@ public final class RunnerCli implements Callable<Integer> {
             return null;
         }
         try {
-            return new SignalEvent(log.iteration(), JSON_MAPPER.convertValue(payload, target));
+            // jackson-jr has no in-memory Map->bean conversion; round-trip through JSON.
+            return new SignalEvent(log.iteration(), JSON_OBJECT.beanFrom(target, JSON_OBJECT.asString(payload)));
         } catch (IllegalArgumentException e) {
             // Ignore badly formatted log
             return null;
@@ -580,7 +579,7 @@ public final class RunnerCli implements Callable<Integer> {
 
     private static void savePlan(Plan plan, Path file) throws IOException {
         try (var os = newOutputStream(file, CREATE_NEW)) {
-            JSON_MAPPER.writeValue(os, plan);
+            JSON_OBJECT.write(plan, os);
         } catch (FileAlreadyExistsException e) {
             // Ignore: This plan has already been saved
         }
@@ -731,5 +730,13 @@ public final class RunnerCli implements Callable<Integer> {
         }
     }
 
-    record LogStatement(@JsonProperty("it") long iteration, String source, Map<String, Object> log) {}
+    /**
+     * Wire envelope for log lines emitted by the agent. The {@code it} component
+     * matches the iteration field name used on the wire.
+     */
+    record LogStatement(long it, String source, Map<String, Object> log) {
+        long iteration() {
+            return it;
+        }
+    }
 }

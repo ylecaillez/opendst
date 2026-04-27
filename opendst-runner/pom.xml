@@ -25,8 +25,8 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>tools.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
+            <groupId>tools.jackson.jr</groupId>
+            <artifactId>jackson-jr-objects</artifactId>
         </dependency>
         <dependency>
             <groupId>info.picocli</groupId>
@@ -50,7 +50,7 @@
                             <artifactSet>
                                 <includes>
                                     <include>info.picocli:picocli</include>
-                                    <include>tools.jackson.core:jackson-databind</include>
+                                    <include>tools.jackson.jr:jackson-jr-objects</include>
                                     <include>tools.jackson.core:jackson-core</include>
                                     <include>com.fasterxml.jackson.core:jackson-annotations</include>
                                     <include>com.pingidentity.opendst:opendst-common</include>

@@ -24,11 +24,9 @@ import static java.time.Duration.ofMillis;
 import static java.time.Duration.ofMinutes;
 import static java.time.Duration.ofNanos;
 import static java.time.Duration.ofSeconds;
-import static tools.jackson.core.StreamReadFeature.AUTO_CLOSE_SOURCE;
-import static tools.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES;
-import static tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS;
-import static tools.jackson.databind.cfg.EnumFeature.WRITE_ENUMS_USING_TO_STRING;
+import static tools.jackson.jr.ob.JSON.Feature.WRITE_NULL_PROPERTIES;
 
+import com.pingidentity.opendst.common.AssertType;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -36,7 +34,17 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Pattern;
-import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.core.JsonParser;
+import tools.jackson.jr.ob.JSON;
+import tools.jackson.jr.ob.JacksonJrExtension;
+import tools.jackson.jr.ob.api.ExtensionContext;
+import tools.jackson.jr.ob.api.ReaderWriterProvider;
+import tools.jackson.jr.ob.api.ValueReader;
+import tools.jackson.jr.ob.api.ValueWriter;
+import tools.jackson.jr.ob.impl.JSONReader;
+import tools.jackson.jr.ob.impl.JSONWriter;
 
 /**
  * Centralized constants and utility methods for the OpenDST runner.
@@ -44,12 +52,91 @@ import tools.jackson.databind.json.JsonMapper;
 public final class Commons {
     private Commons() {}
 
-    public static final JsonMapper JSON_MAPPER = JsonMapper.builder()
-            .disable(FAIL_ON_TRAILING_TOKENS)
-            .disable(FAIL_ON_NULL_FOR_PRIMITIVES)
-            .disable(AUTO_CLOSE_SOURCE)
-            .enable(WRITE_ENUMS_USING_TO_STRING)
+    /**
+     * Shared {@code jackson-jr} instance configured with the project's value
+     * conventions:
+     * <ul>
+     *   <li>{@link Duration} round-trips through ISO-8601 strings.</li>
+     *   <li>{@link AssertType} round-trips through its lowercase wire form.</li>
+     *   <li>{@code null} record components are omitted on write.</li>
+     * </ul>
+     */
+    public static final JSON JSON_OBJECT = JSON.builder()
+            .disable(WRITE_NULL_PROPERTIES)
+            .register(new OpenDstExtension())
             .build();
+
+    /**
+     * Pretty-printing variant of {@link #JSON_OBJECT}, used to write user-facing
+     * artifacts such as {@code report.json}.
+     */
+    public static final JSON JSON_OBJECT_PRETTY = JSON_OBJECT.with(JSON.Feature.PRETTY_PRINT_OUTPUT);
+
+    private static final class OpenDstExtension extends JacksonJrExtension {
+        @Override
+        protected void register(ExtensionContext ctxt) {
+            ctxt.appendProvider(new ReaderWriterProvider() {
+                @Override
+                public ValueReader findValueReader(JSONReader readContext, Class<?> type) {
+                    if (Duration.class.isAssignableFrom(type)) {
+                        return DURATION_READER;
+                    } else if (AssertType.class.isAssignableFrom(type)) {
+                        return ASSERT_TYPE_READER;
+                    }
+                    return null;
+                }
+
+                @Override
+                public ValueWriter findValueWriter(JSONWriter writeContext, Class<?> type) {
+                    if (Duration.class.isAssignableFrom(type)) {
+                        return DURATION_WRITER;
+                    } else if (AssertType.class.isAssignableFrom(type)) {
+                        return ASSERT_TYPE_WRITER;
+                    }
+                    return null;
+                }
+            });
+        }
+    }
+
+    private static final ValueReader DURATION_READER = new ValueReader(Duration.class) {
+        @Override
+        public Object read(JSONReader reader, JsonParser p) throws JacksonException {
+            var value = p.getString();
+            return value != null ? Duration.parse(value) : Duration.ZERO;
+        }
+    };
+
+    private static final ValueWriter DURATION_WRITER = new ValueWriter() {
+        @Override
+        public void writeValue(JSONWriter context, JsonGenerator g, Object value) {
+            g.writeString(value.toString());
+        }
+
+        @Override
+        public Class<?> valueType() {
+            return Duration.class;
+        }
+    };
+
+    private static final ValueReader ASSERT_TYPE_READER = new ValueReader(AssertType.class) {
+        @Override
+        public Object read(JSONReader reader, JsonParser p) throws JacksonException {
+            return AssertType.fromString(p.getString());
+        }
+    };
+
+    private static final ValueWriter ASSERT_TYPE_WRITER = new ValueWriter() {
+        @Override
+        public void writeValue(JSONWriter context, JsonGenerator g, Object value) {
+            g.writeString(value.toString());
+        }
+
+        @Override
+        public Class<?> valueType() {
+            return AssertType.class;
+        }
+    };
 
     /**
      * JVM options required for the simulator to function correctly with JDK internals.
