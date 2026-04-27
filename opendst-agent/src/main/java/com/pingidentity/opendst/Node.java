@@ -29,6 +29,7 @@ import static java.util.Objects.requireNonNull;
 
 import com.pingidentity.opendst.NodeSocketImpl.Binding;
 import com.pingidentity.opendst.ThreadsInterceptors.VirtualThreadUnblocker;
+import com.pingidentity.opendst.common.Faults;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.BindException;
@@ -166,7 +167,7 @@ public final class Node {
         return context.logger();
     }
 
-    Faults.Injector faultInjector() {
+    FaultInjector faultInjector() {
         return context.faultInjector();
     }
 

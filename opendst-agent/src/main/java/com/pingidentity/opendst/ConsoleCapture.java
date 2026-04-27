@@ -15,8 +15,8 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Constants.LOG_SOURCE_SIMULATOR;
-import static com.pingidentity.opendst.Constants.LOG_SOURCE_VHOST;
+import static com.pingidentity.opendst.common.Constants.LOG_SOURCE_SIMULATOR;
+import static com.pingidentity.opendst.common.Constants.LOG_SOURCE_VHOST;
 import static java.lang.System.lineSeparator;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static tools.jackson.jr.ob.JSON.Feature.FLUSH_AFTER_WRITE_VALUE;

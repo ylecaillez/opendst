@@ -15,6 +15,8 @@
  */
 package com.pingidentity.opendst;
 
+import com.pingidentity.opendst.common.Faults;
+
 /**
  * Immutable record holding all global simulation services.
  *
@@ -28,7 +30,7 @@ record SimulationContext(
         RandomInterceptors.Source random,
         Faults.Config faults,
         NetworkInterceptors network,
-        Faults.Injector faultInjector,
+        FaultInjector faultInjector,
         ConsoleCapture logger) {
 
     /** Maximum number of simulated nodes. */
