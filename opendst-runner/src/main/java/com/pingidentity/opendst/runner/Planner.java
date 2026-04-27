@@ -22,7 +22,7 @@ import com.pingidentity.opendst.common.Plan;
 import com.pingidentity.opendst.common.Plan.Segment;
 import com.pingidentity.opendst.common.Signal.AssertSignal;
 import com.pingidentity.opendst.common.Signal.GuidanceSignal;
-import com.pingidentity.opendst.common.Signal.LifecycleSignal;
+import com.pingidentity.opendst.common.Signal.SegmentCompletedSignal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -214,9 +214,8 @@ interface Planner {
             @Override
             public boolean test(SignalEvent event) {
                 // Track segment boundary hashes from lifecycle signals
-                if (event.signal() instanceof LifecycleSignal lifecycle
-                        && "segment-completed".equals(lifecycle.message())) {
-                    segmentHashes.add(lifecycle.hash());
+                if (event.signal() instanceof SegmentCompletedSignal segment) {
+                    segmentHashes.add(segment.hash());
                     return false;
                 }
 

@@ -19,6 +19,7 @@ import static com.pingidentity.opendst.Node.currentNodeOrThrow;
 import static java.util.Map.of;
 import static java.util.Objects.requireNonNull;
 
+import com.pingidentity.opendst.common.AssertType;
 import java.util.Map;
 
 /**
@@ -226,17 +227,15 @@ public final class AssertImpl {
     }
 
     private static void log(Node node, String kind, String message, boolean condition, Map<String, Object> details) {
-        currentNodeOrThrow()
-                .logger()
+        node.logger()
                 .logAssert(
+                        AssertType.fromString(kind),
                         requireNonNull(message),
+                        condition,
+                        details,
                         node.hostName,
                         node.simulator().instant(),
-                        node.random().iteration())
-                .withString("kind", kind)
-                .withBoolean("condition", condition)
-                .withPOJO("details", details)
-                .log();
+                        node.random().iteration());
     }
 
     /** Emits a guidance signal — "how close to violation". Does not affect the deterministic hash. */
@@ -244,11 +243,10 @@ public final class AssertImpl {
         node.logger()
                 .logGuidance(
                         requireNonNull(message),
+                        guidance,
                         node.hostName,
                         node.simulator().instant(),
-                        node.random().iteration())
-                .withPOJO("guidance", guidance)
-                .log();
+                        node.random().iteration());
     }
 
     private AssertImpl() {

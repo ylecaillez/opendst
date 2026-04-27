@@ -15,32 +15,31 @@
  */
 package com.pingidentity.opendst.common;
 
+import java.util.List;
 import java.util.Map;
 
 /**
  * Wire-format type for the structured signals emitted by the simulator during a run.
  *
- * <p>The agent serializes one of the five {@code Signal} subtypes per line to the child
- * JVM's {@code System.out} (wrapped in a log envelope), and the runner parses them back
- * to dispatch to {@link AssertSignal}, {@link LifecycleSignal}, etc.
+ * <p>The agent serializes one {@code Signal} per line to the child JVM's {@code System.out}
+ * (wrapped in a log envelope), and the runner parses each line back into the corresponding
+ * subtype.
  *
  * <p>The wire format intentionally avoids Jackson polymorphic-deserialization annotations
  * ({@code @JsonTypeInfo} / {@code @JsonSubTypes}) so that both ends can use
  * {@code jackson-jr}. The runner dispatches on the {@link #type()} discriminator field
- * by hand. This keeps both the agent and the runner free of {@code jackson-databind}.
+ * by hand. Lifecycle events are split into one subtype per event so the runner can dispatch
+ * by {@code instanceof} rather than by string matching on a {@code message} field.
  */
-public sealed interface Signal
-        permits Signal.ConsoleSignal,
-                Signal.AssertSignal,
-                Signal.GuidanceSignal,
-                Signal.FaultSignal,
-                Signal.LifecycleSignal {
+public sealed interface Signal {
 
     /** Discriminator field written to JSON. The runner dispatches on this value. */
     String type();
 
     /** Human-readable label associated with the signal. */
     String message();
+
+    // ── Application output ────────────────────────────────────────────────────
 
     /** Stdout line captured from a virtual host. */
     record ConsoleSignal(String message) implements Signal {
@@ -49,6 +48,8 @@ public sealed interface Signal
             return "stdout";
         }
     }
+
+    // ── Assertion outcomes ────────────────────────────────────────────────────
 
     /**
      * Outcome of an assertion evaluation.
@@ -100,29 +101,150 @@ public sealed interface Signal
         }
     }
 
-    /**
-     * Lifecycle event from the simulator framework: {@code started}, {@code segment-completed},
-     * {@code stopped}, {@code uncaught exception}, etc.
-     *
-     * @param message      the lifecycle event name
-     * @param hash         the deterministic state hash (used by {@code stopped} and {@code segment-completed})
-     * @param cause        the failure cause for error events ({@code uncaught exception},
-     *                     {@code internal error}, etc.), or {@code null}
-     * @param expectedHash the expected hash for non-determinism reports, or {@code 0}
-     * @param actualHash   the actual hash for non-determinism reports, or {@code 0}
-     */
-    record LifecycleSignal(String message, int hash, String cause, int expectedHash, int actualHash) implements Signal {
-        @Override
-        public String type() {
-            return "lifecycle";
-        }
-    }
+    // ── Fault injection ───────────────────────────────────────────────────────
 
     /** Notification that a fault was injected into the simulation. */
     record FaultSignal(String message) implements Signal {
         @Override
         public String type() {
             return "fault";
+        }
+    }
+
+    // ── Lifecycle: simulator framework events ─────────────────────────────────
+    //
+    // Each lifecycle event has its own record so the runner can dispatch by
+    // instanceof. Some events are diagnostic-only (the runner ignores them);
+    // they exist as types so the agent can construct them and emit them with
+    // typed serialization (no hand-rolled JsonGenerator).
+
+    /** Simulation main loop entered. */
+    record StartedSignal() implements Signal {
+        @Override
+        public String type() {
+            return "started";
+        }
+
+        @Override
+        public String message() {
+            return "started";
+        }
+    }
+
+    /** A segment boundary completed cleanly; carries the deterministic state hash. */
+    record SegmentCompletedSignal(int hash) implements Signal {
+        @Override
+        public String type() {
+            return "segment-completed";
+        }
+
+        @Override
+        public String message() {
+            return "segment-completed";
+        }
+    }
+
+    /** Simulation finished cleanly; carries the final deterministic state hash. */
+    record StoppedSignal(int hash) implements Signal {
+        @Override
+        public String type() {
+            return "stopped";
+        }
+
+        @Override
+        public String message() {
+            return "stopped";
+        }
+    }
+
+    /** Replay diverged from the recorded plan; the run is non-deterministic. */
+    record NonDeterminismSignal(int expectedHash, int actualHash) implements Signal {
+        @Override
+        public String type() {
+            return "non-determinism";
+        }
+
+        @Override
+        public String message() {
+            return "non-determinism detected";
+        }
+    }
+
+    /** Simulator framework caught an internal error; the simulation is aborted. */
+    record InternalErrorSignal(String cause, List<String> stacktrace) implements Signal {
+        @Override
+        public String type() {
+            return "internal-error";
+        }
+
+        @Override
+        public String message() {
+            return "internal error";
+        }
+    }
+
+    /** A user-supplied {@code TraceAuditor} threw; signaled once per run. */
+    record TraceAuditorExceptionSignal(String cause, List<String> stacktrace) implements Signal {
+        @Override
+        public String type() {
+            return "trace-auditor-exception";
+        }
+
+        @Override
+        public String message() {
+            return "trace auditor exception";
+        }
+    }
+
+    /**
+     * A virtual host's user code raised an uncaught exception.
+     *
+     * @param vhost     the virtual host whose code threw
+     * @param thread    the simulator thread name
+     * @param exception arbitrary Throwable POJO captured for diagnostics
+     */
+    record UncaughtExceptionSignal(String vhost, String thread, Object exception) implements Signal {
+        @Override
+        public String type() {
+            return "uncaught-exception";
+        }
+
+        @Override
+        public String message() {
+            return "uncaught exception";
+        }
+    }
+
+    /**
+     * The simulator detected a platform (non-virtual) thread starting from inside a virtual host.
+     * Diagnostic-only; the runner ignores it.
+     */
+    record PlatformThreadStartedSignal(String vhost, String threadName, String threadClass, String caller)
+            implements Signal {
+        @Override
+        public String type() {
+            return "platform-thread-started";
+        }
+
+        @Override
+        public String message() {
+            return "platform thread started";
+        }
+    }
+
+    /**
+     * A virtual host registered a JVM shutdown hook that the simulator skipped.
+     * Diagnostic-only; the runner ignores it.
+     */
+    record PlatformThreadShutdownHookSkippedSignal(String vhost, String hookClass, String hookName) implements Signal {
+        @Override
+        public String type() {
+            return "platform-thread-shutdown-hook-skipped";
+        }
+
+        @Override
+        public String message() {
+            return "platform thread shutdown hook skipped";
         }
     }
 }

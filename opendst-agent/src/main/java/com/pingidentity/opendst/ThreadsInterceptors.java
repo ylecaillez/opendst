@@ -385,12 +385,13 @@ public final class ThreadsInterceptors {
         }
         var simulator = node.simulator();
         node.logger()
-                .logLifecycle("platform thread started", simulator.instant(), simulator.iteration())
-                .withString("vhost", node.hostName)
-                .withString("threadName", platformThread.getName())
-                .withString("threadClass", platformThread.getClass().getName())
-                .withString("caller", Thread.currentThread().getName())
-                .log();
+                .logPlatformThreadStarted(
+                        node.hostName,
+                        platformThread.getName(),
+                        platformThread.getClass().getName(),
+                        Thread.currentThread().getName(),
+                        simulator.instant(),
+                        simulator.iteration());
     }
 
     /**
