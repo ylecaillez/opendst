@@ -34,7 +34,7 @@ import static net.bytebuddy.matcher.ElementMatchers.returns;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 import static net.bytebuddy.matcher.ElementMatchers.takesNoArguments;
 
-import com.pingidentity.opendst.Plan.Segment;
+import com.pingidentity.opendst.common.Plan.Segment;
 import java.io.Serial;
 import java.security.SecureRandomSpi;
 import java.util.ArrayDeque;

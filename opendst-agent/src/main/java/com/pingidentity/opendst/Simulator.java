@@ -32,7 +32,9 @@ import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Future.State.CANCELLED;
 import static java.util.concurrent.Future.State.SUCCESS;
 
-import com.pingidentity.opendst.Plan.Segment;
+import com.pingidentity.opendst.common.Faults;
+import com.pingidentity.opendst.common.Plan;
+import com.pingidentity.opendst.common.Plan.Segment;
 import com.pingidentity.opendst.sdk.TraceAuditor;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -113,7 +115,7 @@ public final class Simulator {
         this.hasher = new StateHasher();
         var logger = new ConsoleCapture(this, traceAuditor, System.out);
         var network = new NetworkInterceptors(this);
-        var faultInjector = new Faults.Injector(this, faults);
+        var faultInjector = new FaultInjector(this, faults);
         var scheduler = new Scheduler(START_TIME, logger);
 
         // Assemble the immutable context last — passed only to Node

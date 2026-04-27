@@ -15,12 +15,12 @@
  */
 package com.pingidentity.opendst.runner;
 
-import static com.pingidentity.opendst.Constants.APPS_DIR_PROPERTY;
 import static com.pingidentity.opendst.common.Assertion.NO_INTERNAL_ERROR;
 import static com.pingidentity.opendst.common.Assertion.NO_TRACE_AUDITOR_EXCEPTION;
 import static com.pingidentity.opendst.common.Assertion.NO_UNCAUGHT_EXCEPTION;
 import static com.pingidentity.opendst.common.Assertion.SIMULATION_STARTED;
 import static com.pingidentity.opendst.common.Assertion.SIMULATION_TERMINATED;
+import static com.pingidentity.opendst.common.Constants.APPS_DIR_PROPERTY;
 import static com.pingidentity.opendst.runner.Commons.JAVA_BASE_OPTIONS;
 import static com.pingidentity.opendst.runner.Commons.JSON_MAPPER;
 import static com.pingidentity.opendst.runner.Commons.deleteRecursively;
@@ -39,10 +39,10 @@ import static java.util.Arrays.asList;
 import static java.util.concurrent.ThreadLocalRandom.current;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.pingidentity.opendst.Faults;
-import com.pingidentity.opendst.Plan;
 import com.pingidentity.opendst.common.Assertion;
 import com.pingidentity.opendst.common.BuildConfig;
+import com.pingidentity.opendst.common.Faults;
+import com.pingidentity.opendst.common.Plan;
 import com.pingidentity.opendst.runner.Commons.DurationUtils;
 import com.pingidentity.opendst.runner.Planner.ExecutionPlan;
 import com.pingidentity.opendst.runner.Planner.GuidedPlanner;

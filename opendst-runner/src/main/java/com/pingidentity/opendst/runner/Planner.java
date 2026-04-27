@@ -17,9 +17,9 @@ package com.pingidentity.opendst.runner;
 
 import static java.util.concurrent.ThreadLocalRandom.current;
 
-import com.pingidentity.opendst.Faults;
-import com.pingidentity.opendst.Plan;
-import com.pingidentity.opendst.Plan.Segment;
+import com.pingidentity.opendst.common.Faults;
+import com.pingidentity.opendst.common.Plan;
+import com.pingidentity.opendst.common.Plan.Segment;
 import com.pingidentity.opendst.runner.Signal.AssertSignal;
 import com.pingidentity.opendst.runner.Signal.GuidanceSignal;
 import com.pingidentity.opendst.runner.Signal.LifecycleSignal;
