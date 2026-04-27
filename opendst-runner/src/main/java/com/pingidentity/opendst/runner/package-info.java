@@ -20,15 +20,15 @@
  * <p>This package runs in both JVM processes:
  * <ul>
  *   <li><b>Parent process</b> -- {@link com.pingidentity.opendst.runner.Bootstrap} extracts the
- *       self-contained JAR, {@link com.pingidentity.opendst.runner.BuildRunner} drives the CLI,
+ *       self-contained JAR, {@link com.pingidentity.opendst.runner.RunnerCli} drives the CLI,
  *       {@link com.pingidentity.opendst.runner.Orchestrator} generates execution plans, and
- *       {@link com.pingidentity.opendst.runner.TestExecutor} spawns and monitors child JVMs.</li>
- *   <li><b>Child process</b> -- {@link com.pingidentity.opendst.runner.OpenDSTExecutor} parses
+ *       {@link com.pingidentity.opendst.runner.SimulationDriver} spawns and monitors child JVMs.</li>
+ *   <li><b>Child process</b> -- {@link com.pingidentity.opendst.runner.SimulationLauncher} parses
  *       the deployment descriptor, creates classloader-isolated nodes per service, and hands off
  *       to {@link com.pingidentity.opendst.Simulator}.</li>
  * </ul>
  *
- * <p>{@code OpenDSTExecutor} lives here (rather than in {@code opendst-agent}) because it needs
+ * <p>{@code SimulationLauncher} lives here (rather than in {@code opendst-agent}) because it needs
  * Jackson databind + YAML to parse {@code deployment.yaml}. The agent is a shaded JAR with only
  * jackson-jr.
  *

@@ -89,10 +89,10 @@ Parent JVM (opendst-runner)                    Child JVM (opendst-agent)
 +---------------------------------+            +---------------------------------+
 | Bootstrap                       |            | -javaagent:opendst-agent.jar    |
 |   extracts JAR to disk          |  stdin     |                                 |
-|   loads system/*.jar            | ---------> | OpenDSTExecutor                 |
-|   invokes BuildRunner           |  (JSON     |   parses deployment.yaml        |
+|   loads system/*.jar            | ---------> | SimulationLauncher              |
+|   invokes RunnerCli             |  (JSON     |   parses deployment.yaml        |
 |                                 |   plan)    |   creates classloader per       |
-| BuildRunner (CLI via picocli)   |            |     service from apps/          |
+| RunnerCli (CLI via picocli)     |            |     service from apps/          |
 |   reads deployment descriptor   |  stdout    |   calls Simulator.startNode()   |
 |   manages Orchestrator          | <--------- |                                 |
 |                                 |  (JSON     | Simulator                       |
@@ -100,7 +100,7 @@ Parent JVM (opendst-runner)                    Child JVM (opendst-agent)
 |   generates execution plans     |            |   intercepted time/net/threads  |
 |   coverage-guided exploration   |  stderr    |   assertion evaluation          |
 |                                 | <--------- |   state hashing                 |
-| TestExecutor                    |  (human    |                                 |
+| SimulationDriver                |  (human    |                                 |
 |   spawns child JVM              |   logs)    | SimulatorAgent                  |
 |   feeds plan via stdin          |            |   bytecode rewriting            |
 |   parses signals from stdout    |            |   JDK method interception       |
@@ -120,11 +120,11 @@ Parent JVM (opendst-runner)                    Child JVM (opendst-agent)
 ### Parent process lifecycle
 
 1. `Bootstrap` extracts the JAR contents to a temporary directory, builds a `URLClassLoader` from
-   `system/*.jar`, and reflectively invokes `BuildRunner.main()`.
-2. `BuildRunner` parses CLI arguments, scans assertion bytecode in the SUT, creates an
-   `Orchestrator` and a `TestExecutor`.
+   `system/*.jar`, and reflectively invokes `RunnerCli.main()`.
+2. `RunnerCli` parses CLI arguments, scans assertion bytecode in the SUT, creates an
+   `Orchestrator` and a `SimulationDriver`.
 3. For each iteration, the `Orchestrator` produces a `Plan` (random seed + segments + fault config).
-   `TestExecutor` spawns a child JVM, writes the plan to its stdin, and collects signals from its
+   `SimulationDriver` spawns a child JVM, writes the plan to its stdin, and collects signals from its
    stdout until the child exits.
 4. After all iterations, `ReportGenerator` writes `report.json` with per-assertion pass/fail counts
    and shortest-path examples.
@@ -137,7 +137,7 @@ Parent JVM (opendst-runner)                    Child JVM (opendst-agent)
    The patch module injects `SimulatorThread` (a `VirtualThread` subclass) into `java.base`,
    enabling `Thread` subclasses in the SUT to run as virtual threads under simulation.
    **Experimental** — this may be reverted if it causes more issues than it solves.
-2. `OpenDSTExecutor.main()` reads the execution plan from stdin, parses `deployment.yaml`, and for
+2. `SimulationLauncher.main()` reads the execution plan from stdin, parses `deployment.yaml`, and for
    each service creates a `URLClassLoader` pointing at its `apps/<service>/WEB-INF/` directory
    (parented to the platform classloader for isolation).
 3. `Simulator.runSimulation()` starts the deterministic scheduler. Each service's `main()` method is
@@ -161,9 +161,9 @@ opendst-agent          Shaded Java agent -- simulation engine, bytecode rewritin
      |                 ByteBuddy). Runs in the child JVM.
      |
 opendst-runner         Orchestration + child entry point. Runs in both JVMs:
-     ^                   - Parent side: Bootstrap, BuildRunner, Orchestrator,
-     |                     TestExecutor, ReportGenerator
-     |                   - Child side: OpenDSTExecutor (parses deployment.yaml,
+     ^                   - Parent side: Bootstrap, RunnerCli, Orchestrator,
+     |                     SimulationDriver, ReportGenerator
+     |                   - Child side: SimulationLauncher (parses deployment.yaml,
      |                     starts classloader-isolated nodes)
      |                 Heavier dependencies (Jackson databind + YAML, picocli).
      |
@@ -173,7 +173,7 @@ opendst-maven-plugin   Build-time only. Instruments SUT bytecode, resolves
                        + SimulatorThread compiled from source via javac).
 ```
 
-**Why is `OpenDSTExecutor` in `opendst-runner` and not in `opendst-agent`?** It needs Jackson
+**Why is `SimulationLauncher` in `opendst-runner` and not in `opendst-agent`?** It needs Jackson
 databind + YAML to parse `deployment.yaml`. The agent is a shaded JAR with only jackson-jr
 (lightweight). Adding full Jackson to the agent would bloat it and risk classpath conflicts with
 instrumented application code.
