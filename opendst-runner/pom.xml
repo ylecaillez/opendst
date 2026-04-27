@@ -29,20 +29,6 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
         <dependency>
-            <groupId>tools.jackson.dataformat</groupId>
-            <artifactId>jackson-dataformat-yaml</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.pingidentity.opendst</groupId>
-            <artifactId>opendst-agent</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.pingidentity.opendst</groupId>
-            <artifactId>opendst-sdk</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
             <groupId>info.picocli</groupId>
             <artifactId>picocli</artifactId>
         </dependency>
@@ -67,8 +53,6 @@
                                     <include>tools.jackson.core:jackson-databind</include>
                                     <include>tools.jackson.core:jackson-core</include>
                                     <include>com.fasterxml.jackson.core:jackson-annotations</include>
-                                    <include>tools.jackson.dataformat:jackson-dataformat-yaml</include>
-                                    <include>org.snakeyaml:snakeyaml-engine</include>
                                     <include>com.pingidentity.opendst:opendst-common</include>
                                 </includes>
                             </artifactSet>
