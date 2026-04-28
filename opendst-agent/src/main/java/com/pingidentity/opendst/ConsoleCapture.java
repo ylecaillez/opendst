@@ -41,7 +41,6 @@ import com.pingidentity.opendst.common.SimulationEvent;
 import com.pingidentity.opendst.sdk.TraceAuditor;
 import com.pingidentity.opendst.sdk.TraceAuditor.Log;
 import java.io.ByteArrayOutputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
@@ -80,9 +79,6 @@ import tools.jackson.jr.ob.impl.JSONWriter;
  * <p>Deferred processing: {@link #flush()} drains the buffered {@link LogWriter} entries to
  * {@link TraceAuditor#process} and is called <em>outside</em> the simulation tick so that arbitrary
  * user-supplied auditor code cannot affect determinism.
- *
- * <p>When the system property {@code opendst.log-spy} is set, all output is additionally teed to a file via
- * {@link TeeingPrintStream} for offline debugging.
  */
 final class ConsoleCapture {
 
@@ -114,10 +110,7 @@ final class ConsoleCapture {
     ConsoleCapture(Simulator simulator, TraceAuditor traceAuditor, PrintStream out) throws IOException {
         this.simulator = simulator;
         this.traceAuditor = traceAuditor;
-        var spyPath = System.getProperty("opendst.log-spy");
-        this.out = spyPath != null
-                ? new TeeingPrintStream(out, new FileOutputStream(spyPath, true))
-                : new CloseShieldPrintStream(out);
+        this.out = new CloseShieldPrintStream(out);
     }
 
     // ── Framework signals: one method per Signal subtype ──────────────────────
@@ -233,8 +226,7 @@ final class ConsoleCapture {
 
     /**
      * Returns the output stream that all JSON log entries are written to. This is the child process's
-     * {@code System.out} (optionally wrapped in a {@link TeeingPrintStream} for spy-file debugging),
-     * which the parent process reads as structured newline-delimited JSON.
+     * {@code System.out}, which the parent process reads as structured newline-delimited JSON.
      */
     PrintStream getOut() {
         return out;
@@ -458,58 +450,9 @@ final class ConsoleCapture {
     }
 
     /**
-     * A {@link PrintStream} that writes to a primary stream and tees all output to a secondary {@link OutputStream}.
-     * Close-shields the primary: only the secondary is closed on {@link #close()}.
+     * A {@link PrintStream} that close-shields its delegate. Used so that the agent never closes
+     * the child JVM's real {@code System.out} (which would prevent any further structured output).
      */
-    private static final class TeeingPrintStream extends PrintStream {
-        private final OutputStream secondary;
-
-        TeeingPrintStream(PrintStream primary, OutputStream secondary) {
-            super(primary, true, UTF_8);
-            this.secondary = secondary;
-        }
-
-        @Override
-        public void write(int b) {
-            super.write(b);
-            try {
-                secondary.write(b);
-            } catch (IOException e) {
-                setError();
-            }
-        }
-
-        @Override
-        public void write(byte[] b, int off, int len) {
-            super.write(b, off, len);
-            try {
-                secondary.write(b, off, len);
-            } catch (IOException e) {
-                setError();
-            }
-        }
-
-        @Override
-        public void flush() {
-            super.flush();
-            try {
-                secondary.flush();
-            } catch (IOException e) {
-                setError();
-            }
-        }
-
-        @Override
-        public void close() {
-            // Do not close the primary (close-shield), only close the secondary.
-            try {
-                secondary.close();
-            } catch (IOException e) {
-                setError();
-            }
-        }
-    }
-
     private static final class CloseShieldPrintStream extends PrintStream {
         CloseShieldPrintStream(PrintStream delegate) {
             super(delegate);

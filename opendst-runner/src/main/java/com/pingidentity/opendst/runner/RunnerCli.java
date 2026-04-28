@@ -29,11 +29,8 @@ import static java.lang.Runtime.getRuntime;
 import static java.lang.System.exit;
 import static java.lang.System.out;
 import static java.lang.Thread.ofVirtual;
-import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
-import static java.nio.file.Files.exists;
 import static java.nio.file.Files.newOutputStream;
-import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.nio.file.StandardOpenOption.CREATE_NEW;
 import static java.util.Arrays.asList;
 import static java.util.concurrent.ThreadLocalRandom.current;
@@ -97,7 +94,7 @@ import tools.jackson.core.JacksonException;
  *     runs/           — ephemeral per-fork directories (created/deleted each run)
  *     report/         — simulation output (persists across runs)
  *       report.json
- *       plans/        — execution plan files + log.json for failures
+ *       plans/        — execution plan files (one per distinct plan hash)
  * </pre>
  */
 @Command(name = "opendst", description = "Run OpenDST deterministic simulation tests", mixinStandardHelpOptions = true)
@@ -379,16 +376,8 @@ public final class RunnerCli implements Callable<Integer> {
             savePlan(executionPlan.plan().withHash(runResult.runHash()), planFile);
             reportGenerator.addRunResult(runResult, planFile);
 
-            // Capture simulator.log for interesting runs before deleting the run directory
-            if (runResult.isInteresting()) {
-                var simulatorLog = runBaseDir.resolve("simulator.log");
-                if (exists(simulatorLog)) {
-                    var logDest = reportDir.resolve("plans").resolve(hexHash + ".log.json");
-                    copy(simulatorLog, logDest, REPLACE_EXISTING);
-                }
-            }
-
-            // Run directory is ephemeral — clean up after capturing any interesting artifacts
+            // Run directory is ephemeral — clean it up; nothing to preserve from disk
+            // (signals were streamed to the parent over stdout, not written to a file).
             deleteRecursively(runsDir, runBaseDir);
 
             if (effectiveStopConditions.contains(StopCondition.ANY_FAIL)
@@ -486,7 +475,7 @@ public final class RunnerCli implements Callable<Integer> {
                 }
             }
             // Child exited without sending "stopped" — synthesize an error result so the failure
-            // flows through the normal reporting pipeline (fail line, report.json, log.json preservation).
+            // flows through the normal reporting pipeline (fail line, report.json).
             int exitCode = proc.waitFor();
             result.synthesizeCrash(exitCode, lastLogs);
             logger.raw()
@@ -548,7 +537,7 @@ public final class RunnerCli implements Callable<Integer> {
 
     /**
      * Builds the {@code java ...} command line for a child JVM rooted at {@code runBaseDir}.
-     * Each run gets its own {@code tmp} directory and a {@code simulator.log} sink.
+     * Each run gets its own {@code tmp} directory.
      *
      * <p>Layout under {@link #deploymentDir} is fixed by convention:
      * {@code system/*.jar} on the classpath, {@code system/opendst-agent.jar} as the
@@ -575,8 +564,6 @@ public final class RunnerCli implements Callable<Integer> {
                 "-javaagent:%s".formatted(agentJar),
                 "-Djava.io.tmpdir=%s".formatted(runTmpDir),
                 "-D%s=%s".formatted(APPS_DIR_PROPERTY, instrumentedAppsDir)));
-        command.add("-Dopendst.log-spy=%s"
-                .formatted(runBaseDir.resolve("simulator.log").toAbsolutePath()));
         if (effectiveJvmArgs != null && !effectiveJvmArgs.isBlank()) {
             command.addAll(asList(effectiveJvmArgs.split(" +")));
         }
