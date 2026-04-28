@@ -15,16 +15,12 @@
  */
 package com.pingidentity.opendst.common;
 
-/** Build-time configuration baked into the self-contained JAR. */
-public record BuildConfig(String jvmArguments, FaultsConfig faults) {
-
-    /** Serializable faults configuration using string-based durations. */
-    public record FaultsConfig(NetworkFaultsConfig network) {}
-
-    public record NetworkFaultsConfig(
-            boolean enabled,
-            String latencyMinimum,
-            String latencyFast,
-            String latencySlow,
-            String cloggingLatencyMaximum) {}
-}
+/**
+ * Build-time configuration baked into the self-contained JAR as
+ * {@code META-INF/opendst/build-config.json}.
+ *
+ * <p>Carries the JVM argument string assembled by the Maven plugin and the
+ * default fault configuration applied to every run unless overridden by a
+ * {@link Plan}.
+ */
+public record BuildConfig(String jvmArguments, Faults.Config faults) {}

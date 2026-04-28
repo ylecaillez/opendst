@@ -41,7 +41,6 @@ import com.pingidentity.opendst.common.Faults;
 import com.pingidentity.opendst.common.Plan;
 import com.pingidentity.opendst.common.Signal;
 import com.pingidentity.opendst.common.SimulationEvent;
-import com.pingidentity.opendst.runner.Commons.DurationUtils;
 import com.pingidentity.opendst.runner.Planner.ExecutionPlan;
 import com.pingidentity.opendst.runner.Planner.GuidedPlanner;
 import com.pingidentity.opendst.runner.Planner.ReplayPlanner;
@@ -234,7 +233,7 @@ public final class RunnerCli implements Callable<Integer> {
                             "\uD83D\uDC1B Debug mode enabled. Attach debugger to address " + debugAddress
                                     + " (suspend=y)"));
         }
-        var faultsConfig = toFaultsConfig(config.faults());
+        var faultsConfig = config.faults() != null ? config.faults() : new Faults.Config();
 
         verifyPatchModuleJdkVersion(deploymentDir.resolve("system/opendst-patch.jar"), logger);
 
@@ -622,23 +621,6 @@ public final class RunnerCli implements Callable<Integer> {
             return Math.max(1, (int) (multiplier * cores));
         }
         return Math.max(1, Integer.parseInt(spec));
-    }
-
-    private static Faults.Config toFaultsConfig(BuildConfig.FaultsConfig faults) {
-        if (faults == null) {
-            return new Faults.Config();
-        }
-        var net = faults.network() != null && faults.network().enabled()
-                ? new Faults.Config.NetworkConfig(
-                        true,
-                        DurationUtils.parse(faults.network().latencyMinimum()),
-                        DurationUtils.parse(faults.network().latencyFast()),
-                        DurationUtils.parse(faults.network().latencySlow()),
-                        DurationUtils.parse(faults.network().cloggingLatencyMaximum()),
-                        0.001,
-                        0.001)
-                : new Faults.Config.NetworkConfig();
-        return new Faults.Config(net);
     }
 
     /**
