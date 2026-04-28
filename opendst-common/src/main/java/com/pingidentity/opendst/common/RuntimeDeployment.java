@@ -22,18 +22,18 @@ import java.util.Map;
  * Runtime view of a deployment, baked into the self-contained JAR by the build plugin
  * and read by the child JVM at startup.
  *
- * <p>This is the post-enrichment, runtime-only counterpart to {@link DeploymentDescriptor}.
- * Where {@code DeploymentDescriptor} carries build-time concerns (sealed {@code Source}
- * hierarchy with {@code artifact}/{@code dir}/{@code scope} variants, Maven project
- * metadata, custom Jackson factories), {@code RuntimeDeployment} contains only what the
- * launcher needs at child-JVM startup: per-service {@code dir}/{@code className}/{@code ip}/{@code args}
- * tuples plus an optional trace auditor.
+ * <p>This is the post-enrichment, runtime-only counterpart to {@code DeploymentDescriptor}
+ * (in {@code opendst-maven-plugin}). Where the descriptor carries build-time concerns
+ * (sealed {@code Source} hierarchy with {@code artifact}/{@code dir}/{@code scope}
+ * variants, Maven project metadata, custom Jackson factories), {@code RuntimeDeployment}
+ * contains only what the launcher needs at child-JVM startup: per-service
+ * {@code dir}/{@code className}/{@code ip}/{@code args} tuples plus an optional trace auditor.
  *
  * <p>The wire format is plain JSON (no annotations, no polymorphism) so it can be parsed
  * by {@code jackson-jr} on the child side without dragging {@code jackson-databind} or
  * {@code jackson-yaml} into the agent JAR.
  *
- * <p>The build plugin produces this from an enriched {@link DeploymentDescriptor} where
+ * <p>The build plugin produces this from an enriched {@code DeploymentDescriptor} where
  * every service's source has been resolved to a {@code Source.Dir} pointing at an
  * {@code apps/} subdirectory.
  */

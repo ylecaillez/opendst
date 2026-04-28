@@ -683,4 +683,29 @@ public final class RunnerCli implements Callable<Integer> {
             logger.raw().warn("Could not read opendst-patch.jar manifest: " + e.getMessage());
         }
     }
+
+    /**
+     * Early-stopping conditions for the run loop, settable via repeated {@code --stop} CLI flags.
+     *
+     * <ul>
+     *   <li>{@link #ANY_FAIL} — stop immediately on the first assertion failure</li>
+     *   <li>{@link #ALL_PASS} — stop early once all assertions are passing,
+     *       after at least {@code --stagnation-limit} executions for confidence</li>
+     * </ul>
+     *
+     * <p>When no {@code --stop} flag is given, the runner runs until the stagnation
+     * limit is reached (no early stopping).
+     */
+    public enum StopCondition {
+        ANY_FAIL,
+        ALL_PASS;
+
+        /** Picocli converter that accepts CLI values like {@code any-fail} or {@code ANY_FAIL}. */
+        static final class Converter implements CommandLine.ITypeConverter<StopCondition> {
+            @Override
+            public StopCondition convert(String value) {
+                return StopCondition.valueOf(value.toUpperCase().replace('-', '_'));
+            }
+        }
+    }
 }
