@@ -31,7 +31,7 @@ import java.util.Map;
  * <p>When running in a terminal (standalone JAR), output uses ANSI colors and emoji
  * for visual clarity. When piped, redirected, or running under Maven, plain text is used.
  */
-public final class OpenDstLogger {
+final class Logger {
     private static final HexFormat HEX = HexFormat.of();
 
     // ── ANSI escape codes ──────────────────────────────────────────────
@@ -91,7 +91,7 @@ public final class OpenDstLogger {
             Map.entry("run:progress", DIM));
 
     /** Minimal logging sink that decouples OpenDST from Maven's Log interface. */
-    public interface Sink {
+    interface Sink {
         boolean isDebugEnabled();
 
         void debug(CharSequence content);
@@ -110,13 +110,13 @@ public final class OpenDstLogger {
 
     private final Sink sink;
 
-    public OpenDstLogger(Sink sink) {
+    Logger(Sink sink) {
         this.sink = sink;
     }
 
-    /** Creates an OpenDstLogger that writes to stderr, for use outside Maven (e.g. in a built JAR). */
-    static OpenDstLogger ofConsole(boolean debug) {
-        return new OpenDstLogger(new ConsoleSink(debug));
+    /** Creates a Logger that writes to stderr, for use outside Maven (e.g. in a built JAR). */
+    static Logger ofConsole(boolean debug) {
+        return new Logger(new ConsoleSink(debug));
     }
 
     /**
