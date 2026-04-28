@@ -27,7 +27,6 @@ import static java.net.InetAddress.getLoopbackAddress;
 import static java.time.temporal.ChronoUnit.NANOS;
 import static java.util.Objects.requireNonNull;
 
-import com.pingidentity.opendst.common.AssertType;
 import com.pingidentity.opendst.intercept.NetworkInterceptors;
 import com.pingidentity.opendst.intercept.ThreadsInterceptors;
 import com.pingidentity.opendst.intercept.ThreadsInterceptors.VirtualThreadUnblocker;
@@ -157,42 +156,6 @@ public final class Node {
     }
 
     // ── SDK entry points (called from com.pingidentity.opendst.sdk.*) ─────
-
-    /**
-     * Records an assertion verdict for this node, folding the message into the deterministic
-     * state hash. Called from {@code AssertImpl}.
-     *
-     * @param kind      assertion kind (e.g. {@code "always"}, {@code "sometimes"}); resolved via
-     *                  {@link AssertType#fromString(String)}
-     * @param message   the human-readable assertion label
-     * @param condition the evaluated assertion result
-     * @param details   optional structured details to attach, or {@code null}
-     */
-    public void recordAssert(String kind, String message, boolean condition, Map<String, Object> details) {
-        context.logger()
-                .logAssert(
-                        AssertType.fromString(kind),
-                        requireNonNull(message),
-                        condition,
-                        details,
-                        hostName,
-                        context.instant(),
-                        context.random().iteration());
-    }
-
-    /**
-     * Records a guidance signal — a distance-to-violation hint for the runner. Does not affect
-     * the deterministic hash. Called from {@code AssertImpl}.
-     */
-    public void recordGuidance(String message, Map<String, Object> guidance) {
-        context.logger()
-                .logGuidance(
-                        requireNonNull(message),
-                        guidance,
-                        hostName,
-                        context.instant(),
-                        context.random().iteration());
-    }
 
     /** Signals that the workload is ready to start receiving faults. Called from {@code SignalsImpl}. */
     public void signalReady() {

@@ -17,9 +17,11 @@ package com.pingidentity.opendst.sdk;
 
 import static com.pingidentity.opendst.simulator.Node.currentNodeOrThrow;
 import static java.util.Map.of;
+import static java.util.Objects.requireNonNull;
 
+import com.pingidentity.opendst.common.AssertType;
 import com.pingidentity.opendst.intercept.Intercepts;
-import com.pingidentity.opendst.simulator.Node;
+import com.pingidentity.opendst.simulator.Simulator;
 import java.util.Map;
 
 /**
@@ -34,7 +36,7 @@ public final class AssertImpl {
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#always(boolean,String,java.util.Map)")
     public static void always(boolean condition, String message, Map<String, Object> details) {
-        currentNodeOrThrow().recordAssert("always", message, condition, details);
+        recordAssert("always", message, condition, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#always(boolean,String)")
@@ -44,7 +46,7 @@ public final class AssertImpl {
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysOrUnreachable(boolean,String,java.util.Map)")
     public static void alwaysOrUnreachable(boolean condition, String message, Map<String, Object> details) {
-        currentNodeOrThrow().recordAssert("alwaysOrUnreachable", message, condition, details);
+        recordAssert("alwaysOrUnreachable", message, condition, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysOrUnreachable(boolean,String)")
@@ -66,7 +68,7 @@ public final class AssertImpl {
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimes(boolean,String,java.util.Map)")
     public static void sometimes(boolean condition, String message, Map<String, Object> details) {
-        currentNodeOrThrow().recordAssert("sometimes", message, condition, details);
+        recordAssert("sometimes", message, condition, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimes(boolean,String)")
@@ -199,9 +201,8 @@ public final class AssertImpl {
 
     private static void comparative(
             String kind, boolean condition, Number left, Number right, String message, Map<String, Object> details) {
-        Node node = currentNodeOrThrow();
-        node.recordAssert(kind, message, condition, details);
-        node.recordGuidance(message, of("left", left, "right", right));
+        recordAssert(kind, message, condition, details);
+        recordGuidance(message, of("left", left, "right", right));
     }
 
     private static void grouped(
@@ -210,9 +211,29 @@ public final class AssertImpl {
             Map<String, Boolean> conditions,
             String message,
             Map<String, Object> details) {
-        Node node = currentNodeOrThrow();
-        node.recordAssert(kind, message, condition, details);
-        node.recordGuidance(message, of("conditions", conditions));
+        recordAssert(kind, message, condition, details);
+        recordGuidance(message, of("conditions", conditions));
+    }
+
+    private static void recordAssert(String kind, String message, boolean condition, Map<String, Object> details) {
+        var node = currentNodeOrThrow();
+        var sim = Simulator.current();
+        Simulator.logger()
+                .logAssert(
+                        AssertType.fromString(kind),
+                        requireNonNull(message),
+                        condition,
+                        details,
+                        node.hostName(),
+                        sim.instant(),
+                        sim.iteration());
+    }
+
+    private static void recordGuidance(String message, Map<String, Object> guidance) {
+        var node = currentNodeOrThrow();
+        var sim = Simulator.current();
+        Simulator.logger()
+                .logGuidance(requireNonNull(message), guidance, node.hostName(), sim.instant(), sim.iteration());
     }
 
     private AssertImpl() {

@@ -143,21 +143,9 @@ public final class Simulator {
         return currentNodeOrThrow().context.simulator();
     }
 
-    /** {@return the current simulation, or {@code null} when not on a simulated node thread}. */
-    public static Simulator currentOrNull() {
-        var node = currentNodeOrNull();
-        return node != null ? node.context.simulator() : null;
-    }
-
     /** {@return the simulation-global random source}. */
     public static RandomInterceptors.Source random() {
         return currentNodeOrThrow().context.random();
-    }
-
-    /** {@return the simulation-global random source, or {@code null} off-simulation}. */
-    public static RandomInterceptors.Source randomOrNull() {
-        var node = currentNodeOrNull();
-        return node != null ? node.context.random() : null;
     }
 
     /** {@return the simulation-global logger}. */
@@ -165,21 +153,9 @@ public final class Simulator {
         return currentNodeOrThrow().context.logger();
     }
 
-    /** {@return the simulation-global logger, or {@code null} off-simulation}. */
-    public static ConsoleCapture loggerOrNull() {
-        var node = currentNodeOrNull();
-        return node != null ? node.context.logger() : null;
-    }
-
     /** {@return the simulation-global network}. */
     public static NetworkInterceptors network() {
         return currentNodeOrThrow().context.network();
-    }
-
-    /** {@return the simulation-global network, or {@code null} off-simulation}. */
-    public static NetworkInterceptors networkOrNull() {
-        var node = currentNodeOrNull();
-        return node != null ? node.context.network() : null;
     }
 
     void onReady() {
