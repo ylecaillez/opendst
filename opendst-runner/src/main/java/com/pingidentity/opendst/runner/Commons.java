@@ -27,12 +27,28 @@ import static java.time.Duration.ofSeconds;
 import static tools.jackson.jr.ob.JSON.Feature.WRITE_NULL_PROPERTIES;
 
 import com.pingidentity.opendst.common.AssertType;
+import com.pingidentity.opendst.common.Signal;
+import com.pingidentity.opendst.common.Signal.AssertSignal;
+import com.pingidentity.opendst.common.Signal.ConsoleSignal;
+import com.pingidentity.opendst.common.Signal.FaultSignal;
+import com.pingidentity.opendst.common.Signal.GuidanceSignal;
+import com.pingidentity.opendst.common.Signal.InternalErrorSignal;
+import com.pingidentity.opendst.common.Signal.NonDeterminismSignal;
+import com.pingidentity.opendst.common.Signal.PlatformThreadShutdownHookSkippedSignal;
+import com.pingidentity.opendst.common.Signal.PlatformThreadStartedSignal;
+import com.pingidentity.opendst.common.Signal.SegmentCompletedSignal;
+import com.pingidentity.opendst.common.Signal.StartedSignal;
+import com.pingidentity.opendst.common.Signal.StoppedSignal;
+import com.pingidentity.opendst.common.Signal.TraceAuditorExceptionSignal;
+import com.pingidentity.opendst.common.Signal.UncaughtExceptionSignal;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonGenerator;
@@ -57,7 +73,10 @@ public final class Commons {
      * conventions:
      * <ul>
      *   <li>{@link Duration} round-trips through ISO-8601 strings.</li>
+     *   <li>{@link Instant} round-trips through ISO-8601 strings.</li>
      *   <li>{@link AssertType} round-trips through its lowercase wire form.</li>
+     *   <li>{@link Signal} is read polymorphically by peeking the {@code type}
+     *       discriminator inside the inner object.</li>
      *   <li>{@code null} record components are omitted on write.</li>
      * </ul>
      */
@@ -80,8 +99,15 @@ public final class Commons {
                 public ValueReader findValueReader(JSONReader readContext, Class<?> type) {
                     if (Duration.class.isAssignableFrom(type)) {
                         return DURATION_READER;
+                    } else if (Instant.class.isAssignableFrom(type)) {
+                        return INSTANT_READER;
                     } else if (AssertType.class.isAssignableFrom(type)) {
                         return ASSERT_TYPE_READER;
+                    } else if (type == Signal.class) {
+                        // Only the abstract Signal type triggers polymorphic dispatch; subtypes
+                        // (StartedSignal etc.) fall through to the default bean reader so the
+                        // dispatch in SIGNAL_READER does not recurse infinitely.
+                        return SIGNAL_READER;
                     }
                     return null;
                 }
@@ -104,6 +130,59 @@ public final class Commons {
         public Object read(JSONReader reader, JsonParser p) throws JacksonException {
             var value = p.getString();
             return value != null ? Duration.parse(value) : Duration.ZERO;
+        }
+    };
+
+    private static final ValueReader INSTANT_READER = new ValueReader(Instant.class) {
+        @Override
+        public Object read(JSONReader reader, JsonParser p) throws JacksonException {
+            var value = p.getString();
+            return value != null ? Instant.parse(value) : null;
+        }
+    };
+
+    /**
+     * Polymorphic reader for {@link Signal}: reads the inner object as a {@link Map}, peeks the
+     * {@code type} discriminator, then re-parses the map as the matching subtype. The map
+     * round-trip is unavoidable because {@code jackson-jr} has no in-memory {@code Map -> bean}
+     * conversion. Returns {@code null} for unknown discriminators (the line is then dropped at the
+     * call site).
+     */
+    private static final ValueReader SIGNAL_READER = new ValueReader(Signal.class) {
+        @Override
+        public Object read(JSONReader reader, JsonParser p) throws JacksonException {
+            Map<String, Object> map = reader.readMap();
+            if (map == null) {
+                return null;
+            }
+            if (!(map.get("type") instanceof String type)) {
+                return null;
+            }
+            Class<? extends Signal> target =
+                    switch (type) {
+                        case "stdout" -> ConsoleSignal.class;
+                        case "assert" -> AssertSignal.class;
+                        case "guidance" -> GuidanceSignal.class;
+                        case "fault" -> FaultSignal.class;
+                        case "started" -> StartedSignal.class;
+                        case "segment-completed" -> SegmentCompletedSignal.class;
+                        case "stopped" -> StoppedSignal.class;
+                        case "non-determinism" -> NonDeterminismSignal.class;
+                        case "internal-error" -> InternalErrorSignal.class;
+                        case "trace-auditor-exception" -> TraceAuditorExceptionSignal.class;
+                        case "uncaught-exception" -> UncaughtExceptionSignal.class;
+                        case "platform-thread-started" -> PlatformThreadStartedSignal.class;
+                        case "platform-thread-shutdown-hook-skipped" -> PlatformThreadShutdownHookSkippedSignal.class;
+                        default -> null;
+                    };
+            if (target == null) {
+                return null;
+            }
+            try {
+                return JSON_OBJECT.beanFrom(target, JSON_OBJECT.asString(map));
+            } catch (IllegalArgumentException | JacksonException e) {
+                return null;
+            }
         }
     };
 

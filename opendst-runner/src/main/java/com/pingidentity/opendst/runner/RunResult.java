@@ -29,6 +29,7 @@ import com.pingidentity.opendst.common.Signal.StartedSignal;
 import com.pingidentity.opendst.common.Signal.StoppedSignal;
 import com.pingidentity.opendst.common.Signal.TraceAuditorExceptionSignal;
 import com.pingidentity.opendst.common.Signal.UncaughtExceptionSignal;
+import com.pingidentity.opendst.common.SimulationEvent;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -149,10 +150,10 @@ final class RunResult {
         trackAssertion(ALWAYS, "simulation terminated", true, 0, null);
     }
 
-    boolean addSignal(SignalEvent signal, boolean isInteresting) {
+    boolean addSignal(SimulationEvent signal, boolean isInteresting) {
         interesting |= isInteresting;
         var s = signal.signal();
-        var iteration = signal.iteration();
+        var iteration = signal.it();
         switch (s) {
             case StartedSignal _ -> trackAssertion(ALWAYS, "simulation started", true, iteration, null);
             case SegmentCompletedSignal seg -> segmentHashes.add(seg.hash());
