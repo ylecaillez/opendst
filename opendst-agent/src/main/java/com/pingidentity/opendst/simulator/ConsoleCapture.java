@@ -23,18 +23,8 @@ import static tools.jackson.jr.ob.JSON.Feature.FLUSH_AFTER_WRITE_VALUE;
 import static tools.jackson.jr.ob.JSON.Feature.WRITE_NULL_PROPERTIES;
 
 import com.pingidentity.opendst.common.Signal;
-import com.pingidentity.opendst.common.Signal.AssertSignal;
 import com.pingidentity.opendst.common.Signal.ConsoleSignal;
-import com.pingidentity.opendst.common.Signal.GuidanceSignal;
-import com.pingidentity.opendst.common.Signal.InternalErrorSignal;
-import com.pingidentity.opendst.common.Signal.NonDeterminismSignal;
-import com.pingidentity.opendst.common.Signal.PlatformThreadShutdownHookSkippedSignal;
-import com.pingidentity.opendst.common.Signal.PlatformThreadStartedSignal;
-import com.pingidentity.opendst.common.Signal.SegmentCompletedSignal;
-import com.pingidentity.opendst.common.Signal.StartedSignal;
-import com.pingidentity.opendst.common.Signal.StoppedSignal;
 import com.pingidentity.opendst.common.Signal.TraceAuditorExceptionSignal;
-import com.pingidentity.opendst.common.Signal.UncaughtExceptionSignal;
 import com.pingidentity.opendst.common.SimulationEvent;
 import com.pingidentity.opendst.sdk.TraceAuditor;
 import com.pingidentity.opendst.sdk.TraceAuditor.Log;
@@ -45,7 +35,7 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.List;
+import java.util.Set;
 import tools.jackson.core.JsonGenerator;
 import tools.jackson.jr.ob.JSON;
 import tools.jackson.jr.ob.JacksonJrExtension;
@@ -182,6 +172,8 @@ public final class ConsoleCapture {
                         return SIGNAL_WRITER;
                     } else if (Instant.class.isAssignableFrom(type)) {
                         return INSTANT_WRITER;
+                    } else if (Enum.class.isAssignableFrom(type)) {
+                        return ENUM_WRITER;
                     }
                     return null;
                 }
@@ -201,14 +193,46 @@ public final class ConsoleCapture {
         }
     };
 
+    /**
+     * Serializes any {@link Enum} via {@link Object#toString()} rather than {@link Enum#name()},
+     * so that enums overriding {@code toString()} (e.g. {@link com.pingidentity.opendst.common.AssertType})
+     * emit their domain-specific wire value.
+     */
+    private static final ValueWriter ENUM_WRITER = new ValueWriter() {
+        @Override
+        public void writeValue(JSONWriter context, JsonGenerator g, Object value) {
+            g.writeString(value.toString());
+        }
+
+        @Override
+        public Class<?> valueType() {
+            return Enum.class;
+        }
+    };
+
     private static final ValueWriter SIGNAL_WRITER = new ValueWriter() {
         @Override
         public void writeValue(JSONWriter context, JsonGenerator g, Object value) {
             var signal = (Signal) value;
             g.writeStartObject();
+            // type and message are written explicitly because they are interface methods
+            // (or sometimes overrides of interface methods), not record components, so the
+            // reflective walk below would not pick them up consistently across subtypes.
             g.writeStringProperty("type", signal.type());
             g.writeStringProperty("message", signal.message());
-            writeSubtypeFields(g, signal);
+            try {
+                for (var rc : signal.getClass().getRecordComponents()) {
+                    if (HANDLED_FIELDS.contains(rc.getName())) {
+                        continue;
+                    }
+                    var fieldValue = rc.getAccessor().invoke(signal);
+                    if (fieldValue != null) {
+                        g.writePOJOProperty(rc.getName(), fieldValue);
+                    }
+                }
+            } catch (ReflectiveOperationException e) {
+                throw new SimulationError("Failed to serialize signal " + signal.getClass(), e);
+            }
             g.writeEndObject();
         }
 
@@ -218,72 +242,8 @@ public final class ConsoleCapture {
         }
     };
 
-    /** Writes the subtype-specific fields of {@code signal} into the currently-open inner JSON object. */
-    private static void writeSubtypeFields(JsonGenerator gen, Signal signal) {
-        switch (signal) {
-            case ConsoleSignal ignored -> {
-                /* message already written */
-            }
-            case StartedSignal ignored -> {
-                /* no extra fields */
-            }
-            case SegmentCompletedSignal s -> gen.writeNumberProperty("hash", s.hash());
-            case StoppedSignal s -> gen.writeNumberProperty("hash", s.hash());
-            case NonDeterminismSignal s ->
-                gen.writeNumberProperty("expectedHash", s.expectedHash())
-                        .writeNumberProperty("actualHash", s.actualHash());
-            case InternalErrorSignal s -> writeCauseAndStacktrace(gen, s.cause(), s.stacktrace());
-            case TraceAuditorExceptionSignal s -> writeCauseAndStacktrace(gen, s.cause(), s.stacktrace());
-            case UncaughtExceptionSignal s -> {
-                if (s.vhost() != null) {
-                    gen.writeStringProperty("vhost", s.vhost());
-                }
-                if (s.thread() != null) {
-                    gen.writeStringProperty("thread", s.thread());
-                }
-                if (s.exception() != null) {
-                    gen.writePOJOProperty("exception", s.exception());
-                }
-            }
-            case PlatformThreadStartedSignal s -> {
-                if (s.vhost() != null) {
-                    gen.writeStringProperty("vhost", s.vhost());
-                }
-                gen.writeStringProperty("threadName", s.threadName())
-                        .writeStringProperty("threadClass", s.threadClass())
-                        .writeStringProperty("caller", s.caller());
-            }
-            case PlatformThreadShutdownHookSkippedSignal s -> {
-                if (s.vhost() != null) {
-                    gen.writeStringProperty("vhost", s.vhost());
-                }
-                gen.writeStringProperty("hookClass", s.hookClass()).writeStringProperty("hookName", s.hookName());
-            }
-            case AssertSignal s -> {
-                gen.writeStringProperty("kind", s.kind().toString()).writeBooleanProperty("condition", s.condition());
-                if (s.details() != null) {
-                    gen.writePOJOProperty("details", s.details());
-                }
-            }
-            case GuidanceSignal s -> {
-                if (s.guidance() != null) {
-                    gen.writePOJOProperty("guidance", s.guidance());
-                }
-            }
-            case Signal.FaultSignal ignored -> {
-                /* message already written */
-            }
-        }
-    }
-
-    private static void writeCauseAndStacktrace(JsonGenerator gen, String cause, List<String> stacktrace) {
-        if (cause != null) {
-            gen.writeStringProperty("cause", cause);
-        }
-        if (stacktrace != null) {
-            gen.writePOJOProperty("stacktrace", stacktrace);
-        }
-    }
+    /** Record component names already emitted by the SIGNAL_WRITER preamble. */
+    private static final Set<String> HANDLED_FIELDS = Set.of("type", "message");
 
     // ── Inner classes ─────────────────────────────────────────────────────────
 
