@@ -451,7 +451,7 @@ public final class Simulator {
     }
 
     void uncaughtExceptionHandler(Node node, Thread thread, Throwable throwable) {
-        node.log(new UncaughtExceptionSignal(node.hostName, thread.getName(), throwable));
+        node.log(new UncaughtExceptionSignal(thread.getName(), throwable));
     }
 
     /**

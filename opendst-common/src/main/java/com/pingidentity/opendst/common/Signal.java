@@ -164,14 +164,12 @@ public sealed interface Signal {
     /**
      * A virtual host's user code raised an uncaught exception.
      *
-     * @param vhost     the virtual host whose code threw
      * @param thread    the simulator thread name
      * @param exception arbitrary Throwable POJO captured for diagnostics
      */
-    record UncaughtExceptionSignal(String type, String message, String vhost, String thread, Object exception)
-            implements Signal {
-        public UncaughtExceptionSignal(String vhost, String thread, Object exception) {
-            this("uncaught-exception", "uncaught exception", vhost, thread, exception);
+    record UncaughtExceptionSignal(String type, String message, String thread, Object exception) implements Signal {
+        public UncaughtExceptionSignal(String thread, Object exception) {
+            this("uncaught-exception", "uncaught exception", thread, exception);
         }
     }
 
@@ -180,10 +178,9 @@ public sealed interface Signal {
      * Diagnostic-only; the runner ignores it.
      */
     record PlatformThreadStartedSignal(
-            String type, String message, String vhost, String threadName, String threadClass, String caller)
-            implements Signal {
-        public PlatformThreadStartedSignal(String vhost, String threadName, String threadClass, String caller) {
-            this("platform-thread-started", "platform thread started", vhost, threadName, threadClass, caller);
+            String type, String message, String threadName, String threadClass, String caller) implements Signal {
+        public PlatformThreadStartedSignal(String threadName, String threadClass, String caller) {
+            this("platform-thread-started", "platform thread started", threadName, threadClass, caller);
         }
     }
 
@@ -191,15 +188,10 @@ public sealed interface Signal {
      * A virtual host registered a JVM shutdown hook that the simulator skipped.
      * Diagnostic-only; the runner ignores it.
      */
-    record PlatformThreadShutdownHookSkippedSignal(
-            String type, String message, String vhost, String hookClass, String hookName) implements Signal {
-        public PlatformThreadShutdownHookSkippedSignal(String vhost, String hookClass, String hookName) {
-            this(
-                    "platform-thread-shutdown-hook-skipped",
-                    "platform thread shutdown hook skipped",
-                    vhost,
-                    hookClass,
-                    hookName);
+    record PlatformThreadShutdownHookSkippedSignal(String type, String message, String hookClass, String hookName)
+            implements Signal {
+        public PlatformThreadShutdownHookSkippedSignal(String hookClass, String hookName) {
+            this("platform-thread-shutdown-hook-skipped", "platform thread shutdown hook skipped", hookClass, hookName);
         }
     }
 }

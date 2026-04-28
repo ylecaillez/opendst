@@ -311,7 +311,7 @@ public final class Node {
             // Platform thread hooks cannot run deterministically inside the simulation.
             // This is expected for JUL's LogManager$Cleaner and similar JDK housekeeping threads.
             log(new com.pingidentity.opendst.common.Signal.PlatformThreadShutdownHookSkippedSignal(
-                    hostName, hook.getClass().getName(), hook.getName()));
+                    hook.getClass().getName(), hook.getName()));
             return;
         }
         shutdownHooks.add(hook);
