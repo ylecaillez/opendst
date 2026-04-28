@@ -43,19 +43,7 @@ import com.pingidentity.opendst.common.BuildConfig;
 import com.pingidentity.opendst.common.Faults;
 import com.pingidentity.opendst.common.Plan;
 import com.pingidentity.opendst.common.Signal;
-import com.pingidentity.opendst.common.Signal.AssertSignal;
-import com.pingidentity.opendst.common.Signal.ConsoleSignal;
-import com.pingidentity.opendst.common.Signal.FaultSignal;
-import com.pingidentity.opendst.common.Signal.GuidanceSignal;
-import com.pingidentity.opendst.common.Signal.InternalErrorSignal;
-import com.pingidentity.opendst.common.Signal.NonDeterminismSignal;
-import com.pingidentity.opendst.common.Signal.PlatformThreadShutdownHookSkippedSignal;
-import com.pingidentity.opendst.common.Signal.PlatformThreadStartedSignal;
-import com.pingidentity.opendst.common.Signal.SegmentCompletedSignal;
-import com.pingidentity.opendst.common.Signal.StartedSignal;
-import com.pingidentity.opendst.common.Signal.StoppedSignal;
-import com.pingidentity.opendst.common.Signal.TraceAuditorExceptionSignal;
-import com.pingidentity.opendst.common.Signal.UncaughtExceptionSignal;
+import com.pingidentity.opendst.common.SimulationEvent;
 import com.pingidentity.opendst.runner.Commons.DurationUtils;
 import com.pingidentity.opendst.runner.Planner.ExecutionPlan;
 import com.pingidentity.opendst.runner.Planner.GuidedPlanner;
@@ -72,7 +60,6 @@ import java.util.EnumSet;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -491,9 +478,8 @@ public final class RunnerCli implements Callable<Integer> {
                     lastLogs.removeFirst();
                 }
                 lastLogs.addLast(line);
-                LogStatement log;
-                SignalEvent event;
-                if ((log = parseLog(line)) != null && (event = extractSignal(log)) != null) {
+                SimulationEvent event = parseEvent(line);
+                if (event != null) {
                     boolean interestingEvent = execution.interesting().test(event);
                     if (result.addSignal(event, interestingEvent)) {
                         return result;
@@ -511,57 +497,25 @@ public final class RunnerCli implements Callable<Integer> {
         }
     }
 
-    private LogStatement parseLog(String line) {
+    /**
+     * Parses one wire line into a {@link SimulationEvent}, or returns {@code null} if the line is
+     * not structured JSON, has an unknown signal type, or fails to parse. The polymorphic
+     * {@link Signal} dispatch is handled by the value reader registered in {@link Commons}.
+     */
+    private SimulationEvent parseEvent(String line) {
         if (isDebugOrReplay) {
             out.println(line);
         }
-        if (isJson(line)) {
-            try {
-                return JSON_OBJECT.beanFrom(LogStatement.class, line);
-            } catch (JacksonException e) {
-                // Ignore invalid format, the line will be logged below
-                if (!isDebugOrReplay) {
-                    logger.raw().debug(line);
-                }
-            }
-        }
-        return null;
-    }
-
-    private SignalEvent extractSignal(LogStatement log) {
-        var payload = log.log();
-        if (payload == null) {
-            return null;
-        }
-        var typeObj = payload.get("type");
-        if (!(typeObj instanceof String type)) {
-            return null;
-        }
-        Class<? extends Signal> target =
-                switch (type) {
-                    case "stdout" -> ConsoleSignal.class;
-                    case "assert" -> AssertSignal.class;
-                    case "guidance" -> GuidanceSignal.class;
-                    case "fault" -> FaultSignal.class;
-                    case "started" -> StartedSignal.class;
-                    case "segment-completed" -> SegmentCompletedSignal.class;
-                    case "stopped" -> StoppedSignal.class;
-                    case "non-determinism" -> NonDeterminismSignal.class;
-                    case "internal-error" -> InternalErrorSignal.class;
-                    case "trace-auditor-exception" -> TraceAuditorExceptionSignal.class;
-                    case "uncaught-exception" -> UncaughtExceptionSignal.class;
-                    case "platform-thread-started" -> PlatformThreadStartedSignal.class;
-                    case "platform-thread-shutdown-hook-skipped" -> PlatformThreadShutdownHookSkippedSignal.class;
-                    default -> null;
-                };
-        if (target == null) {
+        if (!isJson(line)) {
             return null;
         }
         try {
-            // jackson-jr has no in-memory Map->bean conversion; round-trip through JSON.
-            return new SignalEvent(log.iteration(), JSON_OBJECT.beanFrom(target, JSON_OBJECT.asString(payload)));
-        } catch (IllegalArgumentException e) {
-            // Ignore badly formatted log
+            var event = JSON_OBJECT.beanFrom(SimulationEvent.class, line);
+            return event != null && event.signal() != null ? event : null;
+        } catch (JacksonException e) {
+            if (!isDebugOrReplay) {
+                logger.raw().debug(line);
+            }
             return null;
         }
     }
@@ -727,16 +681,6 @@ public final class RunnerCli implements Callable<Integer> {
             }
         } catch (IOException e) {
             logger.raw().warn("Could not read opendst-patch.jar manifest: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Wire envelope for log lines emitted by the agent. The {@code it} component
-     * matches the iteration field name used on the wire.
-     */
-    record LogStatement(long it, String source, Map<String, Object> log) {
-        long iteration() {
-            return it;
         }
     }
 }

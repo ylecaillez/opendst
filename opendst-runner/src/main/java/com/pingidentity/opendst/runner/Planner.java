@@ -23,6 +23,7 @@ import com.pingidentity.opendst.common.Plan.Segment;
 import com.pingidentity.opendst.common.Signal.AssertSignal;
 import com.pingidentity.opendst.common.Signal.GuidanceSignal;
 import com.pingidentity.opendst.common.Signal.SegmentCompletedSignal;
+import com.pingidentity.opendst.common.SimulationEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +37,7 @@ import java.util.function.Predicate;
  */
 interface Planner {
 
-    record ExecutionPlan(Plan plan, Predicate<SignalEvent> interesting) {}
+    record ExecutionPlan(Plan plan, Predicate<SimulationEvent> interesting) {}
 
     ExecutionPlan nextPlan();
 
@@ -202,7 +203,7 @@ interface Planner {
             return result;
         }
 
-        private final class GuidanceMonitor implements Predicate<SignalEvent> {
+        private final class GuidanceMonitor implements Predicate<SimulationEvent> {
             private final Plan plan;
             /** Hashes captured at each segment boundary, in order of emission. */
             private final List<Integer> segmentHashes = new ArrayList<>();
@@ -212,7 +213,7 @@ interface Planner {
             }
 
             @Override
-            public boolean test(SignalEvent event) {
+            public boolean test(SimulationEvent event) {
                 // Track segment boundary hashes from lifecycle signals
                 if (event.signal() instanceof SegmentCompletedSignal segment) {
                     segmentHashes.add(segment.hash());
@@ -222,13 +223,13 @@ interface Planner {
                 // Guidance signals: track distance-to-violation for comparative assertions.
                 // This is separate from assert handling — guidance never touches prefixes or hit counts.
                 if (event.signal() instanceof GuidanceSignal guidanceSignal) {
-                    return handleGuidance(guidanceSignal, event.iteration());
+                    return handleGuidance(guidanceSignal, event.it());
                 }
 
                 if (!(event.signal() instanceof AssertSignal assertSignal)) {
                     return false;
                 }
-                return handleAssert(assertSignal, event.iteration());
+                return handleAssert(assertSignal, event.it());
             }
 
             /**
