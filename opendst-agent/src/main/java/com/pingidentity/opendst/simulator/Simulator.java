@@ -13,14 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.simulator;
 
-import static com.pingidentity.opendst.Node.currentNodeOrNull;
-import static com.pingidentity.opendst.Node.currentNodeOrThrow;
-import static com.pingidentity.opendst.SimulationContext.MAX_TASKS;
-import static com.pingidentity.opendst.Simulator.ExitReason.INTERNAL_ERROR;
-import static com.pingidentity.opendst.Simulator.ExitReason.PLAN_OK;
-import static com.pingidentity.opendst.SimulatorAgent.AGENT_PROPERTY;
+import static com.pingidentity.opendst.intercept.SimulatorAgent.AGENT_PROPERTY;
+import static com.pingidentity.opendst.simulator.Node.currentNodeOrNull;
+import static com.pingidentity.opendst.simulator.Node.currentNodeOrThrow;
+import static com.pingidentity.opendst.simulator.SimulationContext.MAX_TASKS;
+import static com.pingidentity.opendst.simulator.Simulator.ExitReason.INTERNAL_ERROR;
+import static com.pingidentity.opendst.simulator.Simulator.ExitReason.PLAN_OK;
 import static java.lang.Boolean.getBoolean;
 import static java.lang.ClassLoader.getSystemClassLoader;
 import static java.lang.Runtime.getRuntime;
@@ -35,6 +35,8 @@ import static java.util.concurrent.Future.State.SUCCESS;
 import com.pingidentity.opendst.common.Faults;
 import com.pingidentity.opendst.common.Plan;
 import com.pingidentity.opendst.common.Plan.Segment;
+import com.pingidentity.opendst.intercept.NetworkInterceptors;
+import com.pingidentity.opendst.intercept.RandomInterceptors;
 import com.pingidentity.opendst.sdk.TraceAuditor;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -63,7 +65,7 @@ import tools.jackson.jr.ob.impl.JSONReader;
  */
 public final class Simulator {
 
-    enum ExitReason {
+    public enum ExitReason {
         PLAN_OK(0),
         INTERNAL_ERROR(1);
 
@@ -76,15 +78,15 @@ public final class Simulator {
 
     @SuppressWarnings("serial")
     public static final class SimulationError extends VirtualMachineError {
-        SimulationError(String message) {
+        public SimulationError(String message) {
             super(message);
         }
 
-        SimulationError(Throwable cause) {
+        public SimulationError(Throwable cause) {
             super(cause);
         }
 
-        SimulationError(String message, Throwable cause) {
+        public SimulationError(String message, Throwable cause) {
             super(message, cause);
         }
     }
@@ -213,7 +215,7 @@ public final class Simulator {
         }
     }
 
-    void hash(Object... objects) {
+    public void hash(Object... objects) {
         hasher.update(objects);
     }
 
@@ -225,7 +227,7 @@ public final class Simulator {
      *
      * @param departingSegment the segment that just completed
      */
-    void checkSegmentHash(Segment departingSegment) {
+    public void checkSegmentHash(Segment departingSegment) {
         int actualHash = hasher.getHash();
         if (departingSegment.hash() == 0) {
             // Nothing to check
@@ -237,7 +239,7 @@ public final class Simulator {
         }
     }
 
-    void exitSimulation(ExitReason reason) {
+    public void exitSimulation(ExitReason reason) {
         int actualHash = hasher.getHash();
         // Check for run-level non-determinism before emitting the stopped signal
         if (!INTERNAL_ERROR.equals(reason) && plan.hash() != 0 && plan.hash() != actualHash) {
@@ -263,7 +265,7 @@ public final class Simulator {
      *
      * @param cause the error that triggered the internal error
      */
-    void reportInternalError(SimulationError cause) {
+    public void reportInternalError(SimulationError cause) {
         context.logger()
                 .logInternalError(
                         cause.getMessage(),
@@ -284,11 +286,11 @@ public final class Simulator {
         new Node(current.context, getSystemClassLoader(), hostName, ipAddress).startNode(bootstrap);
     }
 
-    Instant instant() {
+    public Instant instant() {
         return context.scheduler().now();
     }
 
-    long iteration() {
+    public long iteration() {
         return context.random().iteration();
     }
 

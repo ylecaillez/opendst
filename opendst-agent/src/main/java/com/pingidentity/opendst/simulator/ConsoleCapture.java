@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.simulator;
 
 import static com.pingidentity.opendst.common.Constants.LOG_SOURCE_SIMULATOR;
 import static com.pingidentity.opendst.common.Constants.LOG_SOURCE_VHOST;
@@ -22,7 +22,6 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static tools.jackson.jr.ob.JSON.Feature.FLUSH_AFTER_WRITE_VALUE;
 import static tools.jackson.jr.ob.JSON.Feature.WRITE_NULL_PROPERTIES;
 
-import com.pingidentity.opendst.Simulator.SimulationError;
 import com.pingidentity.opendst.common.AssertType;
 import com.pingidentity.opendst.common.Signal;
 import com.pingidentity.opendst.common.Signal.AssertSignal;
@@ -40,6 +39,7 @@ import com.pingidentity.opendst.common.Signal.UncaughtExceptionSignal;
 import com.pingidentity.opendst.common.SimulationEvent;
 import com.pingidentity.opendst.sdk.TraceAuditor;
 import com.pingidentity.opendst.sdk.TraceAuditor.Log;
+import com.pingidentity.opendst.simulator.Simulator.SimulationError;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -80,7 +80,7 @@ import tools.jackson.jr.ob.impl.JSONWriter;
  * {@link TraceAuditor#process} and is called <em>outside</em> the simulation tick so that arbitrary
  * user-supplied auditor code cannot affect determinism.
  */
-final class ConsoleCapture {
+public final class ConsoleCapture {
 
     /**
      * A {@link JSON} instance used for structured logging. Configured with custom value writers for
@@ -151,7 +151,7 @@ final class ConsoleCapture {
     }
 
     /** Emits a diagnostic signal: a platform (non-virtual) thread started inside a virtual host. */
-    void logPlatformThreadStarted(
+    public void logPlatformThreadStarted(
             String vhost, String threadName, String threadClass, String caller, Instant time, long iteration) {
         emit(new PlatformThreadStartedSignal(vhost, threadName, threadClass, caller), vhost, time, iteration, true);
     }

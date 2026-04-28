@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.intercept;
 
+import com.pingidentity.opendst.sdk.AssertImpl;
+import com.pingidentity.opendst.sdk.SignalsImpl;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;

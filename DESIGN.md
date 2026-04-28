@@ -64,15 +64,17 @@ The Maven plugin produces a JAR with this layout:
 ```
 simulation-opendst.jar
   Bootstrap.class                     # Main-Class entry point (no dependencies)
-  build-config.json                   # Baked CLI/JVM settings from the Maven build
-  deployment.yaml                     # Enriched deployment descriptor
+  META-INF/opendst/
+    assertions.json                   # Discovered properties (Set<Assertion>)
+    build-config.json                 # Baked CLI/JVM settings from the Maven build
+    deployment.json                   # Runtime deployment descriptor (post-enrichment)
   system/
-    opendst-agent.jar                 # Shaded Java agent (ByteBuddy, jackson-jr)
-    opendst-runner.jar                # Runner + child entry point
+    opendst-agent.jar                 # Shaded Java agent + child entry point
+                                      #   (ByteBuddy, jackson-jr, SimulationLauncher)
+    opendst-runner.jar                # Runner (parent only): Bootstrap, RunnerCli,
+                                      #   Planner, ReportGenerator (jackson-jr, picocli)
     opendst-sdk.jar                   # SDK API (Assert, Signals, TraceAuditor)
     opendst-patch.jar                 # Non-final VirtualThread + SimulatorThread
-    jackson-*.jar                     # Jackson databind + YAML
-    picocli.jar                       # CLI framework
   apps/
     <service-a>/WEB-INF/              # Instrumented SUT classes + dependencies
     <service-b>/WEB-INF/              #   (one directory per service)
@@ -90,23 +92,21 @@ Parent JVM (opendst-runner)                    Child JVM (opendst-agent)
 | Bootstrap                       |            | -javaagent:opendst-agent.jar    |
 |   extracts JAR to disk          |  stdin     |                                 |
 |   loads system/*.jar            | ---------> | SimulationLauncher              |
-|   invokes RunnerCli             |  (JSON     |   parses deployment.yaml        |
-|                                 |   plan)    |   creates classloader per       |
-| RunnerCli (CLI via picocli)     |            |     service from apps/          |
-|   reads deployment descriptor   |  stdout    |   calls Simulator.startNode()   |
-|   spawns child JVM per plan     | <--------- |                                 |
-|   feeds plan via stdin          |  (JSON     | Simulator                       |
-|   parses signals from stdout    |   signals) |   deterministic scheduler       |
-|                                 |            |   intercepted time/net/threads  |
-| Planner                         |  stderr    |   assertion evaluation          |
-|   generates execution plans     | <--------- |   state hashing                 |
-|   coverage-guided exploration   |  (human    |                                 |
-|                                 |   logs)    | SimulatorAgent                  |
-|                                 |            |   bytecode rewriting            |
-|                                 |            |   JDK method interception       |
-|                                 |            |                                 |
-| ReportGenerator                 |            |                                 |
-|   aggregates results            |            |                                 |
+|   invokes RunnerCli             |  (JSON     |   reads META-INF/opendst/       |
+|                                 |   plan)    |     deployment.json (jackson-jr)|
+| RunnerCli (CLI via picocli)     |            |   creates classloader per       |
+|   reads assertions.json         |  stdout    |     service from apps/          |
+|   reads build-config.json       | <--------- |   calls Simulator.startNode()   |
+|   spawns child JVM per plan     |  (JSON     |                                 |
+|   feeds plan via stdin          |   signals) | Simulator                       |
+|   parses signals from stdout    |            |   deterministic scheduler       |
+|                                 |  stderr    |   intercepted time/net/threads  |
+| Planner                         | <--------- |   assertion evaluation          |
+|   generates execution plans     |  (human    |   state hashing                 |
+|   coverage-guided exploration   |   logs)    |                                 |
+|                                 |            | SimulatorAgent                  |
+| ReportGenerator                 |            |   bytecode rewriting            |
+|   aggregates results            |            |   JDK method interception       |
 |   writes report.json            |            |                                 |
 +---------------------------------+            +---------------------------------+
 ```

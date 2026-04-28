@@ -17,7 +17,7 @@ package com.pingidentity.opendst.it.flakytest;
 
 import static java.lang.System.out;
 
-import com.pingidentity.opendst.TimeInterceptors.RealTime;
+import com.pingidentity.opendst.intercept.TimeInterceptors.RealTime;
 
 /**
  * A DST scenario that intentionally introduces non-determinism to verify the

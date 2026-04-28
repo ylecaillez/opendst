@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.intercept;
 
 import static java.lang.foreign.MemoryLayout.PathElement.groupElement;
 import static java.lang.foreign.MemoryLayout.structLayout;
@@ -25,7 +25,8 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static net.bytebuddy.asm.Advice.to;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 
-import com.pingidentity.opendst.Simulator.SimulationError;
+import com.pingidentity.opendst.simulator.Node;
+import com.pingidentity.opendst.simulator.Simulator.SimulationError;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;

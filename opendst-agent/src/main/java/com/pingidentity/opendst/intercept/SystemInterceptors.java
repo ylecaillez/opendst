@@ -13,14 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.intercept;
 
 import static net.bytebuddy.asm.Advice.to;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 import static net.bytebuddy.matcher.ElementMatchers.takesNoArguments;
 
-import com.pingidentity.opendst.Simulator.SystemExitError;
+import com.pingidentity.opendst.simulator.Node;
+import com.pingidentity.opendst.simulator.Simulator.SystemExitError;
 import java.io.PrintStream;
 import java.lang.ref.Reference;
 import java.util.concurrent.Semaphore;

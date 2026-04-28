@@ -13,16 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.intercept;
 
-import static com.pingidentity.opendst.Node.currentNodeOrNull;
-import static com.pingidentity.opendst.Node.nodeForThreadOrNull;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.clearNextVirtualThread;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.compareAndSetOnWaitingList;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.getNextVirtualThread;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.isOnWaitingList;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.takeVirtualThreadListToUnblock;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.unblockVirtualThread;
+import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.clearNextVirtualThread;
+import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.compareAndSetOnWaitingList;
+import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.getNextVirtualThread;
+import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.isOnWaitingList;
+import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.takeVirtualThreadListToUnblock;
+import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.unblockVirtualThread;
+import static com.pingidentity.opendst.simulator.Node.currentNodeOrNull;
+import static com.pingidentity.opendst.simulator.Node.nodeForThreadOrNull;
 import static java.lang.String.format;
 import static java.lang.Thread.State.TERMINATED;
 import static java.lang.Thread.onSpinWait;
@@ -34,6 +34,8 @@ import static net.bytebuddy.asm.Advice.to;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
+import com.pingidentity.opendst.simulator.Node;
+import com.pingidentity.opendst.simulator.Simulator;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.VarHandle;
 import java.util.concurrent.Executor;
@@ -110,7 +112,7 @@ public final class ThreadsInterceptors {
             VTHREAD_NEXT.set(thread, null);
         }
 
-        static boolean isOnWaitingList(Thread thread) {
+        public static boolean isOnWaitingList(Thread thread) {
             return (boolean) VTHREAD_ON_WAITING_LIST.get(thread);
         }
 
@@ -122,7 +124,7 @@ public final class ThreadsInterceptors {
             }
         }
 
-        static Object getThreadLocal(Thread thread, ThreadLocal<?> threadLocal) {
+        public static Object getThreadLocal(Thread thread, ThreadLocal<?> threadLocal) {
             try {
                 return THREAD_LOCAL_GET.invoke(threadLocal, thread);
             } catch (Throwable e) {
@@ -130,7 +132,7 @@ public final class ThreadsInterceptors {
             }
         }
 
-        static Object setThreadLocal(Thread thread, ThreadLocal<?> threadLocal, Object value) {
+        public static Object setThreadLocal(Thread thread, ThreadLocal<?> threadLocal, Object value) {
             try {
                 return THREAD_LOCAL_SET.invoke(threadLocal, thread, value);
             } catch (Throwable e) {
@@ -386,7 +388,7 @@ public final class ThreadsInterceptors {
         var simulator = node.simulator();
         node.logger()
                 .logPlatformThreadStarted(
-                        node.hostName,
+                        node.hostName(),
                         platformThread.getName(),
                         platformThread.getClass().getName(),
                         Thread.currentThread().getName(),
