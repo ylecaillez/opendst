@@ -15,7 +15,7 @@
  */
 package com.pingidentity.opendst.simulator;
 
-import com.pingidentity.opendst.common.Faults;
+import com.pingidentity.opendst.common.Plan.NetworkFaults;
 import com.pingidentity.opendst.intercept.NetworkInterceptors;
 import com.pingidentity.opendst.intercept.RandomInterceptors;
 
@@ -30,7 +30,7 @@ record SimulationContext(
         Simulator simulator,
         Simulator.Scheduler scheduler,
         RandomInterceptors.Source random,
-        Faults.Config faults,
+        NetworkFaults faults,
         NetworkInterceptors network,
         FaultInjector faultInjector,
         ConsoleCapture logger) {

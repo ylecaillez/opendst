@@ -32,8 +32,8 @@ import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Future.State.CANCELLED;
 import static java.util.concurrent.Future.State.SUCCESS;
 
-import com.pingidentity.opendst.common.Faults;
 import com.pingidentity.opendst.common.Plan;
+import com.pingidentity.opendst.common.Plan.NetworkFaults;
 import com.pingidentity.opendst.common.Plan.Segment;
 import com.pingidentity.opendst.intercept.NetworkInterceptors;
 import com.pingidentity.opendst.intercept.RandomInterceptors;
@@ -113,7 +113,7 @@ public final class Simulator {
 
         // Build all components — each takes only its direct dependencies
         var random = new RandomInterceptors.Source(this, plan.segments());
-        var faults = plan.faults() != null ? plan.faults() : new Faults.Config();
+        var faults = plan.faults() != null ? plan.faults() : new NetworkFaults();
         this.hasher = new StateHasher();
         var logger = new ConsoleCapture(this, traceAuditor, System.out);
         var network = new NetworkInterceptors(this);

@@ -22,7 +22,7 @@ import static java.util.Map.entry;
 import static java.util.concurrent.ThreadLocalRandom.current;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
-import com.pingidentity.opendst.common.Faults;
+import com.pingidentity.opendst.common.Plan.NetworkFaults;
 import java.net.BindException;
 import java.net.InetAddress;
 import java.net.SocketException;
@@ -45,10 +45,10 @@ import java.util.Map.Entry;
  */
 final class FaultInjector {
     private final Simulator simulator;
-    private final Faults.Config faults;
+    private final NetworkFaults faults;
     private final Map<Entry<InetAddress, InetAddress>, Duration> clogPairLatency = new HashMap<>();
 
-    FaultInjector(Simulator simulator, Faults.Config faults) {
+    FaultInjector(Simulator simulator, NetworkFaults faults) {
         this.simulator = simulator;
         this.faults = faults;
     }
@@ -63,7 +63,7 @@ final class FaultInjector {
     void onNetworkBind(boolean reuseAddress) throws BindException {
         if (!reuseAddress
                 && simulator.isReady()
-                && faults.network().enabled()
+                && faults.enabled()
                 && current().nextDouble() < 0.05) {
             throw new BindException("OpenDST network-address-reuse");
         }
@@ -74,8 +74,8 @@ final class FaultInjector {
      * simulate a connection reset (probability: {@code connectionResetProbability}).
      */
     void onNetworkSend() throws SocketException {
-        if (simulator.isReady() && faults.network().enabled()) {
-            if (current().nextDouble() < faults.network().connectionResetProbability()) {
+        if (simulator.isReady() && faults.enabled()) {
+            if (current().nextDouble() < faults.connectionResetProbability()) {
                 throw new SocketException("Connection reset");
             }
         }
@@ -86,8 +86,8 @@ final class FaultInjector {
      * simulate a connection reset (probability: {@code connectionResetProbability}).
      */
     void onNetworkReceive() throws SocketException {
-        if (simulator.isReady() && faults.network().enabled()) {
-            if (current().nextDouble() < faults.network().connectionResetProbability()) {
+        if (simulator.isReady() && faults.enabled()) {
+            if (current().nextDouble() < faults.connectionResetProbability()) {
                 throw new SocketException("Connection reset");
             }
         }
@@ -98,8 +98,8 @@ final class FaultInjector {
      * if no timeout should be injected (probability: {@code timeoutProbability}).
      */
     Duration onNetworkTimeout() {
-        if (simulator.isReady() && faults.network().enabled()) {
-            if (current().nextDouble() < faults.network().timeoutProbability()) {
+        if (simulator.isReady() && faults.enabled()) {
+            if (current().nextDouble() < faults.timeoutProbability()) {
                 return ofMillis(10_000);
             }
         }
@@ -164,7 +164,7 @@ final class FaultInjector {
      * packet is the sum of two independent samples.
      */
     private Duration halfLatency() {
-        var config = faults.network();
+        var config = faults;
         long precision = SECONDS.toNanos(1);
         long a = current().nextLong(precision);
         long probabilityFastNanos = (long) (0.999 * precision);

@@ -28,7 +28,7 @@ import static java.time.temporal.ChronoUnit.NANOS;
 import static java.util.Objects.requireNonNull;
 
 import com.pingidentity.opendst.common.AssertType;
-import com.pingidentity.opendst.common.Faults;
+import com.pingidentity.opendst.common.Plan.NetworkFaults;
 import com.pingidentity.opendst.intercept.NetworkInterceptors;
 import com.pingidentity.opendst.intercept.RandomInterceptors;
 import com.pingidentity.opendst.intercept.ThreadsInterceptors;
@@ -184,7 +184,7 @@ public final class Node {
         return context.network();
     }
 
-    Faults.Config faults() {
+    NetworkFaults faults() {
         return context.faults();
     }
 

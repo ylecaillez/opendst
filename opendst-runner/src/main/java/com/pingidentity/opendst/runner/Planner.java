@@ -17,8 +17,8 @@ package com.pingidentity.opendst.runner;
 
 import static java.util.concurrent.ThreadLocalRandom.current;
 
-import com.pingidentity.opendst.common.Faults;
 import com.pingidentity.opendst.common.Plan;
+import com.pingidentity.opendst.common.Plan.NetworkFaults;
 import com.pingidentity.opendst.common.Plan.Segment;
 import com.pingidentity.opendst.common.Signal.AssertSignal;
 import com.pingidentity.opendst.common.Signal.GuidanceSignal;
@@ -43,14 +43,14 @@ interface Planner {
      * Network faults enabled; bimodal latency (99.9% fast, 0.1% slow) plus persistent
      * per-pair clogging and 0.1% reset/timeout probabilities.
      */
-    Faults.Config DEFAULT_FAULTS = new Faults.Config(new Faults.Config.NetworkConfig(
+    NetworkFaults DEFAULT_FAULTS = new NetworkFaults(
             true,
             Duration.ofNanos(100_000),
             Duration.ofNanos(800_000),
             Duration.ofMillis(100),
             Duration.ofMillis(100),
             0.001,
-            0.001));
+            0.001);
 
     record ExecutionPlan(Plan plan, Predicate<SimulationEvent> interesting) {}
 
@@ -64,7 +64,7 @@ interface Planner {
         private final Logger logger;
         private final long duration;
         private final double branchProbability;
-        private final Faults.Config faultsConfig;
+        private final NetworkFaults faultsConfig;
 
         // Exploration map: count of how many times we branched FROM this signal+condition
         private final Map<String, Integer> signalExplorationCount = new ConcurrentHashMap<>();
@@ -85,7 +85,7 @@ interface Planner {
             final AtomicInteger falseHits = new AtomicInteger();
         }
 
-        GuidedPlanner(Logger logger, long duration, double branchProbability, Faults.Config faultsConfig) {
+        GuidedPlanner(Logger logger, long duration, double branchProbability, NetworkFaults faultsConfig) {
             this.logger = logger;
             this.duration = duration;
             this.branchProbability = branchProbability;

@@ -157,10 +157,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                     .setPairLatencyIfNotSet(
                             peerAddress,
                             binding.address(),
-                            ofNanos(node.faults()
-                                            .network()
-                                            .cloggingLatencyMaximum()
-                                            .toNanos()
+                            ofNanos(node.faults().cloggingLatencyMaximum().toNanos()
                                     * current().nextInt(1000)
                                     / 1000));
             this.sendBufferSize = toIntExact(max(current().nextLong(0, 5_000_000), 25_000 * (2 + latency.toMillis())));
@@ -507,10 +504,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                     .setPairLatencyIfNotSet(
                             peerSocket.address,
                             address,
-                            ofNanos(node.faults()
-                                            .network()
-                                            .cloggingLatencyMaximum()
-                                            .toNanos()
+                            ofNanos(node.faults().cloggingLatencyMaximum().toNanos()
                                     * current().nextInt(1000)
                                     / 1000));
             acceptedLocalSocket.sendBufferSize =
