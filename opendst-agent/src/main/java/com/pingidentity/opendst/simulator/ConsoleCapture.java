@@ -22,7 +22,6 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static tools.jackson.jr.ob.JSON.Feature.FLUSH_AFTER_WRITE_VALUE;
 import static tools.jackson.jr.ob.JSON.Feature.WRITE_NULL_PROPERTIES;
 
-import com.pingidentity.opendst.common.AssertType;
 import com.pingidentity.opendst.common.Signal;
 import com.pingidentity.opendst.common.Signal.AssertSignal;
 import com.pingidentity.opendst.common.Signal.ConsoleSignal;
@@ -47,7 +46,6 @@ import java.io.PrintStream;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import tools.jackson.core.JsonGenerator;
 import tools.jackson.jr.ob.JSON;
 import tools.jackson.jr.ob.JacksonJrExtension;
@@ -60,25 +58,16 @@ import tools.jackson.jr.ob.impl.JSONWriter;
  * Structured logging hub for the child JVM, serializing all simulator output as newline-delimited JSON to
  * {@code System.out} (which the parent process reads as its child's stdout).
  *
- * <p>The class exposes one method per {@link Signal} subtype (e.g. {@link #logStarted}, {@link #logStopped},
- * {@link #logAssert}). Each constructs the typed signal record and routes it through {@link #emit}, which
- * writes a JSON envelope around the signal payload.
- *
- * <p>The wire format of each line is:
+ * <p>External callers reach this class via {@link Node#log(Signal)} (per-node signals) and
+ * {@link Simulator#log(Signal)} (simulation-global signals), both of which delegate to {@link #emit}.
+ * Each line is a JSON envelope:
  * <pre>{ "lid", "source", "vhost"?, "it", "at", "signal": &lt;signal&gt; }</pre>
  *
- * <p>Two stream-side producers contribute to the output:
- * <ul>
- *   <li>The framework methods named above (lifecycle / assert / guidance / fault).</li>
- *   <li>{@link LogWriter} — an {@link OutputStream} assigned as each virtual host's {@code System.out}.
- *       Buffers bytes, splits on line separators, and emits each complete line as a {@link ConsoleSignal}
- *       (or embeds it raw if the line is already a JSON object). Every line is hashed and buffered in
- *       {@link #unauditedLogs} for deferred {@link TraceAuditor} processing.</li>
- * </ul>
- *
- * <p>Deferred processing: {@link #flush()} drains the buffered {@link LogWriter} entries to
- * {@link TraceAuditor#process} and is called <em>outside</em> the simulation tick so that arbitrary
- * user-supplied auditor code cannot affect determinism.
+ * <p>{@link LogWriter} is an additional producer: assigned as each virtual host's {@code System.out}, it
+ * buffers bytes, splits on line separators, and emits each complete line as a {@link ConsoleSignal} (or
+ * embeds it raw if the line is already a JSON object). Every line is hashed and buffered in
+ * {@link #unauditedLogs} for deferred {@link TraceAuditor} processing via {@link #flush()}, which runs
+ * outside the simulation tick so user-supplied auditor code cannot affect determinism.
  */
 public final class ConsoleCapture {
 
@@ -113,86 +102,14 @@ public final class ConsoleCapture {
         this.out = new CloseShieldPrintStream(out);
     }
 
-    // ── Framework signals: one method per Signal subtype ──────────────────────
-
-    /** Emits a {@code started} lifecycle signal. */
-    void logStarted(Instant time) {
-        emit(new StartedSignal(), null, time, 0, true);
-    }
-
-    /** Emits a {@code segment-completed} lifecycle signal carrying the deterministic hash. */
-    void logSegmentCompleted(int hash, Instant time, long iteration) {
-        emit(new SegmentCompletedSignal(hash), null, time, iteration, true);
-    }
-
-    /** Emits a {@code stopped} lifecycle signal carrying the final deterministic hash. */
-    void logStopped(int hash, Instant time, long iteration) {
-        emit(new StoppedSignal(hash), null, time, iteration, true);
-    }
-
-    /** Emits a {@code non-determinism} lifecycle signal with the expected/actual hashes. */
-    void logNonDeterminism(int expectedHash, int actualHash, Instant time, long iteration) {
-        emit(new NonDeterminismSignal(expectedHash, actualHash), null, time, iteration, true);
-    }
-
-    /** Emits an {@code internal-error} lifecycle signal with cause + stacktrace. */
-    void logInternalError(String cause, List<String> stacktrace, Instant time, long iteration) {
-        emit(new InternalErrorSignal(cause, stacktrace), null, time, iteration, true);
-    }
-
-    /** Emits a {@code trace-auditor-exception} lifecycle signal with cause + stacktrace. */
-    void logTraceAuditorException(String cause, List<String> stacktrace, Instant time, long iteration) {
-        emit(new TraceAuditorExceptionSignal(cause, stacktrace), null, time, iteration, true);
-    }
-
-    /** Emits an {@code uncaught-exception} lifecycle signal for a virtual-host thread. */
-    void logUncaughtException(String vhost, String thread, Throwable exception, Instant time, long iteration) {
-        emit(new UncaughtExceptionSignal(vhost, thread, exception), vhost, time, iteration, true);
-    }
-
-    /** Emits a diagnostic signal: a platform (non-virtual) thread started inside a virtual host. */
-    public void logPlatformThreadStarted(
-            String vhost, String threadName, String threadClass, String caller, Instant time, long iteration) {
-        emit(new PlatformThreadStartedSignal(vhost, threadName, threadClass, caller), vhost, time, iteration, true);
-    }
-
-    /** Emits a diagnostic signal: a JVM shutdown hook was registered by a virtual host and skipped. */
-    void logPlatformThreadShutdownHookSkipped(
-            String vhost, String hookClass, String hookName, Instant time, long iteration) {
-        emit(new PlatformThreadShutdownHookSkippedSignal(vhost, hookClass, hookName), vhost, time, iteration, true);
-    }
-
     /**
-     * Emits an {@link AssertSignal} for an assertion evaluation. The message is folded into the
-     * deterministic state hash.
-     */
-    public void logAssert(
-            AssertType kind,
-            String message,
-            boolean condition,
-            Map<String, Object> details,
-            String vhost,
-            Instant time,
-            long iteration) {
-        emit(new AssertSignal(kind, message, condition, details), vhost, time, iteration, true);
-    }
-
-    /**
-     * Emits a {@link GuidanceSignal} carrying distance-to-violation data for the runner.
-     * Guidance signals do <em>not</em> affect the deterministic state hash.
-     */
-    public void logGuidance(String message, Map<String, Object> guidance, String vhost, Instant time, long iteration) {
-        emit(new GuidanceSignal(message, guidance), vhost, time, iteration, false);
-    }
-
-    /**
-     * Creates a new {@link LogWriter} for a specific host.
+     * Creates a new {@link LogWriter} for a specific node.
      *
-     * @param host The host associated with the logs.
+     * @param node The node whose console output this writer captures.
      * @return A new {@link LogWriter} instance.
      */
-    LogWriter newLogWriter(String host) {
-        return new LogWriter(host);
+    LogWriter newLogWriter(Node node) {
+        return new LogWriter(node);
     }
 
     // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -212,14 +129,12 @@ public final class ConsoleCapture {
         } catch (Throwable e) {
             if (!traceAuditorFailed) {
                 traceAuditorFailed = true;
-                logTraceAuditorException(
+                simulator.log(new TraceAuditorExceptionSignal(
                         e.getMessage(),
                         java.util.Arrays.stream(e.getStackTrace())
                                 .limit(10)
                                 .map(StackTraceElement::toString)
-                                .toList(),
-                        simulator.instant(),
-                        simulator.iteration());
+                                .toList()));
             }
         }
     }
@@ -237,21 +152,18 @@ public final class ConsoleCapture {
     /**
      * Writes one structured JSON line: the {@link SimulationEvent} envelope wrapping the typed
      * {@link Signal} payload. Field-level serialization is delegated to {@link SignalCodec}.
+     * Always folds {@code signal.message()} into the deterministic state hash.
      *
      * @param signal    the typed signal to emit
      * @param vhost     the virtual host the signal pertains to, or {@code null} for simulator-framework signals
      * @param time      the simulator instant at which the signal was emitted
      * @param iteration the simulator iteration counter
-     * @param hashOnLog whether to fold {@code signal.message()} into the deterministic state hash (false for
-     *                  guidance signals; they carry framework-internal metadata that must not affect reproducibility)
      */
-    private void emit(Signal signal, String vhost, Instant time, long iteration, boolean hashOnLog) {
+    void emit(Signal signal, String vhost, Instant time, long iteration) {
         var source = vhost != null ? LOG_SOURCE_VHOST : LOG_SOURCE_SIMULATOR;
         JSON_LOGGER.write(new SimulationEvent(logSeq++, source, vhost, iteration, time, signal), out);
         out.write('\n');
-        if (hashOnLog) {
-            simulator.hash(signal.message());
-        }
+        simulator.hash(signal.message());
     }
 
     /**
@@ -382,11 +294,11 @@ public final class ConsoleCapture {
      * {@link #unauditedLogs} for deferred {@link TraceAuditor} processing via {@link #flush()}.
      */
     final class LogWriter extends OutputStream {
-        private final String host;
+        private final Node node;
         private final ByteArrayOutputStream consoleOut = new ByteArrayOutputStream();
 
-        LogWriter(String host) {
-            this.host = host;
+        LogWriter(Node node) {
+            this.node = node;
         }
 
         @Override
@@ -433,7 +345,7 @@ public final class ConsoleCapture {
                     gen.writeStartObject()
                             .writeNumberProperty("lid", logSeq++)
                             .writeStringProperty("source", LOG_SOURCE_VHOST)
-                            .writeStringProperty("vhost", host)
+                            .writeStringProperty("vhost", node.hostName())
                             .writeNumberProperty("it", simulator.iteration())
                             .writeStringProperty("at", simulator.instant().toString())
                             .writeName("signal");
@@ -441,11 +353,11 @@ public final class ConsoleCapture {
                     gen.writeEndObject();
                 }
                 out.write('\n');
+                simulator.hash(message);
             } else {
-                emit(new ConsoleSignal(message), host, simulator.instant(), simulator.iteration(), false);
+                node.log(new ConsoleSignal(message));
             }
-            simulator.hash(message);
-            unauditedLogs.add(new Log(host, simulator.instant(), simulator.iteration(), message));
+            unauditedLogs.add(new Log(node.hostName(), simulator.instant(), simulator.iteration(), message));
         }
     }
 

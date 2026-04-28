@@ -385,15 +385,11 @@ public final class ThreadsInterceptors {
         if (node == null) {
             return;
         }
-        var simulator = Simulator.current();
-        Simulator.logger()
-                .logPlatformThreadStarted(
-                        node.hostName(),
-                        platformThread.getName(),
-                        platformThread.getClass().getName(),
-                        Thread.currentThread().getName(),
-                        simulator.instant(),
-                        simulator.iteration());
+        node.log(new com.pingidentity.opendst.common.Signal.PlatformThreadStartedSignal(
+                node.hostName(),
+                platformThread.getName(),
+                platformThread.getClass().getName(),
+                Thread.currentThread().getName()));
     }
 
     /**

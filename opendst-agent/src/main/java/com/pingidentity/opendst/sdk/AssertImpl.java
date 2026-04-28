@@ -24,7 +24,6 @@ import static java.util.Objects.requireNonNull;
 
 import com.pingidentity.opendst.common.AssertType;
 import com.pingidentity.opendst.intercept.Intercepts;
-import com.pingidentity.opendst.simulator.Simulator;
 import java.util.Map;
 
 /**
@@ -224,24 +223,14 @@ public final class AssertImpl {
     }
 
     private static void recordAssert(AssertType kind, String message, boolean condition, Map<String, Object> details) {
-        var node = currentNodeOrThrow();
-        var sim = Simulator.current();
-        Simulator.logger()
-                .logAssert(
-                        kind,
-                        requireNonNull(message),
-                        condition,
-                        details,
-                        node.hostName(),
-                        sim.instant(),
-                        sim.iteration());
+        currentNodeOrThrow()
+                .log(new com.pingidentity.opendst.common.Signal.AssertSignal(
+                        kind, requireNonNull(message), condition, details));
     }
 
     private static void recordGuidance(String message, Map<String, Object> guidance) {
-        var node = currentNodeOrThrow();
-        var sim = Simulator.current();
-        Simulator.logger()
-                .logGuidance(requireNonNull(message), guidance, node.hostName(), sim.instant(), sim.iteration());
+        currentNodeOrThrow()
+                .log(new com.pingidentity.opendst.common.Signal.GuidanceSignal(requireNonNull(message), guidance));
     }
 
     private AssertImpl() {
