@@ -126,12 +126,60 @@ public final class Simulator {
         logger.logStarted(START_TIME);
     }
 
-    public RandomInterceptors.Source random() {
-        return context.random();
-    }
-
     public boolean isReady() {
         return ready;
+    }
+
+    // ---- Static accessors for the per-thread (per-node) simulation services. ----
+    //
+    // Components carried in SimulationContext (random, logger, network, faults, …)
+    // are simulation-global, not per-node. These statics expose them via the
+    // current Node ThreadLocal so call sites don't have to thread a Node reference
+    // through just to reach a global service. *OrNull variants exist for advice
+    // running on threads that may or may not belong to a simulated node.
+
+    /** {@return the current simulation, throwing if not on a simulated node thread}. */
+    public static Simulator current() {
+        return currentNodeOrThrow().context.simulator();
+    }
+
+    /** {@return the current simulation, or {@code null} when not on a simulated node thread}. */
+    public static Simulator currentOrNull() {
+        var node = currentNodeOrNull();
+        return node != null ? node.context.simulator() : null;
+    }
+
+    /** {@return the simulation-global random source}. */
+    public static RandomInterceptors.Source random() {
+        return currentNodeOrThrow().context.random();
+    }
+
+    /** {@return the simulation-global random source, or {@code null} off-simulation}. */
+    public static RandomInterceptors.Source randomOrNull() {
+        var node = currentNodeOrNull();
+        return node != null ? node.context.random() : null;
+    }
+
+    /** {@return the simulation-global logger}. */
+    public static ConsoleCapture logger() {
+        return currentNodeOrThrow().context.logger();
+    }
+
+    /** {@return the simulation-global logger, or {@code null} off-simulation}. */
+    public static ConsoleCapture loggerOrNull() {
+        var node = currentNodeOrNull();
+        return node != null ? node.context.logger() : null;
+    }
+
+    /** {@return the simulation-global network}. */
+    public static NetworkInterceptors network() {
+        return currentNodeOrThrow().context.network();
+    }
+
+    /** {@return the simulation-global network, or {@code null} off-simulation}. */
+    public static NetworkInterceptors networkOrNull() {
+        var node = currentNodeOrNull();
+        return node != null ? node.context.network() : null;
     }
 
     void onReady() {
@@ -232,9 +280,9 @@ public final class Simulator {
         if (departingSegment.hash() == 0) {
             // Nothing to check
         } else if (departingSegment.hash() == actualHash) {
-            context.logger().logSegmentCompleted(actualHash, instant(), iteration());
+            context.logger().logSegmentCompleted(actualHash, context.instant(), iteration());
         } else {
-            context.logger().logNonDeterminism(departingSegment.hash(), actualHash, instant(), iteration());
+            context.logger().logNonDeterminism(departingSegment.hash(), actualHash, context.instant(), iteration());
             exitSimulation(INTERNAL_ERROR);
         }
     }
@@ -243,10 +291,10 @@ public final class Simulator {
         int actualHash = hasher.getHash();
         // Check for run-level non-determinism before emitting the stopped signal
         if (!INTERNAL_ERROR.equals(reason) && plan.hash() != 0 && plan.hash() != actualHash) {
-            context.logger().logNonDeterminism(plan.hash(), actualHash, instant(), iteration());
+            context.logger().logNonDeterminism(plan.hash(), actualHash, context.instant(), iteration());
         }
         try {
-            context.logger().logStopped(actualHash, instant(), iteration());
+            context.logger().logStopped(actualHash, context.instant(), iteration());
             context.logger().flush();
         } catch (Throwable e) {
             e.printStackTrace(context.logger().getOut());
@@ -273,7 +321,7 @@ public final class Simulator {
                                 .limit(10)
                                 .map(StackTraceElement::toString)
                                 .toList(),
-                        instant(),
+                        context.instant(),
                         iteration());
         exitSimulation(INTERNAL_ERROR);
     }
@@ -287,7 +335,7 @@ public final class Simulator {
     }
 
     public Instant instant() {
-        return context.scheduler().now();
+        return context.instant();
     }
 
     public long iteration() {
@@ -420,7 +468,7 @@ public final class Simulator {
                         node.hostName,
                         thread.getName(),
                         throwable,
-                        instant(),
+                        context.instant(),
                         node.context.random().iteration());
     }
 

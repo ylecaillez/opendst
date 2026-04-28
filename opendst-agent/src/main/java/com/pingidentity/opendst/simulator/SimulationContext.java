@@ -27,12 +27,11 @@ import java.time.Instant;
  * then shared (read-only) with {@link Node} instances. All fields are final —
  * no late-binding or volatile access needed.
  *
- * <p>Components carried here ({@code random}, {@code logger}, {@code network}, …)
- * are <b>simulation-global</b>, not per-node. Access them via {@link #current()}
- * / {@link #currentOrNull()} (which delegate to {@link Node#currentNodeOrNull()})
- * or via {@code node.context()} when a {@link Node} reference is already in hand.
+ * <p>This record is package-private. External callers (advice in
+ * {@code intercept/}) reach the global services via static accessors on
+ * {@link Simulator} ({@code Simulator.random()}, {@code Simulator.logger()}, …).
  */
-public record SimulationContext(
+record SimulationContext(
         Simulator simulator,
         Simulator.Scheduler scheduler,
         RandomInterceptors.Source random,
@@ -47,26 +46,8 @@ public record SimulationContext(
     /** Maximum number of virtual threads per node. */
     static final int MAX_VIRTUAL_THREADS_PER_NODE = 1_000;
 
-    /**
-     * Returns the simulation context attached to the current thread, or {@code null} if
-     * the thread is not running inside a simulated node. Equivalent to
-     * {@code Node.currentNodeOrNull() != null ? node.context() : null}.
-     */
-    public static SimulationContext currentOrNull() {
-        var node = Node.currentNodeOrNull();
-        return node != null ? node.context() : null;
-    }
-
-    /**
-     * Returns the simulation context attached to the current thread, throwing if the
-     * thread is not running inside a simulated node.
-     */
-    public static SimulationContext current() {
-        return Node.currentNodeOrThrow().context();
-    }
-
-    /** Convenience: simulated wall-clock instant ({@code scheduler().now()}). */
-    public Instant instant() {
+    /** {@return the current simulated wall-clock instant}. */
+    Instant instant() {
         return scheduler.now();
     }
 }

@@ -153,12 +153,12 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             } else if (timeoutMillis == 0) {
                 peer = connected.take();
             }
-            var latency = node.context()
+            var latency = node.context
                     .faultInjector()
                     .setPairLatencyIfNotSet(
                             peerAddress,
                             binding.address(),
-                            ofNanos(node.context()
+                            ofNanos(node.context
                                             .faults()
                                             .cloggingLatencyMaximum()
                                             .toNanos()
@@ -200,8 +200,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             public int read(byte[] b, int off, int len) throws IOException {
                 requireNonNull(b);
                 checkFromIndexSize(off, len, b.length);
-                node.context().faultInjector().onNetworkReceive();
-                var timeout = node.context().faultInjector().onNetworkTimeout();
+                node.context.faultInjector().onNetworkReceive();
+                var timeout = node.context.faultInjector().onNetworkTimeout();
                 if (!timeout.isZero()) {
                     try {
                         sleep(timeout);
@@ -281,8 +281,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             public void write(byte[] b, int off, int len) throws IOException {
                 requireNonNull(b);
                 checkFromIndexSize(off, len, b.length);
-                node.context().faultInjector().onNetworkSend();
-                var timeout = node.context().faultInjector().onNetworkTimeout();
+                node.context.faultInjector().onNetworkSend();
+                var timeout = node.context.faultInjector().onNetworkTimeout();
                 if (!timeout.isZero()) {
                     try {
                         sleep(timeout);
@@ -347,7 +347,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                     // The data arriving is discarded and RST propagates back to the peer
                     // after a network round-trip delay.
                     // The discard is not silent: RST notifies the peer.
-                    var rstDelay = node.context()
+                    var rstDelay = node.context
                             .faultInjector()
                             .networkSendDelay(binding.address(), peer.address, stableConnection);
                     sleep(rstDelay);
@@ -383,10 +383,10 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                 long bytes = current().nextInt(100) < 5
                         ? sentBytes.get()
                         : current().nextLong(receivedBytes.get(), sentBytes.get() + 1);
-                var delay = node.context()
+                var delay = node.context
                         .faultInjector()
                         .networkSendDelay(peer.address, address, stableConnection)
-                        .plus(node.context()
+                        .plus(node.context
                                 .faultInjector()
                                 .networkReceiveDelay(peer.address, address, stableConnection));
                 sleep(delay);
@@ -490,7 +490,7 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
     @Override
     public void accept(SocketImpl socket) throws IOException {
         if (!(socket instanceof NodeSocketImpl acceptedLocalSocket)) {
-            node.context()
+            node.context
                     .simulator()
                     .reportInternalError(new Simulator.SimulationError(
                             "The accepted local socket is not a NodeSocketImpl: '%s'".formatted(socket.toString())));
@@ -509,12 +509,12 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             acceptedLocalSocket.port = peerSocket.binding.port();
             acceptedLocalSocket.peer = peerSocket;
 
-            var latency = node.context()
+            var latency = node.context
                     .faultInjector()
                     .setPairLatencyIfNotSet(
                             peerSocket.address,
                             address,
-                            ofNanos(node.context()
+                            ofNanos(node.context
                                             .faults()
                                             .cloggingLatencyMaximum()
                                             .toNanos()
