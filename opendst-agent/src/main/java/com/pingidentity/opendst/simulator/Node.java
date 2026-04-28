@@ -84,7 +84,7 @@ public final class Node {
         this.hostName = hostName.toLowerCase(java.util.Locale.ROOT);
         this.salt32l = context.random().nextLong() & 0xFFFF_FFFFL;
         this.reverse = (salt32l & 1) == 0;
-        this.console = new PrintStream(context.logger().newLogWriter(hostName), true);
+        this.console = new PrintStream(context.logger().newLogWriter(this), true);
 
         this.localHost = InetAddress.ofLiteral(localIpAddress);
         this.netInterfaces = new NodeInterfaces(localHost);
@@ -153,6 +153,16 @@ public final class Node {
     /** {@return the deterministic host name assigned to this node}. */
     public String hostName() {
         return hostName;
+    }
+
+    /**
+     * Emits a per-node {@link com.pingidentity.opendst.common.Signal} through the structured logger,
+     * tagging it with this node's host name and folding {@code signal.message()} into the deterministic
+     * state hash.
+     */
+    public void log(com.pingidentity.opendst.common.Signal signal) {
+        context.logger()
+                .emit(signal, hostName, context.instant(), context.random().iteration());
     }
 
     // ── SDK entry points (called from com.pingidentity.opendst.sdk.*) ─────
@@ -300,13 +310,8 @@ public final class Node {
         if (!hook.isVirtual()) {
             // Platform thread hooks cannot run deterministically inside the simulation.
             // This is expected for JUL's LogManager$Cleaner and similar JDK housekeeping threads.
-            context.logger()
-                    .logPlatformThreadShutdownHookSkipped(
-                            hostName,
-                            hook.getClass().getName(),
-                            hook.getName(),
-                            context.instant(),
-                            context.random().iteration());
+            log(new com.pingidentity.opendst.common.Signal.PlatformThreadShutdownHookSkippedSignal(
+                    hostName, hook.getClass().getName(), hook.getName()));
             return;
         }
         shutdownHooks.add(hook);

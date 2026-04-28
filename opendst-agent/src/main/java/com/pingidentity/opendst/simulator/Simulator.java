@@ -35,6 +35,13 @@ import static java.util.concurrent.Future.State.SUCCESS;
 import com.pingidentity.opendst.common.Plan;
 import com.pingidentity.opendst.common.Plan.NetworkFaults;
 import com.pingidentity.opendst.common.Plan.Segment;
+import com.pingidentity.opendst.common.Signal;
+import com.pingidentity.opendst.common.Signal.InternalErrorSignal;
+import com.pingidentity.opendst.common.Signal.NonDeterminismSignal;
+import com.pingidentity.opendst.common.Signal.SegmentCompletedSignal;
+import com.pingidentity.opendst.common.Signal.StartedSignal;
+import com.pingidentity.opendst.common.Signal.StoppedSignal;
+import com.pingidentity.opendst.common.Signal.UncaughtExceptionSignal;
 import com.pingidentity.opendst.intercept.NetworkInterceptors;
 import com.pingidentity.opendst.intercept.RandomInterceptors;
 import com.pingidentity.opendst.sdk.TraceAuditor;
@@ -123,7 +130,15 @@ public final class Simulator {
         // Assemble the immutable context last — passed only to Node
         this.context = new SimulationContext(this, scheduler, random, faults, network, faultInjector, logger);
 
-        logger.logStarted(START_TIME);
+        logger.emit(new StartedSignal(), null, START_TIME, 0L);
+    }
+
+    /**
+     * Emits a simulation-global {@link Signal} through the structured logger (no {@code vhost}),
+     * folding {@code signal.message()} into the deterministic state hash.
+     */
+    public void log(Signal signal) {
+        context.logger().emit(signal, null, context.instant(), context.random().iteration());
     }
 
     public boolean isReady() {
@@ -256,9 +271,9 @@ public final class Simulator {
         if (departingSegment.hash() == 0) {
             // Nothing to check
         } else if (departingSegment.hash() == actualHash) {
-            context.logger().logSegmentCompleted(actualHash, context.instant(), iteration());
+            log(new SegmentCompletedSignal(actualHash));
         } else {
-            context.logger().logNonDeterminism(departingSegment.hash(), actualHash, context.instant(), iteration());
+            log(new NonDeterminismSignal(departingSegment.hash(), actualHash));
             exitSimulation(INTERNAL_ERROR);
         }
     }
@@ -267,10 +282,10 @@ public final class Simulator {
         int actualHash = hasher.getHash();
         // Check for run-level non-determinism before emitting the stopped signal
         if (!INTERNAL_ERROR.equals(reason) && plan.hash() != 0 && plan.hash() != actualHash) {
-            context.logger().logNonDeterminism(plan.hash(), actualHash, context.instant(), iteration());
+            log(new NonDeterminismSignal(plan.hash(), actualHash));
         }
         try {
-            context.logger().logStopped(actualHash, context.instant(), iteration());
+            log(new StoppedSignal(actualHash));
             context.logger().flush();
         } catch (Throwable e) {
             e.printStackTrace(context.logger().getOut());
@@ -290,15 +305,12 @@ public final class Simulator {
      * @param cause the error that triggered the internal error
      */
     public void reportInternalError(SimulationError cause) {
-        context.logger()
-                .logInternalError(
-                        cause.getMessage(),
-                        stream(cause.getStackTrace())
-                                .limit(10)
-                                .map(StackTraceElement::toString)
-                                .toList(),
-                        context.instant(),
-                        iteration());
+        log(new InternalErrorSignal(
+                cause.getMessage(),
+                stream(cause.getStackTrace())
+                        .limit(10)
+                        .map(StackTraceElement::toString)
+                        .toList()));
         exitSimulation(INTERNAL_ERROR);
     }
 
@@ -439,13 +451,7 @@ public final class Simulator {
     }
 
     void uncaughtExceptionHandler(Node node, Thread thread, Throwable throwable) {
-        context.logger()
-                .logUncaughtException(
-                        node.hostName,
-                        thread.getName(),
-                        throwable,
-                        context.instant(),
-                        node.context.random().iteration());
+        node.log(new UncaughtExceptionSignal(node.hostName, thread.getName(), throwable));
     }
 
     /**
