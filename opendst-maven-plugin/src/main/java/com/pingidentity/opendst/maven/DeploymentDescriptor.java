@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst.common;
+package com.pingidentity.opendst.maven;
 
 import static java.util.Objects.requireNonNull;
 
@@ -21,6 +21,7 @@ import com.fasterxml.jackson.annotation.JacksonInject;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.OptBoolean;
+import com.pingidentity.opendst.common.BuildConfig;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;

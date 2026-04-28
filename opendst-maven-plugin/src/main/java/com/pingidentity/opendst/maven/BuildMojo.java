@@ -15,8 +15,8 @@
  */
 package com.pingidentity.opendst.maven;
 
-import static com.pingidentity.opendst.common.DeploymentDescriptor.PROJECT_ARTIFACT_ID_KEY;
-import static com.pingidentity.opendst.common.DeploymentDescriptor.Source.Project.Scope.TEST;
+import static com.pingidentity.opendst.maven.DeploymentDescriptor.PROJECT_ARTIFACT_ID_KEY;
+import static com.pingidentity.opendst.maven.DeploymentDescriptor.Source.Project.Scope.TEST;
 import static java.lang.Runtime.getRuntime;
 import static java.nio.file.FileSystems.newFileSystem;
 import static java.nio.file.Files.copy;
@@ -39,14 +39,13 @@ import com.pingidentity.opendst.common.Assertion;
 import com.pingidentity.opendst.common.BuildConfig;
 import com.pingidentity.opendst.common.BuildConfig.FaultsConfig;
 import com.pingidentity.opendst.common.BuildConfig.NetworkFaultsConfig;
-import com.pingidentity.opendst.common.DeploymentDescriptor;
-import com.pingidentity.opendst.common.DeploymentDescriptor.ServiceDescriptor;
-import com.pingidentity.opendst.common.DeploymentDescriptor.Source;
-import com.pingidentity.opendst.common.DeploymentDescriptor.Source.Project.Scope;
-import com.pingidentity.opendst.common.DeploymentDescriptor.TraceAuditorDescriptor;
 import com.pingidentity.opendst.common.RuntimeDeployment;
 import com.pingidentity.opendst.common.RuntimeDeployment.RuntimeAuditor;
 import com.pingidentity.opendst.common.RuntimeDeployment.RuntimeService;
+import com.pingidentity.opendst.maven.DeploymentDescriptor.ServiceDescriptor;
+import com.pingidentity.opendst.maven.DeploymentDescriptor.Source;
+import com.pingidentity.opendst.maven.DeploymentDescriptor.Source.Project.Scope;
+import com.pingidentity.opendst.maven.DeploymentDescriptor.TraceAuditorDescriptor;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
