@@ -105,8 +105,9 @@ assert reportAssertions["no internal error"].pass == true :
     "Non-determinism detected — 'no internal error' failed."
 
 // ---- Phase 2: Replay a plan and verify the shutdown hook guard fires ----
-// The log.json files from Phase 1 may be truncated (known bug), so we replay
-// one plan to get the full lifecycle output and verify the guard message.
+// Phase 1 only writes plan files (signals stream over stdout, never to disk),
+// so to inspect the shutdown-hook guard message we replay one plan; --plan
+// echoes every signal line to stdout for direct inspection.
 
 def plansDir = new File(workingDir, "report/plans")
 check(plansDir.exists() && plansDir.isDirectory(), "Plans directory does not exist", logFile)
