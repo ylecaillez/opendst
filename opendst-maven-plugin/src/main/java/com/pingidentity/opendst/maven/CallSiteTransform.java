@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst.common;
+package com.pingidentity.opendst.maven;
 
 import static java.lang.classfile.ClassTransform.transformingMethods;
 import static java.lang.classfile.Opcode.INVOKESPECIAL;

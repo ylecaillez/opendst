@@ -15,9 +15,9 @@
  */
 package com.pingidentity.opendst.maven;
 
-import static com.pingidentity.opendst.common.CallSiteTransform.callSiteTransformMethod;
-import static com.pingidentity.opendst.common.CallSiteTransform.isDirectThreadSubclass;
-import static com.pingidentity.opendst.common.CallSiteTransform.threadSubclassTransform;
+import static com.pingidentity.opendst.maven.CallSiteTransform.callSiteTransformMethod;
+import static com.pingidentity.opendst.maven.CallSiteTransform.isDirectThreadSubclass;
+import static com.pingidentity.opendst.maven.CallSiteTransform.threadSubclassTransform;
 import static java.lang.classfile.ClassHierarchyResolver.ofClassLoading;
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static java.nio.file.FileVisitResult.SKIP_SUBTREE;
