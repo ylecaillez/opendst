@@ -166,7 +166,7 @@ public final class ConsoleCapture {
      * Emits an {@link AssertSignal} for an assertion evaluation. The message is folded into the
      * deterministic state hash.
      */
-    void logAssert(
+    public void logAssert(
             AssertType kind,
             String message,
             boolean condition,
@@ -181,7 +181,7 @@ public final class ConsoleCapture {
      * Emits a {@link GuidanceSignal} carrying distance-to-violation data for the runner.
      * Guidance signals do <em>not</em> affect the deterministic state hash.
      */
-    void logGuidance(String message, Map<String, Object> guidance, String vhost, Instant time, long iteration) {
+    public void logGuidance(String message, Map<String, Object> guidance, String vhost, Instant time, long iteration) {
         emit(new GuidanceSignal(message, guidance), vhost, time, iteration, false);
     }
 
