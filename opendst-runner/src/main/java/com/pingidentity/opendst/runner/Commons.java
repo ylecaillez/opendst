@@ -15,15 +15,9 @@
  */
 package com.pingidentity.opendst.runner;
 
-import static java.lang.Long.parseLong;
 import static java.nio.file.Files.delete;
 import static java.nio.file.Files.exists;
 import static java.nio.file.Files.walk;
-import static java.time.Duration.ofHours;
-import static java.time.Duration.ofMillis;
-import static java.time.Duration.ofMinutes;
-import static java.time.Duration.ofNanos;
-import static java.time.Duration.ofSeconds;
 import static tools.jackson.jr.ob.JSON.Feature.WRITE_NULL_PROPERTIES;
 
 import com.pingidentity.opendst.common.AssertType;
@@ -49,7 +43,6 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonGenerator;
 import tools.jackson.core.JsonParser;
@@ -257,38 +250,6 @@ public final class Commons {
                 } catch (NoSuchFileException ignored) {
                 }
             }
-        }
-    }
-
-    static final class DurationUtils {
-        private static final Pattern PATTERN = Pattern.compile("^([+-]?\\d+)([a-zA-Z]+)$");
-
-        public static Duration parse(String input) {
-            if (input.startsWith("PT")) {
-                return Duration.parse(input); // Handle ISO-8601
-            }
-            var matcher = PATTERN.matcher(input.trim());
-            if (matcher.matches()) {
-                long value = parseLong(matcher.group(1));
-                String unit = matcher.group(2).toLowerCase();
-                switch (unit) {
-                    case "ns":
-                        return ofNanos(value);
-                    case "us":
-                        return ofNanos(value * 1000);
-                    case "ms":
-                        return ofMillis(value);
-                    case "s":
-                        return ofSeconds(value);
-                    case "m":
-                        return ofMinutes(value);
-                    case "h":
-                        return ofHours(value);
-                    default:
-                        throw new IllegalArgumentException("Unknown unit: " + unit);
-                }
-            }
-            return ofMillis(parseLong(input)); // Default to ms
         }
     }
 }

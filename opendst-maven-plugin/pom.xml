@@ -108,8 +108,6 @@
                                     <version>${project.version}</version>
                                     <destFileName>opendst-runner.jar</destFileName>
                                 </artifactItem>
-
-
                             </artifactItems>
                             <outputDirectory>${project.build.outputDirectory}/META-INF/agents</outputDirectory>
                         </configuration>
