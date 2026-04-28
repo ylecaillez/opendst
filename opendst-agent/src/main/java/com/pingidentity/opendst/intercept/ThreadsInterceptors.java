@@ -385,8 +385,9 @@ public final class ThreadsInterceptors {
         if (node == null) {
             return;
         }
-        var simulator = node.simulator();
-        node.logger()
+        var simulator = node.context().simulator();
+        node.context()
+                .logger()
                 .logPlatformThreadStarted(
                         node.hostName(),
                         platformThread.getName(),

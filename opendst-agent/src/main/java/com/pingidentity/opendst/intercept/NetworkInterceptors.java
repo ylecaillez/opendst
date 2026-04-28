@@ -198,7 +198,7 @@ public final class NetworkInterceptors {
                         throws UnknownHostException {
                     var node = currentNodeOrNull();
                     return node != null
-                            ? node.network().lookupByName(host)
+                            ? node.context().network().lookupByName(host)
                             : builtinResolver.lookupByName(host, lookupPolicy);
                 }
 
@@ -206,7 +206,7 @@ public final class NetworkInterceptors {
                 public String lookupByAddress(byte[] addr) throws UnknownHostException {
                     var node = currentNodeOrNull();
                     return node != null
-                            ? node.network().lookupByAddress(InetAddress.getByAddress(addr))
+                            ? node.context().network().lookupByAddress(InetAddress.getByAddress(addr))
                             : builtinResolver.lookupByAddress(addr);
                 }
             };

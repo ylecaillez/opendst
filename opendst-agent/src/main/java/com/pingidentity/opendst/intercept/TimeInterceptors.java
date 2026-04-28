@@ -139,7 +139,7 @@ public final class TimeInterceptors {
         @SuppressWarnings("MissingJavadocMethod")
         public static void onExit(@Enter Node node, @Return(readOnly = false) Instant instant) {
             if (node != null) {
-                instant = node.instant();
+                instant = node.context().instant();
             }
         }
     }

@@ -153,11 +153,15 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             } else if (timeoutMillis == 0) {
                 peer = connected.take();
             }
-            var latency = node.faultInjector()
+            var latency = node.context()
+                    .faultInjector()
                     .setPairLatencyIfNotSet(
                             peerAddress,
                             binding.address(),
-                            ofNanos(node.faults().cloggingLatencyMaximum().toNanos()
+                            ofNanos(node.context()
+                                            .faults()
+                                            .cloggingLatencyMaximum()
+                                            .toNanos()
                                     * current().nextInt(1000)
                                     / 1000));
             this.sendBufferSize = toIntExact(max(current().nextLong(0, 5_000_000), 25_000 * (2 + latency.toMillis())));
@@ -196,8 +200,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             public int read(byte[] b, int off, int len) throws IOException {
                 requireNonNull(b);
                 checkFromIndexSize(off, len, b.length);
-                node.faultInjector().onNetworkReceive();
-                var timeout = node.faultInjector().onNetworkTimeout();
+                node.context().faultInjector().onNetworkReceive();
+                var timeout = node.context().faultInjector().onNetworkTimeout();
                 if (!timeout.isZero()) {
                     try {
                         sleep(timeout);
@@ -277,8 +281,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             public void write(byte[] b, int off, int len) throws IOException {
                 requireNonNull(b);
                 checkFromIndexSize(off, len, b.length);
-                node.faultInjector().onNetworkSend();
-                var timeout = node.faultInjector().onNetworkTimeout();
+                node.context().faultInjector().onNetworkSend();
+                var timeout = node.context().faultInjector().onNetworkTimeout();
                 if (!timeout.isZero()) {
                     try {
                         sleep(timeout);
@@ -343,8 +347,9 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                     // The data arriving is discarded and RST propagates back to the peer
                     // after a network round-trip delay.
                     // The discard is not silent: RST notifies the peer.
-                    var rstDelay =
-                            node.faultInjector().networkSendDelay(binding.address(), peer.address, stableConnection);
+                    var rstDelay = node.context()
+                            .faultInjector()
+                            .networkSendDelay(binding.address(), peer.address, stableConnection);
                     sleep(rstDelay);
                     peer.connectionResetByPeer = true;
                     // Unblock peer's write() which may be waiting on receivedBytes (send buffer full)
@@ -378,9 +383,12 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
                 long bytes = current().nextInt(100) < 5
                         ? sentBytes.get()
                         : current().nextLong(receivedBytes.get(), sentBytes.get() + 1);
-                var delay = node.faultInjector()
+                var delay = node.context()
+                        .faultInjector()
                         .networkSendDelay(peer.address, address, stableConnection)
-                        .plus(node.faultInjector().networkReceiveDelay(peer.address, address, stableConnection));
+                        .plus(node.context()
+                                .faultInjector()
+                                .networkReceiveDelay(peer.address, address, stableConnection));
                 sleep(delay);
                 receivedBytes.set(bytes);
             }
@@ -482,7 +490,8 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
     @Override
     public void accept(SocketImpl socket) throws IOException {
         if (!(socket instanceof NodeSocketImpl acceptedLocalSocket)) {
-            node.simulator()
+            node.context()
+                    .simulator()
                     .reportInternalError(new Simulator.SimulationError(
                             "The accepted local socket is not a NodeSocketImpl: '%s'".formatted(socket.toString())));
             throw new IOException("Not a NodeSocketImpl");
@@ -500,11 +509,15 @@ final class NodeSocketImpl extends SocketImpl implements Closeable {
             acceptedLocalSocket.port = peerSocket.binding.port();
             acceptedLocalSocket.peer = peerSocket;
 
-            var latency = node.faultInjector()
+            var latency = node.context()
+                    .faultInjector()
                     .setPairLatencyIfNotSet(
                             peerSocket.address,
                             address,
-                            ofNanos(node.faults().cloggingLatencyMaximum().toNanos()
+                            ofNanos(node.context()
+                                            .faults()
+                                            .cloggingLatencyMaximum()
+                                            .toNanos()
                                     * current().nextInt(1000)
                                     / 1000));
             acceptedLocalSocket.sendBufferSize =
