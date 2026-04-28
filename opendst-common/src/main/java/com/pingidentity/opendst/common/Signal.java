@@ -30,6 +30,11 @@ import java.util.Map;
  * {@code jackson-jr}. The runner dispatches on the {@link #type()} discriminator field
  * by hand. Lifecycle events are split into one subtype per event so the runner can dispatch
  * by {@code instanceof} rather than by string matching on a {@code message} field.
+ *
+ * <p>{@code type} and {@code message} are required record components on every subtype (declared
+ * first, so they appear first in the JSON preamble). Subtypes whose discriminator/message are
+ * constants expose a convenience constructor that defaults them — keeping callsites concise
+ * while letting the reflective serializer in the agent walk record components uniformly.
  */
 public sealed interface Signal {
 
@@ -42,10 +47,9 @@ public sealed interface Signal {
     // ── Application output ────────────────────────────────────────────────────
 
     /** Stdout line captured from a virtual host. */
-    record ConsoleSignal(String message) implements Signal {
-        @Override
-        public String type() {
-            return "stdout";
+    record ConsoleSignal(String type, String message) implements Signal {
+        public ConsoleSignal(String message) {
+            this("stdout", message);
         }
     }
 
@@ -59,11 +63,10 @@ public sealed interface Signal {
      * @param condition the boolean verdict for this evaluation
      * @param details   arbitrary diagnostic data captured at the assertion call site, or {@code null}
      */
-    record AssertSignal(AssertType kind, String message, boolean condition, Map<String, Object> details)
+    record AssertSignal(String type, String message, AssertType kind, boolean condition, Map<String, Object> details)
             implements Signal {
-        @Override
-        public String type() {
-            return "assert";
+        public AssertSignal(AssertType kind, String message, boolean condition, Map<String, Object> details) {
+            this("assert", message, kind, condition, details);
         }
     }
 
@@ -74,7 +77,10 @@ public sealed interface Signal {
      * can compute how far the assertion is from being violated and steer exploration
      * toward narrower distances.
      */
-    record GuidanceSignal(String message, Map<String, Object> guidance) implements Signal {
+    record GuidanceSignal(String type, String message, Map<String, Object> guidance) implements Signal {
+        public GuidanceSignal(String message, Map<String, Object> guidance) {
+            this("guidance", message, guidance);
+        }
 
         /**
          * Returns the distance-to-violation, or {@code NaN} if not applicable.
@@ -94,20 +100,14 @@ public sealed interface Signal {
             }
             return Double.NaN;
         }
-
-        @Override
-        public String type() {
-            return "guidance";
-        }
     }
 
     // ── Fault injection ───────────────────────────────────────────────────────
 
     /** Notification that a fault was injected into the simulation. */
-    record FaultSignal(String message) implements Signal {
-        @Override
-        public String type() {
-            return "fault";
+    record FaultSignal(String type, String message) implements Signal {
+        public FaultSignal(String message) {
+            this("fault", message);
         }
     }
 
@@ -119,80 +119,45 @@ public sealed interface Signal {
     // typed serialization (no hand-rolled JsonGenerator).
 
     /** Simulation main loop entered. */
-    record StartedSignal() implements Signal {
-        @Override
-        public String type() {
-            return "started";
-        }
-
-        @Override
-        public String message() {
-            return "started";
+    record StartedSignal(String type, String message) implements Signal {
+        public StartedSignal() {
+            this("started", "started");
         }
     }
 
     /** A segment boundary completed cleanly; carries the deterministic state hash. */
-    record SegmentCompletedSignal(int hash) implements Signal {
-        @Override
-        public String type() {
-            return "segment-completed";
-        }
-
-        @Override
-        public String message() {
-            return "segment-completed";
+    record SegmentCompletedSignal(String type, String message, int hash) implements Signal {
+        public SegmentCompletedSignal(int hash) {
+            this("segment-completed", "segment-completed", hash);
         }
     }
 
     /** Simulation finished cleanly; carries the final deterministic state hash. */
-    record StoppedSignal(int hash) implements Signal {
-        @Override
-        public String type() {
-            return "stopped";
-        }
-
-        @Override
-        public String message() {
-            return "stopped";
+    record StoppedSignal(String type, String message, int hash) implements Signal {
+        public StoppedSignal(int hash) {
+            this("stopped", "stopped", hash);
         }
     }
 
     /** Replay diverged from the recorded plan; the run is non-deterministic. */
-    record NonDeterminismSignal(int expectedHash, int actualHash) implements Signal {
-        @Override
-        public String type() {
-            return "non-determinism";
-        }
-
-        @Override
-        public String message() {
-            return "non-determinism detected";
+    record NonDeterminismSignal(String type, String message, int expectedHash, int actualHash) implements Signal {
+        public NonDeterminismSignal(int expectedHash, int actualHash) {
+            this("non-determinism", "non-determinism detected", expectedHash, actualHash);
         }
     }
 
     /** Simulator framework caught an internal error; the simulation is aborted. */
-    record InternalErrorSignal(String cause, List<String> stacktrace) implements Signal {
-        @Override
-        public String type() {
-            return "internal-error";
-        }
-
-        @Override
-        public String message() {
-            return "internal error";
+    record InternalErrorSignal(String type, String message, String cause, List<String> stacktrace) implements Signal {
+        public InternalErrorSignal(String cause, List<String> stacktrace) {
+            this("internal-error", "internal error", cause, stacktrace);
         }
     }
 
     /** A user-supplied {@code TraceAuditor} threw; signaled once per run. */
-    record TraceAuditorExceptionSignal(String cause, List<String> stacktrace) implements Signal {
-        @Override
-        public String type() {
-            return "trace-auditor-exception";
-        }
-
-        @Override
-        public String message() {
-            return "trace auditor exception";
+    record TraceAuditorExceptionSignal(String type, String message, String cause, List<String> stacktrace)
+            implements Signal {
+        public TraceAuditorExceptionSignal(String cause, List<String> stacktrace) {
+            this("trace-auditor-exception", "trace auditor exception", cause, stacktrace);
         }
     }
 
@@ -203,15 +168,10 @@ public sealed interface Signal {
      * @param thread    the simulator thread name
      * @param exception arbitrary Throwable POJO captured for diagnostics
      */
-    record UncaughtExceptionSignal(String vhost, String thread, Object exception) implements Signal {
-        @Override
-        public String type() {
-            return "uncaught-exception";
-        }
-
-        @Override
-        public String message() {
-            return "uncaught exception";
+    record UncaughtExceptionSignal(String type, String message, String vhost, String thread, Object exception)
+            implements Signal {
+        public UncaughtExceptionSignal(String vhost, String thread, Object exception) {
+            this("uncaught-exception", "uncaught exception", vhost, thread, exception);
         }
     }
 
@@ -219,16 +179,11 @@ public sealed interface Signal {
      * The simulator detected a platform (non-virtual) thread starting from inside a virtual host.
      * Diagnostic-only; the runner ignores it.
      */
-    record PlatformThreadStartedSignal(String vhost, String threadName, String threadClass, String caller)
+    record PlatformThreadStartedSignal(
+            String type, String message, String vhost, String threadName, String threadClass, String caller)
             implements Signal {
-        @Override
-        public String type() {
-            return "platform-thread-started";
-        }
-
-        @Override
-        public String message() {
-            return "platform thread started";
+        public PlatformThreadStartedSignal(String vhost, String threadName, String threadClass, String caller) {
+            this("platform-thread-started", "platform thread started", vhost, threadName, threadClass, caller);
         }
     }
 
@@ -236,15 +191,15 @@ public sealed interface Signal {
      * A virtual host registered a JVM shutdown hook that the simulator skipped.
      * Diagnostic-only; the runner ignores it.
      */
-    record PlatformThreadShutdownHookSkippedSignal(String vhost, String hookClass, String hookName) implements Signal {
-        @Override
-        public String type() {
-            return "platform-thread-shutdown-hook-skipped";
-        }
-
-        @Override
-        public String message() {
-            return "platform thread shutdown hook skipped";
+    record PlatformThreadShutdownHookSkippedSignal(
+            String type, String message, String vhost, String hookClass, String hookName) implements Signal {
+        public PlatformThreadShutdownHookSkippedSignal(String vhost, String hookClass, String hookName) {
+            this(
+                    "platform-thread-shutdown-hook-skipped",
+                    "platform thread shutdown hook skipped",
+                    vhost,
+                    hookClass,
+                    hookName);
         }
     }
 }

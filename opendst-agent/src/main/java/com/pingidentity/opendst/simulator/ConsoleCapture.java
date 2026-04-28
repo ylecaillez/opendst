@@ -35,7 +35,6 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Set;
 import tools.jackson.core.JsonGenerator;
 import tools.jackson.jr.ob.JSON;
 import tools.jackson.jr.ob.JacksonJrExtension;
@@ -157,10 +156,10 @@ public final class ConsoleCapture {
     }
 
     /**
-     * Custom {@code jackson-jr} extension that registers value writers for {@link Signal} (polymorphic
-     * dispatch on subtype, emitting {@code type}/{@code message}/subtype fields) and {@link Instant}
-     * (ISO-8601 string). The {@link Signal} writer is selected via {@code Signal.class.isAssignableFrom}
-     * so that all 14 sealed subtypes are dispatched to the same writer.
+     * Custom {@code jackson-jr} extension that registers value writers for {@link Instant} (ISO-8601
+     * string) and any {@link Enum} (via {@link Object#toString()}). {@link Signal} subtypes are pure
+     * records: jackson-jr's default record handling serializes their components in declaration order,
+     * which is exactly the wire format we want — no custom Signal writer is needed.
      */
     private static final class SignalCodec extends JacksonJrExtension {
         @Override
@@ -168,9 +167,7 @@ public final class ConsoleCapture {
             ctxt.appendProvider(new ReaderWriterProvider() {
                 @Override
                 public ValueWriter findValueWriter(JSONWriter writeContext, Class<?> type) {
-                    if (Signal.class.isAssignableFrom(type)) {
-                        return SIGNAL_WRITER;
-                    } else if (Instant.class.isAssignableFrom(type)) {
+                    if (Instant.class.isAssignableFrom(type)) {
                         return INSTANT_WRITER;
                     } else if (Enum.class.isAssignableFrom(type)) {
                         return ENUM_WRITER;
@@ -209,41 +206,6 @@ public final class ConsoleCapture {
             return Enum.class;
         }
     };
-
-    private static final ValueWriter SIGNAL_WRITER = new ValueWriter() {
-        @Override
-        public void writeValue(JSONWriter context, JsonGenerator g, Object value) {
-            var signal = (Signal) value;
-            g.writeStartObject();
-            // type and message are written explicitly because they are interface methods
-            // (or sometimes overrides of interface methods), not record components, so the
-            // reflective walk below would not pick them up consistently across subtypes.
-            g.writeStringProperty("type", signal.type());
-            g.writeStringProperty("message", signal.message());
-            try {
-                for (var rc : signal.getClass().getRecordComponents()) {
-                    if (HANDLED_FIELDS.contains(rc.getName())) {
-                        continue;
-                    }
-                    var fieldValue = rc.getAccessor().invoke(signal);
-                    if (fieldValue != null) {
-                        g.writePOJOProperty(rc.getName(), fieldValue);
-                    }
-                }
-            } catch (ReflectiveOperationException e) {
-                throw new SimulationError("Failed to serialize signal " + signal.getClass(), e);
-            }
-            g.writeEndObject();
-        }
-
-        @Override
-        public Class<?> valueType() {
-            return Signal.class;
-        }
-    };
-
-    /** Record component names already emitted by the SIGNAL_WRITER preamble. */
-    private static final Set<String> HANDLED_FIELDS = Set.of("type", "message");
 
     // ── Inner classes ─────────────────────────────────────────────────────────
 
