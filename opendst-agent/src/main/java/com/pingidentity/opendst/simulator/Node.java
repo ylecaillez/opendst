@@ -127,7 +127,7 @@ public final class Node {
      * @param action the action to execute with this node as current
      */
     void execute(Runnable action) {
-        context.simulator().hash(context.simulator().instant(), hostName);
+        context.simulator().hash(context.instant(), hostName);
         var previous = CURRENT_NODE.get();
         CURRENT_NODE.set(this);
         setOut(console);
@@ -156,17 +156,6 @@ public final class Node {
         return hostName;
     }
 
-    /**
-     * {@return the simulation context (global services) shared across all nodes}.
-     *
-     * <p>Use this when you have a {@code Node} reference; otherwise prefer
-     * {@link SimulationContext#current()} / {@link SimulationContext#currentOrNull()}
-     * which look the context up via the per-thread {@code Node} ThreadLocal.
-     */
-    public SimulationContext context() {
-        return context;
-    }
-
     // ── SDK entry points (called from com.pingidentity.opendst.sdk.*) ─────
 
     /**
@@ -180,7 +169,6 @@ public final class Node {
      * @param details   optional structured details to attach, or {@code null}
      */
     public void recordAssert(String kind, String message, boolean condition, Map<String, Object> details) {
-        var sim = context.simulator();
         context.logger()
                 .logAssert(
                         AssertType.fromString(kind),
@@ -188,7 +176,7 @@ public final class Node {
                         condition,
                         details,
                         hostName,
-                        sim.instant(),
+                        context.instant(),
                         context.random().iteration());
     }
 
@@ -197,13 +185,12 @@ public final class Node {
      * the deterministic hash. Called from {@code AssertImpl}.
      */
     public void recordGuidance(String message, Map<String, Object> guidance) {
-        var sim = context.simulator();
         context.logger()
                 .logGuidance(
                         requireNonNull(message),
                         guidance,
                         hostName,
-                        sim.instant(),
+                        context.instant(),
                         context.random().iteration());
     }
 
@@ -350,14 +337,13 @@ public final class Node {
         if (!hook.isVirtual()) {
             // Platform thread hooks cannot run deterministically inside the simulation.
             // This is expected for JUL's LogManager$Cleaner and similar JDK housekeeping threads.
-            var simulator = context.simulator();
             context.logger()
                     .logPlatformThreadShutdownHookSkipped(
                             hostName,
                             hook.getClass().getName(),
                             hook.getName(),
-                            simulator.instant(),
-                            simulator.iteration());
+                            context.instant(),
+                            context.random().iteration());
             return;
         }
         shutdownHooks.add(hook);

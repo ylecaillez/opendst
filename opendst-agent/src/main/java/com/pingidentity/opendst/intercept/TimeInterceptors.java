@@ -26,6 +26,7 @@ import static net.bytebuddy.asm.Advice.to;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 
 import com.pingidentity.opendst.simulator.Node;
+import com.pingidentity.opendst.simulator.Simulator;
 import com.pingidentity.opendst.simulator.Simulator.SimulationError;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
@@ -139,7 +140,7 @@ public final class TimeInterceptors {
         @SuppressWarnings("MissingJavadocMethod")
         public static void onExit(@Enter Node node, @Return(readOnly = false) Instant instant) {
             if (node != null) {
-                instant = node.context().instant();
+                instant = Simulator.current().instant();
             }
         }
     }
