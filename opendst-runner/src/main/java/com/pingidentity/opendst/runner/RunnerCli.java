@@ -24,7 +24,7 @@ import static com.pingidentity.opendst.common.Constants.APPS_DIR_PROPERTY;
 import static com.pingidentity.opendst.runner.Commons.JAVA_BASE_OPTIONS;
 import static com.pingidentity.opendst.runner.Commons.JSON_OBJECT;
 import static com.pingidentity.opendst.runner.Commons.deleteRecursively;
-import static com.pingidentity.opendst.runner.OpenDstLogger.ofConsole;
+import static com.pingidentity.opendst.runner.Logger.ofConsole;
 import static java.lang.Runtime.getRuntime;
 import static java.lang.System.exit;
 import static java.lang.System.out;
@@ -175,7 +175,7 @@ public final class RunnerCli implements Callable<Integer> {
     private Path deploymentDir;
     private Path reportDir;
     private Path runsDir;
-    private OpenDstLogger logger;
+    private Logger logger;
     private Planner planner;
     private String effectiveJvmArgs;
     private String debugArgs;
@@ -233,7 +233,7 @@ public final class RunnerCli implements Callable<Integer> {
         if (isDebug) {
             logger.raw()
                     .info(logger.colored(
-                            OpenDstLogger.CYAN,
+                            Logger.CYAN,
                             "\uD83D\uDC1B Debug mode enabled. Attach debugger to address " + debugAddress
                                     + " (suspend=y)"));
         }
@@ -287,7 +287,7 @@ public final class RunnerCli implements Callable<Integer> {
 
         // 6. Final reporting
         if (isReplay) {
-            logger.raw().info(logger.colored(OpenDstLogger.GREEN, "\uD83D\uDD01 Replay complete."));
+            logger.raw().info(logger.colored(Logger.GREEN, "\uD83D\uDD01 Replay complete."));
             return 0;
         }
 
@@ -299,14 +299,13 @@ public final class RunnerCli implements Callable<Integer> {
         if (reportGenerator.hasFailures()) {
             logger.raw()
                     .error(logger.colored(
-                            OpenDstLogger.RED + OpenDstLogger.BOLD,
+                            Logger.RED + Logger.BOLD,
                             "\u274C Simulation complete with failures. Report: " + reportFile));
             return 1;
         }
         logger.raw()
                 .info(logger.colored(
-                        OpenDstLogger.GREEN,
-                        "\u2705 Simulation complete. All assertions passed. Report: " + reportFile));
+                        Logger.GREEN, "\u2705 Simulation complete. All assertions passed. Report: " + reportFile));
         return 0;
     }
 
@@ -661,7 +660,7 @@ public final class RunnerCli implements Callable<Integer> {
      * {@code VirtualThread.class} from the build JDK, so a version mismatch would cause
      * unpredictable failures at runtime.
      */
-    private static void verifyPatchModuleJdkVersion(Path patchJar, OpenDstLogger logger) {
+    private static void verifyPatchModuleJdkVersion(Path patchJar, Logger logger) {
         try (var jar = new JarFile(patchJar.toFile())) {
             var buildVersion = jar.getManifest().getMainAttributes().getValue("Build-Jdk-Version");
             var buildMajor = Runtime.Version.parse(buildVersion).feature();

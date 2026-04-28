@@ -46,7 +46,7 @@ interface Planner {
      * It branches from interesting states to increase coverage.
      */
     final class GuidedPlanner implements Planner {
-        private final OpenDstLogger logger;
+        private final Logger logger;
         private final long duration;
         private final double branchProbability;
         private final Faults.Config faultsConfig;
@@ -70,7 +70,7 @@ interface Planner {
             final AtomicInteger falseHits = new AtomicInteger();
         }
 
-        GuidedPlanner(OpenDstLogger logger, long duration, double branchProbability, Faults.Config faultsConfig) {
+        GuidedPlanner(Logger logger, long duration, double branchProbability, Faults.Config faultsConfig) {
             this.logger = logger;
             this.duration = duration;
             this.branchProbability = branchProbability;
