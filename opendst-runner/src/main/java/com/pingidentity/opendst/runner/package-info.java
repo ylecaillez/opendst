@@ -26,7 +26,7 @@
  *       {@link com.pingidentity.opendst.runner.Planner}.</li>
  *   <li><b>Child process</b> -- {@link com.pingidentity.opendst.runner.SimulationLauncher} parses
  *       the deployment descriptor, creates classloader-isolated nodes per service, and hands off
- *       to {@link com.pingidentity.opendst.Simulator}.</li>
+ *       to {@link com.pingidentity.opendst.simulator.Simulator}.</li>
  * </ul>
  *
  * <p>{@code SimulationLauncher} lives here (rather than in {@code opendst-agent}) because it needs

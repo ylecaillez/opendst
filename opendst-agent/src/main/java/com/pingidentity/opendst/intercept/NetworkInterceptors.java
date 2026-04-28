@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.intercept;
 
-import static com.pingidentity.opendst.Node.currentNodeOrNull;
+import static com.pingidentity.opendst.simulator.Node.currentNodeOrNull;
 import static java.util.Locale.ROOT;
 import static java.util.Objects.requireNonNull;
 import static net.bytebuddy.asm.Advice.to;
@@ -25,6 +25,8 @@ import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.returns;
 import static net.bytebuddy.matcher.ElementMatchers.takesNoArguments;
 
+import com.pingidentity.opendst.simulator.Node;
+import com.pingidentity.opendst.simulator.Simulator;
 import java.io.IOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -70,6 +72,12 @@ public final class NetworkInterceptors {
     private final Map<InetAddress, String> addressToName;
     private final Map<String, Node> nameToNode;
 
+    /** Maximum number of simulated nodes. */
+    private static final int MAX_NODES = 100;
+
+    /** Maximum number of IP address-to-hostname mappings. */
+    private static final int MAX_ADDRESSES = 256;
+
     /**
      * Handle to {@code SocketImpl.createPlatformSocketImpl(boolean)} for creating real socket
      * implementations when a socket is constructed outside a simulation node (e.g. JDK-internal
@@ -102,24 +110,23 @@ public final class NetworkInterceptors {
         }
     }
 
-    NetworkInterceptors(Simulator simulator) {
+    public NetworkInterceptors(Simulator simulator) {
         this.simulator = requireNonNull(simulator);
-        this.addressToName = new HashMap<>(SimulationContext.MAX_ADDRESSES);
-        this.nameToNode = new HashMap<>(SimulationContext.MAX_NODES);
+        this.addressToName = new HashMap<>(MAX_ADDRESSES);
+        this.nameToNode = new HashMap<>(MAX_NODES);
     }
 
     // --- DNS and Registry ---
 
-    void registerDns(String hostName, Node host) {
+    public void registerDns(String hostName, Node host) {
         var lowerCaseHostName = hostName.toLowerCase(ROOT);
-        if (nameToNode.size() >= SimulationContext.MAX_NODES && !nameToNode.containsKey(lowerCaseHostName)) {
+        if (nameToNode.size() >= MAX_NODES && !nameToNode.containsKey(lowerCaseHostName)) {
             simulator.reportInternalError(new Simulator.SimulationError("Maximum number of nodes reached"));
         }
         if (nameToNode.putIfAbsent(lowerCaseHostName, host) == null) {
             host.inetAddresses().forEach(address -> {
                 if (!address.isLoopbackAddress()) {
-                    if (addressToName.size() >= SimulationContext.MAX_ADDRESSES
-                            && !addressToName.containsKey(address)) {
+                    if (addressToName.size() >= MAX_ADDRESSES && !addressToName.containsKey(address)) {
                         simulator.reportInternalError(
                                 new Simulator.SimulationError("Maximum number of addresses reached"));
                     }
@@ -129,7 +136,7 @@ public final class NetworkInterceptors {
         }
     }
 
-    void unregisterDns(String hostName) {
+    public void unregisterDns(String hostName) {
         var hostname = hostName.toLowerCase(ROOT);
         var host = nameToNode.remove(hostname);
         if (host != null) {
@@ -164,14 +171,15 @@ public final class NetworkInterceptors {
     // --- Routing ---
 
     @SuppressWarnings({"deprecation", "removal"})
-    SocketImpl route(InetAddress from, InetAddress addr, int port) throws UnknownHostException, NoRouteToHostException {
+    public SocketImpl route(InetAddress from, InetAddress addr, int port)
+            throws UnknownHostException, NoRouteToHostException {
         if (from.isLoopbackAddress() && !addr.isLoopbackAddress()) {
             throw new NoRouteToHostException();
         }
         return lookupHostByAddress(addr).route(from, addr, port);
     }
 
-    Map<String, Node> nodes() {
+    public Map<String, Node> nodes() {
         return nameToNode;
     }
 
@@ -190,7 +198,7 @@ public final class NetworkInterceptors {
                         throws UnknownHostException {
                     var node = currentNodeOrNull();
                     return node != null
-                            ? node.context.network().lookupByName(host)
+                            ? node.network().lookupByName(host)
                             : builtinResolver.lookupByName(host, lookupPolicy);
                 }
 
@@ -198,7 +206,7 @@ public final class NetworkInterceptors {
                 public String lookupByAddress(byte[] addr) throws UnknownHostException {
                     var node = currentNodeOrNull();
                     return node != null
-                            ? node.context.network().lookupByAddress(InetAddress.getByAddress(addr))
+                            ? node.network().lookupByAddress(InetAddress.getByAddress(addr))
                             : builtinResolver.lookupByAddress(addr);
                 }
             };

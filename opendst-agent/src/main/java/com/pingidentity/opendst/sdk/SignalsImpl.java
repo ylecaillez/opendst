@@ -13,12 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.sdk;
 
-import static com.pingidentity.opendst.Node.currentNodeOrThrow;
+import static com.pingidentity.opendst.simulator.Node.currentNodeOrThrow;
+
+import com.pingidentity.opendst.intercept.Intercepts;
 
 /**
- * OpenDST SDK Implementation.
+ * Build-time redirect target for {@link Signals}. Each public static method here mirrors the
+ * SDK signature; instrumented call-sites are rewritten from {@code Signals.x()} to
+ * {@code SignalsImpl.x()} by {@link com.pingidentity.opendst.maven.Instrumentation}.
  */
 @Intercepts("com.pingidentity.opendst.sdk.Signals")
 public final class SignalsImpl {
@@ -29,7 +33,7 @@ public final class SignalsImpl {
      */
     @Intercepts("com.pingidentity.opendst.sdk.Signals#ready()")
     public static void ready() {
-        currentNodeOrThrow().context.simulator().onReady();
+        currentNodeOrThrow().signalReady();
     }
 
     private SignalsImpl() {

@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.intercept;
 
-import static com.pingidentity.opendst.ThreadsInterceptors.installSimulatorThreadCallback;
+import static com.pingidentity.opendst.intercept.ThreadsInterceptors.installSimulatorThreadCallback;
 import static java.lang.System.setProperty;
 import static net.bytebuddy.matcher.ElementMatchers.nameStartsWith;
 import static net.bytebuddy.matcher.ElementMatchers.not;

@@ -1,1 +1,1 @@
-com.pingidentity.opendst.NetworkInterceptors$ResolverProvider
+com.pingidentity.opendst.intercept.NetworkInterceptors$ResolverProvider

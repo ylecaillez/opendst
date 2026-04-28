@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.intercept;
 
-import static com.pingidentity.opendst.Node.currentNodeOrNull;
+import static com.pingidentity.opendst.simulator.Node.currentNodeOrNull;
 import static net.bytebuddy.asm.Advice.to;
 import static net.bytebuddy.asm.MemberSubstitution.relaxed;
 import static net.bytebuddy.matcher.ElementMatchers.any;
@@ -35,6 +35,8 @@ import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 import static net.bytebuddy.matcher.ElementMatchers.takesNoArguments;
 
 import com.pingidentity.opendst.common.Plan.Segment;
+import com.pingidentity.opendst.simulator.Node;
+import com.pingidentity.opendst.simulator.Simulator;
 import java.io.Serial;
 import java.security.SecureRandomSpi;
 import java.util.ArrayDeque;
@@ -70,7 +72,7 @@ public final class RandomInterceptors {
         private long nextIteration;
         int last;
 
-        Source(Simulator simulator, List<Segment> segments) {
+        public Source(Simulator simulator, List<Segment> segments) {
             this.simulator = simulator;
             this.segments = new ArrayDeque<>(segments);
             var segment = this.segments.removeFirst();

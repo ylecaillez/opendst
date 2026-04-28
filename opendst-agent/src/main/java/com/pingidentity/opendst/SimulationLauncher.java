@@ -15,8 +15,8 @@
  */
 package com.pingidentity.opendst;
 
-import static com.pingidentity.opendst.Simulator.runSimulation;
-import static com.pingidentity.opendst.Simulator.startNode;
+import static com.pingidentity.opendst.simulator.Simulator.runSimulation;
+import static com.pingidentity.opendst.simulator.Simulator.startNode;
 import static java.lang.ClassLoader.getPlatformClassLoader;
 import static java.lang.Runtime.getRuntime;
 import static java.lang.System.err;

@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.simulator;
 
-import static com.pingidentity.opendst.SimulationContext.MAX_VIRTUAL_THREADS_PER_NODE;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.isOnWaitingList;
-import static com.pingidentity.opendst.ThreadsInterceptors.Internals.setThreadLocal;
+import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.isOnWaitingList;
+import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.setThreadLocal;
+import static com.pingidentity.opendst.simulator.SimulationContext.MAX_VIRTUAL_THREADS_PER_NODE;
 import static java.lang.String.format;
 import static java.lang.System.setErr;
 import static java.lang.System.setOut;
@@ -27,9 +27,13 @@ import static java.net.InetAddress.getLoopbackAddress;
 import static java.time.temporal.ChronoUnit.NANOS;
 import static java.util.Objects.requireNonNull;
 
-import com.pingidentity.opendst.NodeSocketImpl.Binding;
-import com.pingidentity.opendst.ThreadsInterceptors.VirtualThreadUnblocker;
+import com.pingidentity.opendst.common.AssertType;
 import com.pingidentity.opendst.common.Faults;
+import com.pingidentity.opendst.intercept.NetworkInterceptors;
+import com.pingidentity.opendst.intercept.RandomInterceptors;
+import com.pingidentity.opendst.intercept.ThreadsInterceptors;
+import com.pingidentity.opendst.intercept.ThreadsInterceptors.VirtualThreadUnblocker;
+import com.pingidentity.opendst.simulator.NodeSocketImpl.Binding;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.BindException;
@@ -101,7 +105,7 @@ public final class Node {
      *
      * <p>Uses reflective access to read the thread-local value from an arbitrary thread.
      */
-    static Node nodeForThreadOrNull(Thread thread) {
+    public static Node nodeForThreadOrNull(Thread thread) {
         return (Node) ThreadsInterceptors.Internals.getThreadLocal(thread, CURRENT_NODE);
     }
 
@@ -109,7 +113,7 @@ public final class Node {
      * {@return The Node attached to this thread}.
      * @throws IllegalStateException if this thread is not part of a simulation.
      */
-    static Node currentNodeOrThrow() {
+    public static Node currentNodeOrThrow() {
         var node = currentNodeOrNull();
         if (node == null) {
             throw new IllegalStateException(format(
@@ -150,6 +154,11 @@ public final class Node {
         return localHost;
     }
 
+    /** {@return the deterministic host name assigned to this node}. */
+    public String hostName() {
+        return hostName;
+    }
+
     /** Must be {@code public} — called from advice inlined into {@code java.time.Clock}. */
     public Instant instant() {
         return context.scheduler().now();
@@ -163,7 +172,7 @@ public final class Node {
         return context.random();
     }
 
-    ConsoleCapture logger() {
+    public ConsoleCapture logger() {
         return context.logger();
     }
 
@@ -171,7 +180,7 @@ public final class Node {
         return context.faultInjector();
     }
 
-    NetworkInterceptors network() {
+    public NetworkInterceptors network() {
         return context.network();
     }
 
@@ -179,16 +188,62 @@ public final class Node {
         return context.faults();
     }
 
-    Simulator simulator() {
+    public Simulator simulator() {
         return context.simulator();
     }
 
-    Stream<InetAddress> inetAddresses() {
+    // ── SDK entry points (called from com.pingidentity.opendst.sdk.*) ─────
+
+    /**
+     * Records an assertion verdict for this node, folding the message into the deterministic
+     * state hash. Called from {@code AssertImpl}.
+     *
+     * @param kind      assertion kind (e.g. {@code "always"}, {@code "sometimes"}); resolved via
+     *                  {@link AssertType#fromString(String)}
+     * @param message   the human-readable assertion label
+     * @param condition the evaluated assertion result
+     * @param details   optional structured details to attach, or {@code null}
+     */
+    public void recordAssert(String kind, String message, boolean condition, Map<String, Object> details) {
+        var sim = context.simulator();
+        context.logger()
+                .logAssert(
+                        AssertType.fromString(kind),
+                        requireNonNull(message),
+                        condition,
+                        details,
+                        hostName,
+                        sim.instant(),
+                        context.random().iteration());
+    }
+
+    /**
+     * Records a guidance signal — a distance-to-violation hint for the runner. Does not affect
+     * the deterministic hash. Called from {@code AssertImpl}.
+     */
+    public void recordGuidance(String message, Map<String, Object> guidance) {
+        var sim = context.simulator();
+        context.logger()
+                .logGuidance(
+                        requireNonNull(message),
+                        guidance,
+                        hostName,
+                        sim.instant(),
+                        context.random().iteration());
+    }
+
+    /** Signals that the workload is ready to start receiving faults. Called from {@code SignalsImpl}. */
+    public void signalReady() {
+        context.simulator().onReady();
+    }
+
+    public Stream<InetAddress> inetAddresses() {
         return Stream.of(localHost);
     }
 
+    /** Must be {@code public} — called from advice in {@link NetworkInterceptors}. */
     @SuppressWarnings({"deprecation", "removal"})
-    SocketImpl newSocketImpl(boolean isServer) {
+    public SocketImpl newSocketImpl(boolean isServer) {
         return new NodeSocketImpl(this, isServer);
     }
 
@@ -284,13 +339,13 @@ public final class Node {
         return context.scheduler().scheduleExactlyAt(this, runnable, instant().plus(delay, unit.toChronoUnit()));
     }
 
-    /** Deterministic implementation of {@code java.util.ImmutableCollections#REVERSE}. */
-    boolean immutableCollectionsReverse() {
+    /** Deterministic implementation of {@code java.util.ImmutableCollections#REVERSE}. Public — called from advice. */
+    public boolean immutableCollectionsReverse() {
         return reverse;
     }
 
-    /** Deterministic implementation of {@code java.util.ImmutableCollections#SALT32L}. */
-    long immutableCollectionsSalt32l() {
+    /** Deterministic implementation of {@code java.util.ImmutableCollections#SALT32L}. Public — called from advice. */
+    public long immutableCollectionsSalt32l() {
         return salt32l;
     }
 
@@ -344,7 +399,7 @@ public final class Node {
     }
 
     @SuppressWarnings({"deprecation", "removal"})
-    SocketImpl route(InetAddress from, InetAddress address, int port)
+    public SocketImpl route(InetAddress from, InetAddress address, int port)
             throws UnknownHostException, NoRouteToHostException {
         return netInterfaces.isLocal(address)
                 ? netInterfaces.route(address, port)

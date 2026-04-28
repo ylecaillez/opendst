@@ -371,8 +371,8 @@ final class Instrumentation {
      */
     static final class CallSiteTransform {
         private static final ClassDesc SIMULATOR_THREAD_CLASS = ClassDesc.of("java.lang.SimulatorThread");
-        private static final ClassDesc SIGNALS_IMPL_CLASS = ClassDesc.of("com.pingidentity.opendst.SignalsImpl");
-        private static final ClassDesc ASSERT_IMPL_CLASS = ClassDesc.of("com.pingidentity.opendst.AssertImpl");
+        private static final ClassDesc SIGNALS_IMPL_CLASS = ClassDesc.of("com.pingidentity.opendst.sdk.SignalsImpl");
+        private static final ClassDesc ASSERT_IMPL_CLASS = ClassDesc.of("com.pingidentity.opendst.sdk.AssertImpl");
 
         private static final String THREAD_INTERNAL = "java/lang/Thread";
 

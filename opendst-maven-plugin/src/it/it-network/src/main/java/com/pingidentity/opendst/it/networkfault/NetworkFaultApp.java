@@ -45,7 +45,7 @@ import java.util.concurrent.ThreadLocalRandom;
  *
  * <p>All socket I/O is wrapped with {@link TracingSocket} and
  * {@link TracingServerSocket} decorators, which emit typed
- * trace events through {@code System.out}. These flow through
+ * trace events through {@code System.out}. These nsflow through
  * the console capture pipeline to
  * {@link NetworkFaultTraceAuditor}, where PObserve monitors
  * validate TCP socket semantics.

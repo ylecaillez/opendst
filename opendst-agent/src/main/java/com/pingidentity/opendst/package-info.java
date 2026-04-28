@@ -15,10 +15,22 @@
  */
 
 /**
- * Core simulation engine for OpenDST deterministic simulation testing.
+ * OpenDST agent module — root package.
  *
- * <p>This package contains the simulator runtime, bytecode rewriting agent, and all
- * system interceptors (threads, network, time) that enable deterministic
- * execution of Java applications under simulated conditions.
+ * <p>The agent code is split across three subpackages:
+ * <ul>
+ *   <li>{@link com.pingidentity.opendst.simulator} — the deterministic simulation engine
+ *       ({@code Simulator}, {@code Node}, {@code SimulationContext}, {@code FaultInjector},
+ *       {@code NodeSocketImpl}, {@code ConsoleCapture}).</li>
+ *   <li>{@link com.pingidentity.opendst.intercept} — JDK interception advice and the
+ *       {@code SimulatorAgent} premain that installs it. Rewrites time, randomness,
+ *       threading, and networking calls to route through the engine.</li>
+ *   <li>{@link com.pingidentity.opendst.sdk} — bytecode-rewrite targets for the
+ *       {@code com.pingidentity.opendst.sdk.Signals}/{@code Assert} SDK calls that the
+ *       Maven plugin redirects at workload build time.</li>
+ * </ul>
+ *
+ * <p>{@link com.pingidentity.opendst.SimulationLauncher} stays at the root because it is
+ * referenced by the runner via fully-qualified-name string.
  */
 package com.pingidentity.opendst;

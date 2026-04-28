@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pingidentity.opendst;
+package com.pingidentity.opendst.simulator;
 
 import com.pingidentity.opendst.common.Faults;
+import com.pingidentity.opendst.intercept.NetworkInterceptors;
+import com.pingidentity.opendst.intercept.RandomInterceptors;
 
 /**
  * Immutable record holding all global simulation services.
@@ -32,12 +34,6 @@ record SimulationContext(
         NetworkInterceptors network,
         FaultInjector faultInjector,
         ConsoleCapture logger) {
-
-    /** Maximum number of simulated nodes. */
-    static final int MAX_NODES = 100;
-
-    /** Maximum number of IP address-to-hostname mappings. */
-    static final int MAX_ADDRESSES = 256;
 
     /** Maximum number of simultaneously queued scheduled tasks. */
     static final int MAX_TASKS = 10_000;
