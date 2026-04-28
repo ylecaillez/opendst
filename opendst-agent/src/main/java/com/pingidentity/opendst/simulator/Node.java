@@ -28,9 +28,7 @@ import static java.time.temporal.ChronoUnit.NANOS;
 import static java.util.Objects.requireNonNull;
 
 import com.pingidentity.opendst.common.AssertType;
-import com.pingidentity.opendst.common.Plan.NetworkFaults;
 import com.pingidentity.opendst.intercept.NetworkInterceptors;
-import com.pingidentity.opendst.intercept.RandomInterceptors;
 import com.pingidentity.opendst.intercept.ThreadsInterceptors;
 import com.pingidentity.opendst.intercept.ThreadsInterceptors.VirtualThreadUnblocker;
 import com.pingidentity.opendst.simulator.NodeSocketImpl.Binding;
@@ -41,7 +39,6 @@ import java.net.InetAddress;
 import java.net.NoRouteToHostException;
 import java.net.SocketImpl;
 import java.net.UnknownHostException;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -130,7 +127,7 @@ public final class Node {
      * @param action the action to execute with this node as current
      */
     void execute(Runnable action) {
-        simulator().hash(simulator().instant(), hostName);
+        context.simulator().hash(context.simulator().instant(), hostName);
         var previous = CURRENT_NODE.get();
         CURRENT_NODE.set(this);
         setOut(console);
@@ -159,37 +156,15 @@ public final class Node {
         return hostName;
     }
 
-    /** Must be {@code public} — called from advice inlined into {@code java.time.Clock}. */
-    public Instant instant() {
-        return context.scheduler().now();
-    }
-
     /**
-     * Must be {@code public} — called from advice inlined into {@code java.util.Random},
-     * {@code java.security.SecureRandom}, {@code java.util.concurrent.ThreadLocalRandom}, etc.
+     * {@return the simulation context (global services) shared across all nodes}.
+     *
+     * <p>Use this when you have a {@code Node} reference; otherwise prefer
+     * {@link SimulationContext#current()} / {@link SimulationContext#currentOrNull()}
+     * which look the context up via the per-thread {@code Node} ThreadLocal.
      */
-    public RandomInterceptors.Source random() {
-        return context.random();
-    }
-
-    public ConsoleCapture logger() {
-        return context.logger();
-    }
-
-    FaultInjector faultInjector() {
-        return context.faultInjector();
-    }
-
-    public NetworkInterceptors network() {
-        return context.network();
-    }
-
-    NetworkFaults faults() {
-        return context.faults();
-    }
-
-    public Simulator simulator() {
-        return context.simulator();
+    public SimulationContext context() {
+        return context;
     }
 
     // ── SDK entry points (called from com.pingidentity.opendst.sdk.*) ─────
@@ -331,12 +306,15 @@ public final class Node {
     public void scheduleNow(Runnable runnable) {
         context.scheduler()
                 .scheduleExactlyAt(
-                        this, runnable, instant().plusNanos(defaultSchedulingJitter.applyAsLong(context.random())));
+                        this,
+                        runnable,
+                        context.instant().plusNanos(defaultSchedulingJitter.applyAsLong(context.random())));
     }
 
     /** Must be {@code public} — called from advice inlined into {@code java.lang.VirtualThread}. */
     public Future<?> scheduleAfterDelay(Runnable runnable, long delay, TimeUnit unit) {
-        return context.scheduler().scheduleExactlyAt(this, runnable, instant().plus(delay, unit.toChronoUnit()));
+        return context.scheduler()
+                .scheduleExactlyAt(this, runnable, context.instant().plus(delay, unit.toChronoUnit()));
     }
 
     /** Deterministic implementation of {@code java.util.ImmutableCollections#REVERSE}. Public — called from advice. */
@@ -355,7 +333,7 @@ public final class Node {
      * <p>Must be {@code public} — called from advice inlined into {@code java.lang.System}.
      */
     public long nanoTime() {
-        return NANOS.between(Simulator.START_TIME, instant());
+        return NANOS.between(Simulator.START_TIME, context.instant());
     }
 
     /**
@@ -364,7 +342,7 @@ public final class Node {
      * <p>Must be {@code public} — called from advice inlined into {@code java.lang.System}.
      */
     public long currentTimeMillis() {
-        return instant().toEpochMilli();
+        return context.instant().toEpochMilli();
     }
 
     /** Must be {@code public} — called from advice inlined into {@code java.lang.Runtime}. */
@@ -372,8 +350,9 @@ public final class Node {
         if (!hook.isVirtual()) {
             // Platform thread hooks cannot run deterministically inside the simulation.
             // This is expected for JUL's LogManager$Cleaner and similar JDK housekeeping threads.
-            var simulator = simulator();
-            logger().logPlatformThreadShutdownHookSkipped(
+            var simulator = context.simulator();
+            context.logger()
+                    .logPlatformThreadShutdownHookSkipped(
                             hostName,
                             hook.getClass().getName(),
                             hook.getName(),

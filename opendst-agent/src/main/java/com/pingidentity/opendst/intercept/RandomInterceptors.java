@@ -169,7 +169,7 @@ public final class RandomInterceptors {
         @SuppressWarnings("MissingJavadocMethod")
         public static void onExit(@Enter Node node, @Argument(value = 0, readOnly = false) byte[] bytes) {
             if (node != null) {
-                node.random().nextBytes(bytes);
+                node.context().random().nextBytes(bytes);
             }
         }
     }
@@ -189,7 +189,7 @@ public final class RandomInterceptors {
                 @Enter Node node, @Argument(value = 0) int numBytes, @Return(readOnly = false) byte[] bytes) {
             if (node != null) {
                 bytes = new byte[numBytes];
-                node.random().nextBytes(bytes);
+                node.context().random().nextBytes(bytes);
             }
         }
     }
@@ -209,7 +209,7 @@ public final class RandomInterceptors {
                 @Enter Node node, @Argument(value = 0) int numBytes, @Return(readOnly = false) byte[] bytes) {
             if (node != null) {
                 bytes = new byte[numBytes];
-                node.random().nextBytes(bytes);
+                node.context().random().nextBytes(bytes);
             }
         }
     }
@@ -227,7 +227,7 @@ public final class RandomInterceptors {
         @SuppressWarnings("MissingJavadocMethod")
         public static void intercept(@Enter Node node, @Return(readOnly = false) long seed) {
             if (node != null) {
-                seed = node.random().nextLong();
+                seed = node.context().random().nextLong();
             }
         }
     }
@@ -245,7 +245,7 @@ public final class RandomInterceptors {
         @SuppressWarnings({"MissingJavadocMethod", "ParameterCanBeLocal", "UnusedAssignment", "ReassignedVariable"})
         public static void onExit(@Enter Node node, @Return(readOnly = false) long nextLong) {
             if (node != null) {
-                nextLong = node.random().nextLong();
+                nextLong = node.context().random().nextLong();
             }
         }
     }
@@ -265,7 +265,7 @@ public final class RandomInterceptors {
         @SuppressWarnings({"MissingJavadocMethod", "ParameterCanBeLocal", "UnusedAssignment", "ReassignedVariable"})
         public static void onExit(@Enter Node node, @Argument(value = 0) int bits, @Return(readOnly = false) int next) {
             if (node != null) {
-                next = node.random().nextBits(bits);
+                next = node.context().random().nextBits(bits);
             }
         }
     }
@@ -285,7 +285,7 @@ public final class RandomInterceptors {
         @SuppressWarnings({"MissingJavadocMethod", "ParameterCanBeLocal", "UnusedAssignment", "ReassignedVariable"})
         public static void onExit(@Enter Node node, @Return(readOnly = false) double out) {
             if (node != null) {
-                out = node.random().nextGaussian();
+                out = node.context().random().nextGaussian();
             }
         }
     }
@@ -309,7 +309,7 @@ public final class RandomInterceptors {
                 @Argument(value = 1) double stddev,
                 @Return(readOnly = false) double out) {
             if (node != null) {
-                out = node.random().nextGaussian(mean, stddev);
+                out = node.context().random().nextGaussian(mean, stddev);
             }
         }
     }
