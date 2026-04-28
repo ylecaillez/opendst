@@ -46,7 +46,6 @@ try {
     check(jar.getEntry("META-INF/opendst/assertions.json") != null, "assertions.json missing", logFile)
     check(jar.getEntry("system/opendst-agent.jar") != null, "opendst-agent.jar missing", logFile)
     check(jar.getEntry("META-INF/opendst/deployment.json") != null, "deployment.json missing", logFile)
-    check(jar.getEntry("META-INF/opendst/build-config.json") != null, "build-config.json missing", logFile)
 
     // Check apps/ has instrumented application content
     def hasApps = jar.entries().any { it.name.startsWith("apps/") }
@@ -63,12 +62,6 @@ try {
     def labels = assertions.collect { it.message }
     check(labels.contains("level-1"), "assertion 'level-1' not found in assertions.json: " + labels, logFile)
     check(labels.contains("level-2"), "assertion 'level-2' not found in assertions.json: " + labels, logFile)
-
-    // Verify build-config.json contains faults configuration with network enabled
-    def buildConfigEntry = jar.getEntry("META-INF/opendst/build-config.json")
-    def buildConfigJson = jar.getInputStream(buildConfigEntry).text
-    def buildConfig = new JsonSlurper().parseText(buildConfigJson)
-    check(buildConfig.faults.network.enabled == true, "Network faults should be enabled", logFile)
 } finally {
     jar.close()
 }

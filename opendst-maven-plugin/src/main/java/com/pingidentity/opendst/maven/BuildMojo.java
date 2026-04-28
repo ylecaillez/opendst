@@ -28,8 +28,6 @@ import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.Files.readAllBytes;
 import static java.nio.file.Files.walk;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
-import static java.time.Duration.ofMillis;
-import static java.time.Duration.ofNanos;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 import static tools.jackson.core.StreamReadFeature.AUTO_CLOSE_SOURCE;
 import static tools.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES;
@@ -38,8 +36,6 @@ import static tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROP
 import static tools.jackson.databind.cfg.EnumFeature.WRITE_ENUMS_USING_TO_STRING;
 
 import com.pingidentity.opendst.common.Assertion;
-import com.pingidentity.opendst.common.BuildConfig;
-import com.pingidentity.opendst.common.Faults;
 import com.pingidentity.opendst.common.RuntimeDeployment;
 import com.pingidentity.opendst.common.RuntimeDeployment.RuntimeAuditor;
 import com.pingidentity.opendst.common.RuntimeDeployment.RuntimeService;
@@ -468,24 +464,8 @@ public class BuildMojo extends AbstractMojo {
             addEntry(
                     jos,
                     "META-INF/opendst/deployment.json",
-                    JSON_MAPPER.writeValueAsBytes(toRuntimeDeployment(enrichedDescriptor)));
-
-            // 6. build-config.json — build-time defaults (runtime params are now CLI-only)
-            var buildConfig = new BuildConfig(jvmArguments, defaultFaultsConfig());
-            addEntry(jos, "META-INF/opendst/build-config.json", JSON_MAPPER.writeValueAsBytes(buildConfig));
+                    JSON_MAPPER.writeValueAsBytes(toRuntimeDeployment(enrichedDescriptor, jvmArguments)));
         }
-    }
-
-    /** Returns the default faults configuration with network faults enabled. */
-    private static Faults.Config defaultFaultsConfig() {
-        return new Faults.Config(new Faults.Config.NetworkConfig(
-                true,
-                ofNanos(100_000), // latency minimum
-                ofNanos(800_000), // latency fast
-                ofMillis(100), // latency slow
-                ofMillis(100), // clogging max
-                0.001, // connection-reset probability
-                0.001)); // timeout probability
     }
 
     /**
@@ -496,7 +476,7 @@ public class BuildMojo extends AbstractMojo {
      * during enrichment (see {@code enrichDescriptor}); this method enforces that
      * invariant explicitly.
      */
-    private static RuntimeDeployment toRuntimeDeployment(DeploymentDescriptor descriptor) {
+    private static RuntimeDeployment toRuntimeDeployment(DeploymentDescriptor descriptor, String jvmArguments) {
         var services = new LinkedHashMap<String, RuntimeService>();
         descriptor
                 .services()
@@ -507,7 +487,7 @@ public class BuildMojo extends AbstractMojo {
                 : new RuntimeAuditor(
                         dirOf(descriptor.traceAuditor().source()),
                         descriptor.traceAuditor().className());
-        return new RuntimeDeployment(services, auditor);
+        return new RuntimeDeployment(jvmArguments, services, auditor);
     }
 
     private static String dirOf(Source source) {

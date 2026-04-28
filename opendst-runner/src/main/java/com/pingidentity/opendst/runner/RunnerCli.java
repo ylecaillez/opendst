@@ -36,9 +36,8 @@ import static java.util.Arrays.asList;
 import static java.util.concurrent.ThreadLocalRandom.current;
 
 import com.pingidentity.opendst.common.Assertion;
-import com.pingidentity.opendst.common.BuildConfig;
-import com.pingidentity.opendst.common.Faults;
 import com.pingidentity.opendst.common.Plan;
+import com.pingidentity.opendst.common.RuntimeDeployment;
 import com.pingidentity.opendst.common.Signal;
 import com.pingidentity.opendst.common.SimulationEvent;
 import com.pingidentity.opendst.runner.Planner.ExecutionPlan;
@@ -87,7 +86,7 @@ import tools.jackson.core.JacksonException;
  * <pre>
  *   &lt;workingDir&gt;/
  *     deployment/     — extracted JAR contents (configs, classes, system JARs, apps)
- *       META-INF/opendst/{assertions.json, build-config.json, deployment.json}
+ *       META-INF/opendst/{assertions.json, deployment.json}
  *       system/*.jar  — child JVM classpath (incl. opendst-agent.jar, opendst-patch.jar)
  *       apps/         — instrumented application JARs
  *     runs/           — ephemeral per-fork directories (created/deleted each run)
@@ -220,9 +219,9 @@ public final class RunnerCli implements Callable<Integer> {
         assertions.add(NO_TRACE_AUDITOR_EXCEPTION);
         assertions.add(NO_INTERNAL_ERROR);
 
-        // 2. Load build config
-        var configFile = deploymentDir.resolve("META-INF/opendst/build-config.json");
-        var config = JSON_OBJECT.beanFrom(BuildConfig.class, configFile.toFile());
+        // 2. Load runtime deployment
+        var deploymentFile = deploymentDir.resolve("META-INF/opendst/deployment.json");
+        var deployment = JSON_OBJECT.beanFrom(RuntimeDeployment.class, deploymentFile.toFile());
 
         // 3. Set up logger and JVM wiring
         logger = ofConsole(isDebug);
@@ -233,12 +232,12 @@ public final class RunnerCli implements Callable<Integer> {
                             "\uD83D\uDC1B Debug mode enabled. Attach debugger to address " + debugAddress
                                     + " (suspend=y)"));
         }
-        var faultsConfig = config.faults() != null ? config.faults() : new Faults.Config();
+        var faultsConfig = Planner.DEFAULT_FAULTS;
 
         verifyPatchModuleJdkVersion(deploymentDir.resolve("system/opendst-patch.jar"), logger);
 
         // Merge JVM arguments: build-time defaults + CLI --extra-jvm-args (additive)
-        var buildTimeArgs = config.jvmArguments();
+        var buildTimeArgs = deployment.jvmArguments();
         effectiveJvmArgs = buildTimeArgs != null && extraJvmArgs != null
                 ? buildTimeArgs + " " + extraJvmArgs
                 : buildTimeArgs != null ? buildTimeArgs : extraJvmArgs;

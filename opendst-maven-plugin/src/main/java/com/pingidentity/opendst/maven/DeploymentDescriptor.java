@@ -21,7 +21,6 @@ import com.fasterxml.jackson.annotation.JacksonInject;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.OptBoolean;
-import com.pingidentity.opendst.common.BuildConfig;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -32,7 +31,7 @@ import java.util.Map;
  * <p>The descriptor defines the deployment topology using a docker-compose-like format:
  * services (as a named map) and an optional trace auditor. Each service carries its own
  * source and class declaration. Orchestration concerns (faults, duration, fork count)
- * are configured separately in {@link BuildConfig} and via CLI arguments.
+ * are runner-side defaults plus CLI overrides.
  *
  * <p>Example YAML:
  * <pre>{@code
