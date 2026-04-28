@@ -386,7 +386,6 @@ public final class ThreadsInterceptors {
             return;
         }
         node.log(new com.pingidentity.opendst.common.Signal.PlatformThreadStartedSignal(
-                node.hostName(),
                 platformThread.getName(),
                 platformThread.getClass().getName(),
                 Thread.currentThread().getName()));
