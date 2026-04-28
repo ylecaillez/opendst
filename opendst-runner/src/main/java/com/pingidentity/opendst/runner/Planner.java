@@ -24,6 +24,7 @@ import com.pingidentity.opendst.common.Signal.AssertSignal;
 import com.pingidentity.opendst.common.Signal.GuidanceSignal;
 import com.pingidentity.opendst.common.Signal.SegmentCompletedSignal;
 import com.pingidentity.opendst.common.SimulationEvent;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,20 @@ import java.util.function.Predicate;
  * Produces execution plans for the simulation. Implementations decide how the next plan is chosen — by exploring (guided) or by replaying a saved plan.
  */
 interface Planner {
+
+    /**
+     * Default fault configuration used by the guided planner when none is supplied.
+     * Network faults enabled; bimodal latency (99.9% fast, 0.1% slow) plus persistent
+     * per-pair clogging and 0.1% reset/timeout probabilities.
+     */
+    Faults.Config DEFAULT_FAULTS = new Faults.Config(new Faults.Config.NetworkConfig(
+            true,
+            Duration.ofNanos(100_000),
+            Duration.ofNanos(800_000),
+            Duration.ofMillis(100),
+            Duration.ofMillis(100),
+            0.001,
+            0.001));
 
     record ExecutionPlan(Plan plan, Predicate<SimulationEvent> interesting) {}
 

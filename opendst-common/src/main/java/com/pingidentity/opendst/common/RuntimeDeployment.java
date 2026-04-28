@@ -20,14 +20,16 @@ import java.util.Map;
 
 /**
  * Runtime view of a deployment, baked into the self-contained JAR by the build plugin
- * and read by the child JVM at startup.
+ * and read by the child JVM at startup (and by the parent runner to assemble the
+ * child JVM command line).
  *
  * <p>This is the post-enrichment, runtime-only counterpart to {@code DeploymentDescriptor}
  * (in {@code opendst-maven-plugin}). Where the descriptor carries build-time concerns
  * (sealed {@code Source} hierarchy with {@code artifact}/{@code dir}/{@code scope}
  * variants, Maven project metadata, custom Jackson factories), {@code RuntimeDeployment}
- * contains only what the launcher needs at child-JVM startup: per-service
- * {@code dir}/{@code className}/{@code ip}/{@code args} tuples plus an optional trace auditor.
+ * contains only what the runner and launcher need at startup: the JVM argument string
+ * assembled by the build plugin and per-service {@code dir}/{@code className}/{@code ip}/
+ * {@code args} tuples plus an optional trace auditor.
  *
  * <p>The wire format is plain JSON (no annotations, no polymorphism) so it can be parsed
  * by {@code jackson-jr} on the child side without dragging {@code jackson-databind} or
@@ -37,7 +39,8 @@ import java.util.Map;
  * every service's source has been resolved to a {@code Source.Dir} pointing at an
  * {@code apps/} subdirectory.
  */
-public record RuntimeDeployment(Map<String, RuntimeService> services, RuntimeAuditor traceAuditor) {
+public record RuntimeDeployment(
+        String jvmArguments, Map<String, RuntimeService> services, RuntimeAuditor traceAuditor) {
 
     /**
      * One service's runtime view.
