@@ -15,6 +15,9 @@
  */
 package com.pingidentity.opendst.sdk;
 
+import static com.pingidentity.opendst.common.AssertType.ALWAYS;
+import static com.pingidentity.opendst.common.AssertType.ALWAYS_OR_UNREACHABLE;
+import static com.pingidentity.opendst.common.AssertType.SOMETIMES;
 import static com.pingidentity.opendst.simulator.Node.currentNodeOrThrow;
 import static java.util.Map.of;
 import static java.util.Objects.requireNonNull;
@@ -36,7 +39,7 @@ public final class AssertImpl {
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#always(boolean,String,java.util.Map)")
     public static void always(boolean condition, String message, Map<String, Object> details) {
-        recordAssert("always", message, condition, details);
+        recordAssert(ALWAYS, message, condition, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#always(boolean,String)")
@@ -46,7 +49,7 @@ public final class AssertImpl {
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysOrUnreachable(boolean,String,java.util.Map)")
     public static void alwaysOrUnreachable(boolean condition, String message, Map<String, Object> details) {
-        recordAssert("alwaysOrUnreachable", message, condition, details);
+        recordAssert(ALWAYS_OR_UNREACHABLE, message, condition, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysOrUnreachable(boolean,String)")
@@ -68,7 +71,7 @@ public final class AssertImpl {
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimes(boolean,String,java.util.Map)")
     public static void sometimes(boolean condition, String message, Map<String, Object> details) {
-        recordAssert("sometimes", message, condition, details);
+        recordAssert(SOMETIMES, message, condition, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimes(boolean,String)")
@@ -91,7 +94,7 @@ public final class AssertImpl {
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysGreaterThan(Number,Number,String,java.util.Map)")
     public static <T extends Number & Comparable<T>> void alwaysGreaterThan(
             T left, T right, String message, Map<String, Object> details) {
-        comparative("always", left.compareTo(right) > 0, left, right, message, details);
+        comparative(ALWAYS, left.compareTo(right) > 0, left, right, message, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysGreaterThan(Number,Number,String)")
@@ -102,7 +105,7 @@ public final class AssertImpl {
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysGreaterThanOrEqualTo(Number,Number,String,java.util.Map)")
     public static <T extends Number & Comparable<T>> void alwaysGreaterThanOrEqualTo(
             T left, T right, String message, Map<String, Object> details) {
-        comparative("always", left.compareTo(right) >= 0, left, right, message, details);
+        comparative(ALWAYS, left.compareTo(right) >= 0, left, right, message, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysGreaterThanOrEqualTo(Number,Number,String)")
@@ -113,7 +116,7 @@ public final class AssertImpl {
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysLessThan(Number,Number,String,java.util.Map)")
     public static <T extends Number & Comparable<T>> void alwaysLessThan(
             T left, T right, String message, Map<String, Object> details) {
-        comparative("always", left.compareTo(right) < 0, left, right, message, details);
+        comparative(ALWAYS, left.compareTo(right) < 0, left, right, message, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysLessThan(Number,Number,String)")
@@ -124,7 +127,7 @@ public final class AssertImpl {
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysLessThanOrEqualTo(Number,Number,String,java.util.Map)")
     public static <T extends Number & Comparable<T>> void alwaysLessThanOrEqualTo(
             T left, T right, String message, Map<String, Object> details) {
-        comparative("always", left.compareTo(right) <= 0, left, right, message, details);
+        comparative(ALWAYS, left.compareTo(right) <= 0, left, right, message, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysLessThanOrEqualTo(Number,Number,String)")
@@ -135,7 +138,7 @@ public final class AssertImpl {
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesGreaterThan(Number,Number,String,java.util.Map)")
     public static <T extends Number & Comparable<T>> void sometimesGreaterThan(
             T left, T right, String message, Map<String, Object> details) {
-        comparative("sometimes", left.compareTo(right) > 0, left, right, message, details);
+        comparative(SOMETIMES, left.compareTo(right) > 0, left, right, message, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesGreaterThan(Number,Number,String)")
@@ -146,7 +149,7 @@ public final class AssertImpl {
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesGreaterThanOrEqualTo(Number,Number,String,java.util.Map)")
     public static <T extends Number & Comparable<T>> void sometimesGreaterThanOrEqualTo(
             T left, T right, String message, Map<String, Object> details) {
-        comparative("sometimes", left.compareTo(right) >= 0, left, right, message, details);
+        comparative(SOMETIMES, left.compareTo(right) >= 0, left, right, message, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesGreaterThanOrEqualTo(Number,Number,String)")
@@ -158,7 +161,7 @@ public final class AssertImpl {
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesLessThan(Number,Number,String,java.util.Map)")
     public static <T extends Number & Comparable<T>> void sometimesLessThan(
             T left, T right, String message, Map<String, Object> details) {
-        comparative("sometimes", left.compareTo(right) < 0, left, right, message, details);
+        comparative(SOMETIMES, left.compareTo(right) < 0, left, right, message, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesLessThan(Number,Number,String)")
@@ -169,7 +172,7 @@ public final class AssertImpl {
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesLessThanOrEqualTo(Number,Number,String,java.util.Map)")
     public static <T extends Number & Comparable<T>> void sometimesLessThanOrEqualTo(
             T left, T right, String message, Map<String, Object> details) {
-        comparative("sometimes", left.compareTo(right) <= 0, left, right, message, details);
+        comparative(SOMETIMES, left.compareTo(right) <= 0, left, right, message, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesLessThanOrEqualTo(Number,Number,String)")
@@ -181,7 +184,7 @@ public final class AssertImpl {
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysSome(java.util.Map,String,java.util.Map)")
     public static void alwaysSome(Map<String, Boolean> conditions, String message, Map<String, Object> details) {
-        grouped("always", conditions.values().stream().anyMatch(b -> b), conditions, message, details);
+        grouped(ALWAYS, conditions.values().stream().anyMatch(b -> b), conditions, message, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#alwaysSome(java.util.Map,String)")
@@ -191,7 +194,7 @@ public final class AssertImpl {
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesAll(java.util.Map,String,java.util.Map)")
     public static void sometimesAll(Map<String, Boolean> conditions, String message, Map<String, Object> details) {
-        grouped("sometimes", conditions.values().stream().allMatch(b -> b), conditions, message, details);
+        grouped(SOMETIMES, conditions.values().stream().allMatch(b -> b), conditions, message, details);
     }
 
     @Intercepts("com.pingidentity.opendst.sdk.Assert#sometimesAll(java.util.Map,String)")
@@ -200,13 +203,18 @@ public final class AssertImpl {
     }
 
     private static void comparative(
-            String kind, boolean condition, Number left, Number right, String message, Map<String, Object> details) {
+            AssertType kind,
+            boolean condition,
+            Number left,
+            Number right,
+            String message,
+            Map<String, Object> details) {
         recordAssert(kind, message, condition, details);
         recordGuidance(message, of("left", left, "right", right));
     }
 
     private static void grouped(
-            String kind,
+            AssertType kind,
             boolean condition,
             Map<String, Boolean> conditions,
             String message,
@@ -215,12 +223,12 @@ public final class AssertImpl {
         recordGuidance(message, of("conditions", conditions));
     }
 
-    private static void recordAssert(String kind, String message, boolean condition, Map<String, Object> details) {
+    private static void recordAssert(AssertType kind, String message, boolean condition, Map<String, Object> details) {
         var node = currentNodeOrThrow();
         var sim = Simulator.current();
         Simulator.logger()
                 .logAssert(
-                        AssertType.fromString(kind),
+                        kind,
                         requireNonNull(message),
                         condition,
                         details,
