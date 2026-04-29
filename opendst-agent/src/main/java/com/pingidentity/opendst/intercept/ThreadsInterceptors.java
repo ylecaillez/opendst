@@ -34,6 +34,7 @@ import static net.bytebuddy.asm.Advice.to;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
+import com.pingidentity.opendst.common.Signal.PlatformThreadStartedSignal;
 import com.pingidentity.opendst.simulator.Node;
 import com.pingidentity.opendst.simulator.Simulator;
 import java.lang.invoke.MethodHandle;
@@ -385,7 +386,7 @@ public final class ThreadsInterceptors {
         if (node == null) {
             return;
         }
-        node.log(new com.pingidentity.opendst.common.Signal.PlatformThreadStartedSignal(
+        node.log(new PlatformThreadStartedSignal(
                 platformThread.getName(),
                 platformThread.getClass().getName(),
                 Thread.currentThread().getName()));

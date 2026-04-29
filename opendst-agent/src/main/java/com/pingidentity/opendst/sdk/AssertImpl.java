@@ -23,6 +23,8 @@ import static java.util.Map.of;
 import static java.util.Objects.requireNonNull;
 
 import com.pingidentity.opendst.common.AssertType;
+import com.pingidentity.opendst.common.Signal.AssertSignal;
+import com.pingidentity.opendst.common.Signal.GuidanceSignal;
 import com.pingidentity.opendst.intercept.Intercepts;
 import java.util.Map;
 
@@ -223,14 +225,11 @@ public final class AssertImpl {
     }
 
     private static void recordAssert(AssertType kind, String message, boolean condition, Map<String, Object> details) {
-        currentNodeOrThrow()
-                .log(new com.pingidentity.opendst.common.Signal.AssertSignal(
-                        kind, requireNonNull(message), condition, details));
+        currentNodeOrThrow().log(new AssertSignal(kind, requireNonNull(message), condition, details));
     }
 
     private static void recordGuidance(String message, Map<String, Object> guidance) {
-        currentNodeOrThrow()
-                .log(new com.pingidentity.opendst.common.Signal.GuidanceSignal(requireNonNull(message), guidance));
+        currentNodeOrThrow().log(new GuidanceSignal(requireNonNull(message), guidance));
     }
 
     private AssertImpl() {

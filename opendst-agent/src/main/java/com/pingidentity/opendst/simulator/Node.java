@@ -15,6 +15,7 @@
  */
 package com.pingidentity.opendst.simulator;
 
+import static com.pingidentity.opendst.common.Signal.*;
 import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.getThreadLocal;
 import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.isOnWaitingList;
 import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.setThreadLocal;
@@ -29,6 +30,7 @@ import static java.time.temporal.ChronoUnit.NANOS;
 import static java.util.Locale.ROOT;
 import static java.util.Objects.requireNonNull;
 
+import com.pingidentity.opendst.common.Signal;
 import com.pingidentity.opendst.intercept.NetworkInterceptors;
 import com.pingidentity.opendst.intercept.ThreadsInterceptors.VirtualThreadUnblocker;
 import com.pingidentity.opendst.simulator.NodeSocketImpl.Binding;
@@ -182,13 +184,12 @@ public final class Node {
     }
 
     /**
-     * Emits a per-node {@link com.pingidentity.opendst.common.Signal} through the structured logger,
+     * Emits a per-node {@link Signal} through the structured logger,
      * tagging it with this node's host name and folding {@code signal.message()} into the deterministic
      * state hash.
      */
-    public void log(com.pingidentity.opendst.common.Signal signal) {
-        context.logger()
-                .emit(signal, hostName, context.instant(), context.random().iteration());
+    public void log(Signal signal) {
+        context.logger().emit(signal, hostName);
     }
 
     // ── SDK entry points (called from com.pingidentity.opendst.sdk.*) ─────
@@ -336,8 +337,7 @@ public final class Node {
         if (!hook.isVirtual()) {
             // Platform thread hooks cannot run deterministically inside the simulation.
             // This is expected for JUL's LogManager$Cleaner and similar JDK housekeeping threads.
-            log(new com.pingidentity.opendst.common.Signal.PlatformThreadShutdownHookSkippedSignal(
-                    hook.getClass().getName(), hook.getName()));
+            log(new PlatformThreadShutdownHookSkippedSignal(hook.getClass().getName(), hook.getName()));
             return;
         }
         shutdownHooks.add(hook);
