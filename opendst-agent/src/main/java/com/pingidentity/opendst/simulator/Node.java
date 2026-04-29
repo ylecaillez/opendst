@@ -15,6 +15,7 @@
  */
 package com.pingidentity.opendst.simulator;
 
+import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.getThreadLocal;
 import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.isOnWaitingList;
 import static com.pingidentity.opendst.intercept.ThreadsInterceptors.Internals.setThreadLocal;
 import static com.pingidentity.opendst.simulator.SimulationContext.MAX_VIRTUAL_THREADS_PER_NODE;
@@ -25,10 +26,10 @@ import static java.lang.Thread.currentThread;
 import static java.lang.Thread.ofVirtual;
 import static java.net.InetAddress.getLoopbackAddress;
 import static java.time.temporal.ChronoUnit.NANOS;
+import static java.util.Locale.ROOT;
 import static java.util.Objects.requireNonNull;
 
 import com.pingidentity.opendst.intercept.NetworkInterceptors;
-import com.pingidentity.opendst.intercept.ThreadsInterceptors;
 import com.pingidentity.opendst.intercept.ThreadsInterceptors.VirtualThreadUnblocker;
 import com.pingidentity.opendst.simulator.NodeSocketImpl.Binding;
 import java.io.IOException;
@@ -81,7 +82,7 @@ public final class Node {
         }
         requireNonNull(localIpAddress);
 
-        this.hostName = hostName.toLowerCase(java.util.Locale.ROOT);
+        this.hostName = hostName.toLowerCase(ROOT);
         this.salt32l = context.random().nextLong() & 0xFFFF_FFFFL;
         this.reverse = (salt32l & 1) == 0;
         this.console = new PrintStream(context.logger().newLogWriter(this), true);
@@ -94,15 +95,6 @@ public final class Node {
     /** {@return the Node attached to this thread, or {@code null} if not in a simulation} */
     public static Node currentNodeOrNull() {
         return CURRENT_NODE.get();
-    }
-
-    /**
-     * {@return the Node attached to the given thread, or {@code null}}
-     *
-     * <p>Uses reflective access to read the thread-local value from an arbitrary thread.
-     */
-    public static Node nodeForThreadOrNull(Thread thread) {
-        return (Node) ThreadsInterceptors.Internals.getThreadLocal(thread, CURRENT_NODE);
     }
 
     /**
@@ -120,6 +112,15 @@ public final class Node {
     }
 
     /**
+     * {@return the Node attached to the given thread, or {@code null}}
+     *
+     * <p>Uses reflective access to read the thread-local value from an arbitrary thread.
+     */
+    public static Node nodeForThreadOrNull(Thread thread) {
+        return (Node) getThreadLocal(thread, CURRENT_NODE);
+    }
+
+    /**
      * Executes the given action with this node as the current node on the calling thread.
      * Restores the previous node when the action completes.
      *
@@ -127,21 +128,46 @@ public final class Node {
      */
     void execute(Runnable action) {
         context.simulator().hash(context.instant(), hostName);
-        var previous = CURRENT_NODE.get();
+        try (var _ = enterCarrierContext()) {
+            action.run();
+        }
+    }
+
+    /**
+     * Swaps the carrier-thread context (current node + {@code System.out}/{@code System.err}) to
+     * this node and returns a handle whose {@link CarrierContext#close()} restores the previous
+     * values.
+     *
+     * <p>{@link com.pingidentity.opendst.simulator.Simulator#startNode(String, String,
+     * java.util.concurrent.Callable) Simulator.startNode(...)} can be invoked from inside another
+     * node's running scenario, in which case {@link #execute(Runnable)} runs re-entrantly on the
+     * same carrier thread; restoring all three values keeps the outer node's
+     * {@code System.out.println(...)}s tagged with the correct vhost after the nested call returns.
+     */
+    private CarrierContext enterCarrierContext() {
+        var saved = new CarrierContext(this, CURRENT_NODE.get(), System.out, System.err);
         CURRENT_NODE.set(this);
         setOut(console);
         setErr(console);
-        try {
-            action.run();
-        } finally {
-            if (previous != null) {
-                CURRENT_NODE.set(previous);
+        return saved;
+    }
+
+    /** Restores the carrier-thread context captured before {@link #enterCarrierContext()}. */
+    private record CarrierContext(Node node, Node previousNode, PrintStream previousOut, PrintStream previousErr)
+            implements AutoCloseable {
+
+        @Override
+        public void close() {
+            if (previousNode != null) {
+                CURRENT_NODE.set(previousNode);
             } else {
                 CURRENT_NODE.remove();
             }
+            setOut(previousOut);
+            setErr(previousErr);
             // Some thread blocked on monitor might have been unblocked as a result of this execution
-            virtualThreads.forEach(VirtualThreadUnblocker::unblockSimulatorBackedThread);
-            console.flush();
+            node.virtualThreads.forEach(VirtualThreadUnblocker::unblockSimulatorBackedThread);
+            node.console.flush();
         }
     }
 
