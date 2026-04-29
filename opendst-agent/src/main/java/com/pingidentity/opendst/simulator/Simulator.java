@@ -130,7 +130,7 @@ public final class Simulator {
         // Assemble the immutable context last — passed only to Node
         this.context = new SimulationContext(this, scheduler, random, faults, network, faultInjector, logger);
 
-        logger.emit(new StartedSignal(), null, START_TIME, 0L);
+        logger.emit(new StartedSignal(), null);
     }
 
     /**
@@ -138,7 +138,7 @@ public final class Simulator {
      * folding {@code signal.message()} into the deterministic state hash.
      */
     public void log(Signal signal) {
-        context.logger().emit(signal, null, context.instant(), context.random().iteration());
+        context.logger().emit(signal, null);
     }
 
     public boolean isReady() {

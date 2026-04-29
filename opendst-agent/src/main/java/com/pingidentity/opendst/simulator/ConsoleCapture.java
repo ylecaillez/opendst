@@ -143,14 +143,17 @@ public final class ConsoleCapture {
      * {@link Signal} payload. Field-level serialization is delegated to {@link SignalCodec}.
      * Always folds {@code signal.message()} into the deterministic state hash.
      *
-     * @param signal    the typed signal to emit
-     * @param vhost     the virtual host the signal pertains to, or {@code null} for simulator-framework signals
-     * @param time      the simulator instant at which the signal was emitted
-     * @param iteration the simulator iteration counter
+     * <p>The simulator instant and iteration counter are read from the live simulator state at
+     * emission time. Callers must therefore invoke {@code emit} only from inside the simulation
+     * tick (where these values are meaningful).
+     *
+     * @param signal the typed signal to emit
+     * @param vhost  the virtual host the signal pertains to, or {@code null} for simulator-framework signals
      */
-    void emit(Signal signal, String vhost, Instant time, long iteration) {
+    void emit(Signal signal, String vhost) {
         var source = vhost != null ? LOG_SOURCE_VHOST : LOG_SOURCE_SIMULATOR;
-        JSON_LOGGER.write(new SimulationEvent(logSeq++, source, vhost, iteration, time, signal), out);
+        JSON_LOGGER.write(
+                new SimulationEvent(logSeq++, source, vhost, simulator.iteration(), simulator.instant(), signal), out);
         out.write('\n');
         simulator.hash(signal.message());
     }
