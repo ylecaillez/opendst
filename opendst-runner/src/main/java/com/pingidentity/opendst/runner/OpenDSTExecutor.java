@@ -68,8 +68,7 @@ public final class OpenDSTExecutor {
             var deploymentDir = Path.of(args[0]);
             var descriptorFile = deploymentDir.resolve("META-INF/opendst/deployment.yaml");
 
-            // Parse deployment descriptor — enriched descriptors always have 'dir' set,
-            // so the injected projectArtifactId (null) is never used.
+            err.println("[OpenDSTExecutor] parsing deployment descriptor: " + descriptorFile);
             var yamlMapper = YAMLMapper.builder()
                     .disable(FAIL_ON_NULL_FOR_PRIMITIVES)
                     .disable(FAIL_ON_UNKNOWN_PROPERTIES)
@@ -80,16 +79,13 @@ public final class OpenDSTExecutor {
                     .readerFor(DeploymentDescriptor.class)
                     .with(injectables)
                     .readValue(descriptorFile.toFile());
+            err.println("[OpenDSTExecutor] descriptor loaded, services: "
+                    + descriptor.services().keySet());
 
-            // The opendst-agent JAR must be on each service's classpath so that the
-            // URLClassLoader (parented to getPlatformClassLoader()) can resolve
-            // AssertImpl and other opendst-agent classes referenced by instrumented code.
             var appsDir = deploymentDir.resolve("apps");
             var coreJarUrl =
                     deploymentDir.resolve("system/opendst-agent.jar").toUri().toURL();
 
-            // Resolve trace auditor if specified. The trace auditor is self-contained: its source
-            // is identified by its own appDir() (from dir/artifact), not by referencing a service.
             TraceAuditor traceAuditor = _ -> {};
             if (descriptor.traceAuditor() != null) {
                 var auditorAppDir = descriptor.traceAuditor().appDir();
@@ -104,12 +100,13 @@ public final class OpenDSTExecutor {
                         (TraceAuditor) auditorClass.getDeclaredConstructor().newInstance();
             }
 
-            // Run the simulation — start each service as a classloader-isolated node.
+            err.println("[OpenDSTExecutor] calling runSimulation");
             runSimulation(
                     () -> {
                         for (var entry : descriptor.services().entrySet()) {
                             var serviceName = entry.getKey();
                             var svc = entry.getValue();
+                            err.println("[OpenDSTExecutor] starting node: " + serviceName);
                             var appDir = appsDir.resolve(svc.appDir());
                             var serviceClassLoader =
                                     classLoader(serviceName, appDir, getPlatformClassLoader(), coreJarUrl);
@@ -122,6 +119,7 @@ public final class OpenDSTExecutor {
                         return null;
                     },
                     traceAuditor);
+            err.println("[OpenDSTExecutor] runSimulation returned");
 
         } catch (ReflectiveOperationException e) {
             err.println("Failed to instantiate trace auditor");
