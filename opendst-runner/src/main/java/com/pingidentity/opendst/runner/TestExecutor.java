@@ -45,6 +45,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -54,6 +55,7 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 
@@ -88,6 +90,84 @@ final class TestExecutor {
             int forkCount,
             Set<BuildRunner.StopCondition> stopConditions) {}
 
+    /**
+     * {@link ExecutionBackend} that spawns a fresh child JVM per iteration.
+     * This is the default backend; it maps 1:1 to the pre-refactor behaviour.
+     */
+    final class ForkBackend implements ExecutionBackend {
+        private Process proc;
+        private BufferedReader reader;
+        private Thread runKiller;
+        private Path runBaseDir;
+
+        ForkBackend(Path runBaseDir) throws IOException {
+            this.runBaseDir = runBaseDir;
+            proc = startProcess(runBaseDir);
+            reader = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+            runKiller = new Thread(proc::destroyForcibly);
+            getRuntime().addShutdownHook(runKiller);
+        }
+
+        @Override
+        public void startIteration(Plan plan) throws IOException {
+            JSON_MAPPER.writeValue(proc.getOutputStream(), plan);
+        }
+
+        @Override
+        public BufferedReader logReader() {
+            return reader;
+        }
+
+        @Override
+        public int awaitCrash() throws InterruptedException {
+            proc.waitFor();
+            return proc.exitValue();
+        }
+
+        @Override
+        public void afterIteration() throws IOException, InterruptedException {
+            proc.destroy();
+            if (!proc.waitFor(30, TimeUnit.SECONDS)) {
+                proc.destroyForcibly();
+            }
+            if (runKiller != null) {
+                try {
+                    getRuntime().removeShutdownHook(runKiller);
+                } catch (IllegalStateException ignored) {
+                    // JVM is shutting down; hook will run naturally
+                }
+                runKiller = null;
+            }
+        }
+
+        @Override
+        public boolean isHealthy() {
+            return true; // Each iteration spawns fresh — always healthy at start
+        }
+
+        @Override
+        public Optional<Path> simulatorLogPath() {
+            return Optional.of(runBaseDir.resolve("simulator.log"));
+        }
+
+        @Override
+        public void cleanupAfterRun() throws IOException {
+            deleteRecursively(runsDir, runBaseDir);
+        }
+
+        @Override
+        public void close() {
+            // Nothing — process already terminated in afterIteration
+        }
+
+        private Process startProcess(Path runBaseDir) throws IOException {
+            return new ProcessBuilder(buildJvmCommandLine(runBaseDir))
+                    .directory(runBaseDir.toFile())
+                    .redirectErrorStream(true)
+                    .start();
+        }
+    }
+
     private final Path reportDir;
     private final Path runsDir;
     private final String testClass;
@@ -97,12 +177,17 @@ final class TestExecutor {
     private final RunConfig runConfig;
     private final OpenDstLogger logger;
     private final Orchestrator orchestrator;
+    // Factory that produces a fresh backend for each fork thread.
+    // Fork backend: creates a new ForkBackend per iteration.
+    // Nyx backend: returns the same persistent NyxBackend (shim stays alive).
+    private final Supplier<ExecutionBackend> backendFactory;
 
     private final AtomicInteger runSequence = new AtomicInteger();
     private final AtomicInteger boringRunStreak = new AtomicInteger();
     private final Queue<Plan> pastPlans = new ArrayBlockingQueue<>(10);
     private final AtomicBoolean earlyExit = new AtomicBoolean();
 
+    /** Constructs a TestExecutor using the default fork-per-iteration backend. */
     TestExecutor(
             Path reportDir,
             Path runsDir,
@@ -113,6 +198,21 @@ final class TestExecutor {
             OpenDstLogger logger,
             Orchestrator orchestrator,
             RunConfig run) {
+        this(reportDir, runsDir, testClass, testMethod, classpath, jvm, logger, orchestrator, run, null);
+    }
+
+    /** Constructs a TestExecutor with an explicit backend factory (null → fork backend). */
+    TestExecutor(
+            Path reportDir,
+            Path runsDir,
+            String testClass,
+            String testMethod,
+            String classpath,
+            JvmConfig jvm,
+            OpenDstLogger logger,
+            Orchestrator orchestrator,
+            RunConfig run,
+            Supplier<ExecutionBackend> backendFactory) {
         this.reportDir = reportDir;
         this.runsDir = runsDir;
         this.testClass = testClass;
@@ -122,6 +222,7 @@ final class TestExecutor {
         this.runConfig = run;
         this.logger = logger;
         this.orchestrator = orchestrator;
+        this.backendFactory = backendFactory;
     }
 
     /** Runs the full simulation lifecycle: parallel run loops, property verification, and report generation. */
@@ -140,94 +241,126 @@ final class TestExecutor {
 
     private Void runLoop(int count, ReportGenerator reportGenerator) throws IOException, InterruptedException {
         int consecutiveCrashes = 0;
-        for (; ; ) {
-            if (earlyExit.get()) {
-                return null;
-            }
-            var executionPlan = getNewExecutionPlanOrReplay();
-            int runCount = runSequence.incrementAndGet();
 
-            var runBaseDir = createRunBaseDir(count);
-            ExecutionResult executionResult;
-            try {
-                executionResult = runOnce(runBaseDir, executionPlan);
-            } catch (IOException | InterruptedException e) {
-                deleteRecursively(runsDir, runBaseDir);
-                throw e;
-            }
+        // For nyx backend: create the persistent backend once per fork thread and reuse it.
+        // For fork backend: backendFactory is null — a fresh ForkBackend is created per iteration.
+        ExecutionBackend persistentBackend = backendFactory != null ? backendFactory.get() : null;
 
-            // Detect infrastructure crashes (child JVM dies before the simulator starts).
-            // If this happens repeatedly, the classpath or environment is broken — continuing
-            // would just rapid-fire spawn doomed processes across all forks.
-            if (executionResult.isInfrastructureCrash()) {
-                consecutiveCrashes++;
-                if (consecutiveCrashes >= MAX_CONSECUTIVE_CRASHES) {
-                    logger.raw()
-                            .error("Child JVM crashed %d times consecutively without starting the simulation — aborting"
-                                    .formatted(consecutiveCrashes));
-                    earlyExit.set(true);
-                    deleteRecursively(runsDir, runBaseDir);
+        try {
+            for (; ; ) {
+                if (earlyExit.get()) {
                     return null;
                 }
-            } else {
-                consecutiveCrashes = 0;
-            }
+                var executionPlan = getNewExecutionPlanOrReplay();
+                int runCount = runSequence.incrementAndGet();
 
-            if (runConfig.isDebugOrReplay()) {
-                deleteRecursively(runsDir, runBaseDir);
-                return null;
-            }
-            if (executionResult.runFailed()) {
-                logger.run("fail").error().withHash(executionResult.runHash()).log();
-            } else if (executionPlan.plan().hash() == 0) {
-                pastPlans.offer(executionPlan.plan().withHash(executionResult.runHash()));
-            } else if (executionPlan.plan().hash() == executionResult.runHash()) {
-                logger.run("verified").withHash(executionResult.runHash()).log();
-            }
+                // Nyx: reuse persistent backend; Fork: create fresh backend each iteration
+                ExecutionBackend backend;
+                if (persistentBackend != null) {
+                    if (!persistentBackend.isHealthy()) {
+                        // Shim crashed — treat as infrastructure crash and abort this fork
+                        logger.raw().error("nyx-lite shim is no longer healthy — aborting fork");
+                        earlyExit.set(true);
+                        return null;
+                    }
+                    backend = persistentBackend;
+                } else {
+                    var runBaseDir = createRunBaseDir(count);
+                    backend = new ForkBackend(runBaseDir);
+                }
 
-            var hexHash = HexFormat.of().toHexDigits(executionResult.runHash());
-            var planFile = reportDir.resolve("plans").resolve(hexHash + ".plan.json");
-            savePlan(executionPlan.plan().withHash(executionResult.runHash()), planFile);
-            reportGenerator.addExecutionResult(executionResult, planFile);
+                ExecutionResult executionResult;
+                try {
+                    executionResult = runOnce(backend, executionPlan);
+                } catch (IOException | InterruptedException e) {
+                    backend.cleanupAfterRun();
+                    throw e;
+                }
 
-            // Capture simulator.log for interesting runs before deleting the run directory
-            if (executionResult.isInteresting()) {
-                var simulatorLog = runBaseDir.resolve("simulator.log");
-                if (exists(simulatorLog)) {
-                    var logDest = reportDir.resolve("plans").resolve(hexHash + ".log.json");
-                    copy(simulatorLog, logDest, REPLACE_EXISTING);
+                // Detect infrastructure crashes (child JVM dies before the simulator starts).
+                if (executionResult.isInfrastructureCrash()) {
+                    consecutiveCrashes++;
+                    if (consecutiveCrashes >= MAX_CONSECUTIVE_CRASHES) {
+                        logger.raw()
+                                .error(
+                                        "Child JVM crashed %d times consecutively without starting the simulation — aborting"
+                                                .formatted(consecutiveCrashes));
+                        earlyExit.set(true);
+                        backend.cleanupAfterRun();
+                        return null;
+                    }
+                } else {
+                    consecutiveCrashes = 0;
+                }
+
+                if (runConfig.isDebugOrReplay()) {
+                    backend.cleanupAfterRun();
+                    return null;
+                }
+                if (executionResult.runFailed()) {
+                    logger.run("fail")
+                            .error()
+                            .withHash(executionResult.runHash())
+                            .log();
+                } else if (executionPlan.plan().hash() == 0) {
+                    pastPlans.offer(executionPlan.plan().withHash(executionResult.runHash()));
+                } else if (executionPlan.plan().hash() == executionResult.runHash()) {
+                    logger.run("verified").withHash(executionResult.runHash()).log();
+                }
+
+                var hexHash = HexFormat.of().toHexDigits(executionResult.runHash());
+                var planFile = reportDir.resolve("plans").resolve(hexHash + ".plan.json");
+                savePlan(executionPlan.plan().withHash(executionResult.runHash()), planFile);
+                reportGenerator.addExecutionResult(executionResult, planFile);
+
+                // Capture simulator.log for interesting runs before deleting the run directory
+                if (executionResult.isInteresting()) {
+                    backend.simulatorLogPath().ifPresent(simulatorLog -> {
+                        if (exists(simulatorLog)) {
+                            var logDest = reportDir.resolve("plans").resolve(hexHash + ".log.json");
+                            try {
+                                copy(simulatorLog, logDest, REPLACE_EXISTING);
+                            } catch (IOException e) {
+                                logger.raw().warn("Failed to copy simulator log: " + e.getMessage());
+                            }
+                        }
+                    });
+                }
+
+                // Run directory is ephemeral — clean up after capturing any interesting artifacts
+                backend.cleanupAfterRun();
+
+                if (runConfig.stopConditions().contains(StopCondition.ANY_FAIL)
+                        && reportGenerator.hasFailures()
+                        && earlyExit.compareAndSet(false, true)) {
+                    logger.raw().warn("Assertion failure detected — stopping (--stop any-fail)");
+                }
+                if (runConfig.stopConditions().contains(StopCondition.ALL_PASS)
+                        && runCount >= runConfig.stagnationLimit()
+                        && reportGenerator.allPassed()
+                        && earlyExit.compareAndSet(false, true)) {
+                    logger.raw().info("All assertions passing — stopping (--stop all-pass)");
+                }
+
+                if (executionResult.isInteresting()) {
+                    reportGenerator.generate(reportDir.resolve("report.json"));
+                    boringRunStreak.set(0);
+                } else if (boringRunStreak.incrementAndGet() >= runConfig.stagnationLimit()) {
+                    return null;
+                }
+
+                if (runCount % PROGRESS_INTERVAL == 0) {
+                    var counts = reportGenerator.passingCount();
+                    logger.run("progress")
+                            .with("run", runCount)
+                            .with("stagnation", boringRunStreak.get())
+                            .withPassing(counts[0], counts[1])
+                            .log();
                 }
             }
-
-            // Run directory is ephemeral — clean up after capturing any interesting artifacts
-            deleteRecursively(runsDir, runBaseDir);
-
-            if (runConfig.stopConditions().contains(StopCondition.ANY_FAIL)
-                    && reportGenerator.hasFailures()
-                    && earlyExit.compareAndSet(false, true)) {
-                logger.raw().warn("Assertion failure detected \u2014 stopping (--stop any-fail)");
-            }
-            if (runConfig.stopConditions().contains(StopCondition.ALL_PASS)
-                    && runCount >= runConfig.stagnationLimit()
-                    && reportGenerator.allPassed()
-                    && earlyExit.compareAndSet(false, true)) {
-                logger.raw().info("All assertions passing \u2014 stopping (--stop all-pass)");
-            }
-
-            if (executionResult.isInteresting()) {
-                reportGenerator.generate(reportDir.resolve("report.json"));
-                boringRunStreak.set(0);
-            } else if (boringRunStreak.incrementAndGet() >= runConfig.stagnationLimit()) {
-                return null;
-            }
-
-            if (runCount % PROGRESS_INTERVAL == 0) {
-                var counts = reportGenerator.passingCount();
-                logger.run("progress")
-                        .with("run", runCount)
-                        .with("stagnation", boringRunStreak.get())
-                        .withPassing(counts[0], counts[1])
-                        .log();
+        } finally {
+            if (persistentBackend != null) {
+                persistentBackend.close();
             }
         }
     }
@@ -251,69 +384,42 @@ final class TestExecutor {
         return orchestrator.nextPlan();
     }
 
-    private ExecutionResult runOnce(Path runBaseDir, ExecutionPlan execution) throws IOException, InterruptedException {
-        Process proc = null;
-        Thread runKiller = null;
+    private ExecutionResult runOnce(ExecutionBackend backend, ExecutionPlan execution)
+            throws IOException, InterruptedException {
         try {
-            proc = startProcess(runBaseDir);
-            runKiller = new Thread(proc::destroyForcibly);
-            getRuntime().addShutdownHook(runKiller);
-            JSON_MAPPER.writeValue(proc.getOutputStream(), execution.plan());
-            return monitorExecutionOutput(proc, execution);
+            backend.startIteration(execution.plan());
+            return monitorExecutionOutput(backend, execution);
         } finally {
-            if (proc != null) {
-                // Graceful SIGTERM lets the child JVM run shutdown hooks.
-                // Falls back to SIGKILL if the child doesn't exit within 30 seconds.
-                proc.destroy();
-                if (!proc.waitFor(30, TimeUnit.SECONDS)) {
-                    proc.destroyForcibly();
-                }
-            }
-            if (runKiller != null) {
-                try {
-                    getRuntime().removeShutdownHook(runKiller);
-                } catch (IllegalStateException ignored) {
-                    // JVM is shutting down; hook will run naturally
-                }
-            }
+            backend.afterIteration();
         }
     }
 
-    private Process startProcess(Path runBaseDir) throws IOException {
-        return new ProcessBuilder(buildJvmCommandLine(runBaseDir))
-                .directory(runBaseDir.toFile())
-                .redirectErrorStream(true)
-                .start();
-    }
-
-    private ExecutionResult monitorExecutionOutput(Process proc, ExecutionPlan execution)
+    private ExecutionResult monitorExecutionOutput(ExecutionBackend backend, ExecutionPlan execution)
             throws IOException, InterruptedException {
         var lastLogs = new ArrayDeque<String>();
         var result = new ExecutionResult();
-        try (var logs = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
-            for (var line = logs.readLine(); line != null; line = logs.readLine()) {
-                if (lastLogs.size() >= 50) {
-                    lastLogs.removeFirst();
-                }
-                lastLogs.addLast(line);
-                LogStatement log;
-                SignalEvent event;
-                if ((log = parseLog(line)) != null && (event = extractSignal(log)) != null) {
-                    boolean interestingEvent = execution.interesting().test(event);
-                    if (result.addSignal(event, interestingEvent)) {
-                        return result;
-                    }
+        var logs = backend.logReader();
+        for (var line = logs.readLine(); line != null; line = logs.readLine()) {
+            if (lastLogs.size() >= 50) {
+                lastLogs.removeFirst();
+            }
+            lastLogs.addLast(line);
+            LogStatement log;
+            SignalEvent event;
+            if ((log = parseLog(line)) != null && (event = extractSignal(log)) != null) {
+                boolean interestingEvent = execution.interesting().test(event);
+                if (result.addSignal(event, interestingEvent)) {
+                    return result;
                 }
             }
-            // Child exited without sending "stopped" — synthesize an error result so the failure
-            // flows through the normal reporting pipeline (fail line, report.json, log.json preservation).
-            int exitCode = proc.waitFor();
-            result.synthesizeCrash(exitCode, lastLogs);
-            logger.raw()
-                    .error("child process exited unexpectedly (code %d). Last %d log lines preserved in report."
-                            .formatted(exitCode, lastLogs.size()));
-            return result;
         }
+        // Log stream closed without "stopped" — synthesize a crash result
+        int exitCode = backend.awaitCrash();
+        result.synthesizeCrash(exitCode, lastLogs);
+        logger.raw()
+                .error("child process exited unexpectedly (code %d). Last %d log lines preserved in report."
+                        .formatted(exitCode, lastLogs.size()));
+        return result;
     }
 
     private LogStatement parseLog(String line) {
@@ -324,7 +430,6 @@ final class TestExecutor {
             try {
                 return JSON_MAPPER.readValue(line, LogStatement.class);
             } catch (JacksonException e) {
-                // Ignore invalid format, the line will be logged below
                 if (!runConfig.isDebugOrReplay()) {
                     logger.raw().debug(line);
                 }
@@ -341,7 +446,6 @@ final class TestExecutor {
         try {
             return new SignalEvent(log.iteration(), JSON_MAPPER.treeToValue(log.log(), Signal.class));
         } catch (JacksonException e) {
-            // Ignore badly formatted log
             return null;
         }
     }

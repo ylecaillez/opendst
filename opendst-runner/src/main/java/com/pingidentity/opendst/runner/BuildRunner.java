@@ -147,6 +147,15 @@ public final class BuildRunner implements Callable<Integer> {
     @Option(names = "--extra-jvm-args", description = "Additional JVM arguments appended to build-time defaults")
     private String extraJvmArgs;
 
+    @Option(names = "--engine", description = "Execution engine: 'fork' (default) or 'nyx-lite'", defaultValue = "fork")
+    private String engine;
+
+    @Option(names = "--nyx-shim", description = "Path to opendst-nyx-shim binary (required when --engine=nyx-lite)")
+    private Path nyxShim;
+
+    @Option(names = "--nyx-config", description = "Path to nyx-lite vmconfig.json (required when --engine=nyx-lite)")
+    private String nyxConfig;
+
     @Option(
             names = "--debug",
             arity = "0..1",
@@ -233,6 +242,21 @@ public final class BuildRunner implements Callable<Integer> {
                 null,
                 OpenDSTExecutor.class.getName());
 
+        // Validate nyx-lite engine options
+        boolean isNyx = "nyx-lite".equalsIgnoreCase(engine);
+        if (isNyx) {
+            if (nyxShim == null) {
+                logger.raw().error("--nyx-shim is required when --engine=nyx-lite");
+                return 1;
+            }
+            if (nyxConfig == null) {
+                logger.raw().error("--nyx-config is required when --engine=nyx-lite");
+                return 1;
+            }
+            // Single VM for now (Phase 3a): nyx-lite shim is single-VM
+            forkCount = 1;
+        }
+
         // Replay mode: load a saved plan and execute it once
         boolean isReplay = planFile != null;
         Orchestrator orchestrator;
@@ -253,6 +277,7 @@ public final class BuildRunner implements Callable<Integer> {
         logger.run("settings")
                 .with("duration", duration)
                 .with("forks", forkCount)
+                .with("engine", isNyx ? "nyx-lite" : "fork")
                 .with("branch", "%.2f".formatted(branchProbability))
                 .with("replay", "%.2f".formatted(replayProbability))
                 .with("stagnation", stagnationLimit)
@@ -272,6 +297,20 @@ public final class BuildRunner implements Callable<Integer> {
                 forkCount,
                 effectiveStopConditions);
 
+        // Build backend factory: null → fork (default), or nyx-lite persistent shim
+        java.util.function.Supplier<ExecutionBackend> backendFactory = null;
+        if (isNyx) {
+            final var shimPath = nyxShim;
+            final var vmConfig = nyxConfig;
+            backendFactory = () -> {
+                try {
+                    return NyxBackend.start(shimPath, vmConfig, logger);
+                } catch (IOException | InterruptedException e) {
+                    throw new RuntimeException("Failed to start nyx-lite shim", e);
+                }
+            };
+        }
+
         // TestExecutor uses testClass/testMethod as child JVM args.
         // For OpenDSTExecutor, we pass the deployment dir path so the child knows where to find deployment.yaml.
         var reportGenerator = new ReportGenerator(assertions, reportDir);
@@ -284,7 +323,8 @@ public final class BuildRunner implements Callable<Integer> {
                         jvmConfig,
                         logger,
                         orchestrator,
-                        runConfig)
+                        runConfig,
+                        backendFactory)
                 .execute(reportGenerator);
 
         if (isReplay) {
