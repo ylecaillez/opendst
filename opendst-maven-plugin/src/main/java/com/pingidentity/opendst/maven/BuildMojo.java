@@ -127,6 +127,32 @@ public class BuildMojo extends AbstractMojo {
     @Parameter(property = "opendst.skip")
     private boolean skip;
 
+    /**
+     * Execution engine: {@code fork} (default) or {@code nyx-lite}.
+     *
+     * <ul>
+     *   <li>{@code fork} — produces a self-contained fat JAR (existing behaviour)</li>
+     *   <li>{@code nyx-lite} — produces a Docker image ({@code FROM nyxBaseImage + COPY deployment/})</li>
+     * </ul>
+     */
+    @Parameter(property = "opendst.engine", defaultValue = "fork")
+    private String engine;
+
+    /**
+     * Base Docker image for the nyx-lite engine (ignored when {@code engine=fork}).
+     * Must contain Alpine + JDK + guest bridge ({@code libhypercall.so}, {@code nyx-guest.jar})
+     * and have {@code opendst-runner.jar} as its entrypoint.
+     */
+    @Parameter(property = "opendst.nyxBaseImage", defaultValue = "opendst-nyx-base:latest")
+    private String nyxBaseImage;
+
+    /**
+     * Docker image tag to produce when {@code engine=nyx-lite}.
+     * Defaults to {@code <artifactId>-opendst-nyx:<version>}.
+     */
+    @Parameter(property = "opendst.imageTag", defaultValue = "${project.artifactId}-opendst-nyx:${project.version}")
+    private String imageTag;
+
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         if (skip) {
@@ -178,22 +204,42 @@ public class BuildMojo extends AbstractMojo {
             throw new MojoFailureException("Failed to instrument application code", e);
         }
 
-        // 4. Build the self-contained JAR
-        try {
-            buildJar(
-                    instrumentedAppsDir,
-                    agentJarPath,
-                    runnerJarPath,
-                    patchModuleJarPath,
-                    enrichedDescriptor,
-                    discoveredProperties);
-        } catch (IOException e) {
-            throw new MojoExecutionException("Failed to build self-contained JAR", e);
+        // 4. Package: fat JAR (fork engine) or Docker image (nyx-lite engine)
+        var buildContextDir = opendstBasePath;
+        if ("nyx-lite".equalsIgnoreCase(engine)) {
+            try {
+                buildImage(
+                        buildContextDir,
+                        instrumentedAppsDir,
+                        agentJarPath,
+                        runnerJarPath,
+                        patchModuleJarPath,
+                        enrichedDescriptor,
+                        discoveredProperties);
+            } catch (IOException e) {
+                throw new MojoExecutionException("Failed to build Docker image", e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new MojoExecutionException("Docker build interrupted", e);
+            }
+            getLog().info("Built Docker image: " + imageTag);
+            getLog().info("Run with: docker run " + imageTag);
+        } else {
+            try {
+                buildJar(
+                        instrumentedAppsDir,
+                        agentJarPath,
+                        runnerJarPath,
+                        patchModuleJarPath,
+                        enrichedDescriptor,
+                        discoveredProperties);
+            } catch (IOException e) {
+                throw new MojoExecutionException("Failed to build self-contained JAR", e);
+            }
+            getLog().info("Built self-contained JAR: " + outputJar.getAbsolutePath());
+            getLog().info("Run with: java -jar " + outputJar.getName());
+            projectHelper.attachArtifact(project, "jar", "opendst", outputJar);
         }
-
-        getLog().info("Built self-contained JAR: " + outputJar.getAbsolutePath());
-        getLog().info("Run with: java -jar " + outputJar.getName());
-        projectHelper.attachArtifact(project, "jar", "opendst", outputJar);
     }
 
     /**
@@ -407,6 +453,110 @@ public class BuildMojo extends AbstractMojo {
             return jarPath;
         } catch (IOException e) {
             throw new MojoFailureException("Failed to extract " + fileName, e);
+        }
+    }
+
+    /**
+     * Builds a Docker image for the nyx-lite engine.
+     *
+     * <p>The build context layout under {@code buildContextDir}:
+     * <pre>
+     * Dockerfile
+     * deployment/
+     *   META-INF/opendst/assertions.json
+     *   META-INF/opendst/deployment.yaml
+     *   META-INF/opendst/build-config.json
+     *   system/opendst-agent.jar
+     *   system/opendst-runner.jar
+     *   system/opendst-patch.jar
+     *   apps/&lt;appDir&gt;/...
+     * </pre>
+     *
+     * <p>The generated Dockerfile is two lines:
+     * <pre>
+     * FROM &lt;nyxBaseImage&gt;
+     * COPY deployment/ /opendst-deployment/
+     * </pre>
+     */
+    private void buildImage(
+            Path buildContextDir,
+            Path instrumentedAppsDir,
+            Path agentJarPath,
+            Path runnerJarPath,
+            Path patchModuleJarPath,
+            DeploymentDescriptor enrichedDescriptor,
+            Set<Assertion> discoveredProperties)
+            throws IOException, InterruptedException, MojoExecutionException {
+        // 1. Assemble deployment/ tree inside the build context
+        var deploymentDir = buildContextDir.resolve("deployment");
+        assembleDeploymentDir(
+                deploymentDir,
+                instrumentedAppsDir,
+                agentJarPath,
+                runnerJarPath,
+                patchModuleJarPath,
+                enrichedDescriptor,
+                discoveredProperties);
+
+        // 2. Write Dockerfile
+        var dockerfilePath = buildContextDir.resolve("Dockerfile");
+        Files.writeString(dockerfilePath, "FROM " + nyxBaseImage + "\nCOPY deployment/ /opendst-deployment/\n");
+
+        // 3. Run docker build
+        getLog().info("Running: docker build -t " + imageTag + " " + buildContextDir);
+        var proc = new ProcessBuilder("docker", "build", "-t", imageTag, buildContextDir.toString())
+                .inheritIO()
+                .start();
+        int exitCode = proc.waitFor();
+        if (exitCode != 0) {
+            throw new MojoExecutionException("docker build failed with exit code " + exitCode);
+        }
+    }
+
+    /**
+     * Assembles the {@code deployment/} directory tree used by both the Docker image
+     * and (when needed) the fat JAR path. This is the canonical deployment layout read
+     * by {@code Bootstrap} and {@code OpenDSTExecutor} at runtime.
+     */
+    private void assembleDeploymentDir(
+            Path deploymentDir,
+            Path instrumentedAppsDir,
+            Path agentJarPath,
+            Path runnerJarPath,
+            Path patchModuleJarPath,
+            DeploymentDescriptor enrichedDescriptor,
+            Set<Assertion> discoveredProperties)
+            throws IOException {
+        createDirectories(deploymentDir.resolve("system"));
+        createDirectories(deploymentDir.resolve("META-INF/opendst"));
+
+        // system JARs
+        copy(agentJarPath, deploymentDir.resolve("system/opendst-agent.jar"), REPLACE_EXISTING);
+        copy(runnerJarPath, deploymentDir.resolve("system/opendst-runner.jar"), REPLACE_EXISTING);
+        copy(patchModuleJarPath, deploymentDir.resolve("system/opendst-patch.jar"), REPLACE_EXISTING);
+
+        // metadata
+        Files.write(
+                deploymentDir.resolve("META-INF/opendst/assertions.json"),
+                JSON_MAPPER.writeValueAsBytes(discoveredProperties));
+        Files.write(
+                deploymentDir.resolve("META-INF/opendst/deployment.yaml"),
+                DeploymentDescriptorSerializer.serialize(enrichedDescriptor));
+        var buildConfig = new BuildConfig(jvmArguments, defaultFaultsConfig());
+        Files.write(
+                deploymentDir.resolve("META-INF/opendst/build-config.json"),
+                JSON_MAPPER.writeValueAsBytes(buildConfig));
+
+        // instrumented apps
+        if (exists(instrumentedAppsDir)) {
+            try (var stream = walk(instrumentedAppsDir)) {
+                for (var p : stream.filter(Files::isRegularFile).toList()) {
+                    var rel = instrumentedAppsDir.relativize(p);
+                    var dest = deploymentDir.resolve("apps").resolve(rel);
+                    createDirectories(dest.getParent());
+                    copy(p, dest, REPLACE_EXISTING);
+                }
+            }
         }
     }
 
