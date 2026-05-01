@@ -75,7 +75,11 @@ import picocli.CommandLine.Parameters;
 @Command(name = "opendst", description = "Run OpenDST deterministic simulation tests", mixinStandardHelpOptions = true)
 public final class BuildRunner implements Callable<Integer> {
 
-    @Parameters(index = "0", hidden = true, description = "Working directory (set by Bootstrap)")
+    @Parameters(
+            index = "0",
+            hidden = true,
+            arity = "0..1",
+            description = "Working directory (set by Bootstrap; defaults to a temp dir when omitted)")
     private Path workingDir;
 
     /**
@@ -174,14 +178,27 @@ public final class BuildRunner implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
         boolean isDebug = debugAddress != null;
+        boolean isNyx = "nyx-lite".equalsIgnoreCase(engine);
         int forkCount = resolveForkCount(forkCountSpec);
 
-        // Derive directory layout from working directory
+        // Derive directory layout from working directory (Bootstrap sets it; nyx-lite uses a temp dir)
+        if (workingDir == null) {
+            workingDir = java.nio.file.Files.createTempDirectory("opendst-run-");
+        }
         var deploymentDir = workingDir.resolve("deployment");
         var reportDir = workingDir.resolve("report");
         var runsDir = workingDir.resolve("runs");
         createDirectories(reportDir.resolve("plans"));
         createDirectories(runsDir);
+
+        // For nyx-lite, extract /opendst-deployment/ from the Docker image into deploymentDir
+        if (isNyx) {
+            if (nyxImage == null) {
+                ofConsole(isDebug).raw().error("--image is required when --engine=nyx-lite");
+                return 1;
+            }
+            NyxImageManager.extractDeployment(nyxImage, deploymentDir, ofConsole(isDebug));
+        }
 
         // 1. Load assertions
         var assertionsFile = deploymentDir.resolve("META-INF/opendst/assertions.json");
@@ -243,14 +260,9 @@ public final class BuildRunner implements Callable<Integer> {
                 null,
                 OpenDSTExecutor.class.getName());
 
-        // Validate and prepare nyx-lite engine
-        boolean isNyx = "nyx-lite".equalsIgnoreCase(engine);
+        // Prepare nyx-lite engine (rootfs extraction, shim, vmconfig)
         NyxImageManager.NyxSetup nyxSetup = null;
         if (isNyx) {
-            if (nyxImage == null) {
-                logger.raw().error("--image is required when --engine=nyx-lite");
-                return 1;
-            }
             try {
                 nyxSetup = NyxImageManager.prepare(nyxImage, logger);
             } catch (IOException | InterruptedException e) {

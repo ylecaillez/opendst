@@ -38,6 +38,10 @@ RUN echo "basic services" \
  && rc-update add fuzz-setup default \
  && echo "done"
 
+# Nyx-lite shim: extracted by NyxImageManager to run Firecracker VMs on the host
+COPY resources/opendst-nyx-shim /usr/bin/opendst-nyx-shim
+RUN chmod +x /usr/bin/opendst-nyx-shim
+
 # Guest bridge: JNI hypercall library and NyxGuestEntry JAR (VM mode only)
 COPY resources/libhypercall.so /resources/libhypercall.so
 COPY resources/nyx-guest.jar   /resources/nyx-guest.jar

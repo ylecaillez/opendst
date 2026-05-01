@@ -43,6 +43,7 @@ final class NyxBackend implements ExecutionBackend {
     private final Process shim;
     private final BufferedReader reader;
     private volatile boolean healthy = true;
+    private volatile boolean iterationComplete = false;
 
     private NyxBackend(Process shim) {
         this.shim = shim;
@@ -68,11 +69,17 @@ final class NyxBackend implements ExecutionBackend {
         var shim = pb.start();
         var backend = new NyxBackend(shim);
 
-        // Wait for "ready\n" — the shim emits this after the boot snapshot is taken
-        var line = backend.reader.readLine();
+        // Drain stdout until "ready\n" — nyx-lite may emit diagnostic lines before it
+        String line;
+        while ((line = backend.reader.readLine()) != null) {
+            if ("ready".equals(line)) {
+                break;
+            }
+            logger.raw().debug("shim: " + line);
+        }
         if (!"ready".equals(line)) {
             shim.destroyForcibly();
-            throw new IllegalStateException("nyx-lite shim did not emit 'ready'; got: " + line);
+            throw new IllegalStateException("nyx-lite shim did not emit 'ready' (EOF reached)");
         }
         logger.raw().info("nyx-lite shim ready (boot snapshot taken)");
         return backend;
@@ -80,7 +87,7 @@ final class NyxBackend implements ExecutionBackend {
 
     @Override
     public void startIteration(Plan plan) throws IOException {
-        // Write the plan as a single JSON line — shim reads one line per iteration
+        iterationComplete = false;
         var json = JSON_MAPPER.writeValueAsString(plan);
         var writer = shim.getOutputStream();
         writer.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -93,6 +100,11 @@ final class NyxBackend implements ExecutionBackend {
         return reader;
     }
 
+    /** Called by ExecutionResult when it processes the "stopped" lifecycle signal. */
+    void markIterationComplete() {
+        iterationComplete = true;
+    }
+
     @Override
     public int awaitCrash() throws InterruptedException {
         healthy = false;
@@ -101,8 +113,17 @@ final class NyxBackend implements ExecutionBackend {
     }
 
     @Override
-    public void afterIteration() {
-        // Shim stays alive — nothing to do per iteration
+    public void afterIteration() throws IOException {
+        // If monitorExecutionOutput returned early (interesting signal before SHIM_DONE),
+        // drain stdout until SHIM_DONE so the next iteration sees a clean stream.
+        if (!iterationComplete) {
+            String line;
+            while (shim.isAlive() && (line = reader.readLine()) != null) {
+                if ("SHIM_DONE".equals(line)) {
+                    break;
+                }
+            }
+        }
     }
 
     @Override

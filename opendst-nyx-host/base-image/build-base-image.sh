@@ -22,6 +22,11 @@ TAG="${1:-opendst-nyx-base:latest}"
 echo "==> Assembling build context in $SCRIPT_DIR/resources/"
 mkdir -p "$SCRIPT_DIR/resources"
 
+# Nyx-lite shim (host-side binary, extracted by NyxImageManager at run time)
+echo "  opendst-nyx-shim"
+cp "$REPO_ROOT/opendst-nyx-host/target/release/opendst-nyx-shim" \
+   "$SCRIPT_DIR/resources/opendst-nyx-shim"
+
 # Guest bridge
 echo "  libhypercall.so"
 cp "$REPO_ROOT/opendst-nyx-host/guest/build/lib/libhypercall.so" \

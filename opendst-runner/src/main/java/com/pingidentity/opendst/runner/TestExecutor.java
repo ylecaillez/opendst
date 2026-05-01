@@ -400,6 +400,13 @@ final class TestExecutor {
         var result = new ExecutionResult();
         var logs = backend.logReader();
         for (var line = logs.readLine(); line != null; line = logs.readLine()) {
+            if ("SHIM_DONE".equals(line)) {
+                // Shim signals end-of-iteration; VM may have shut down without emitting "stopped"
+                if (backend instanceof NyxBackend nyxBackend) {
+                    nyxBackend.markIterationComplete();
+                }
+                return result;
+            }
             if (lastLogs.size() >= 50) {
                 lastLogs.removeFirst();
             }
@@ -409,11 +416,14 @@ final class TestExecutor {
             if ((log = parseLog(line)) != null && (event = extractSignal(log)) != null) {
                 boolean interestingEvent = execution.interesting().test(event);
                 if (result.addSignal(event, interestingEvent)) {
+                    if (backend instanceof NyxBackend nyxBackend) {
+                        nyxBackend.markIterationComplete();
+                    }
                     return result;
                 }
             }
         }
-        // Log stream closed without "stopped" — synthesize a crash result
+        // Log stream closed (shim exited) without SHIM_DONE — synthesize a crash result
         int exitCode = backend.awaitCrash();
         result.synthesizeCrash(exitCode, lastLogs);
         logger.raw()

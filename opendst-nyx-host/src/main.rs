@@ -63,6 +63,7 @@ fn main() -> Result<()> {
         write_plan(&mut vm, in_vaddr, plan_json.as_bytes())?;
         zero_output(&mut vm, out_vaddr);
         run_iteration(&mut vm, out_vaddr)?;
+        println!("SHIM_DONE");
         io::stdout().flush()?;
     }
 
@@ -143,8 +144,11 @@ fn run_iteration(vm: &mut NyxVM, out_vaddr: u64) -> Result<()> {
                 return Ok(());
             }
             ExitReason::Shutdown => {
-                eprintln!("[shim] VM shut down during iteration");
-                return Err(anyhow::anyhow!("VM shut down"));
+                // Guest called poweroff/reboot (e.g. JVM System.exit). Flush remaining
+                // output and treat as a normal end-of-iteration — the snapshot will be
+                // restored before the next run.
+                flush_output(vm, out_vaddr, &mut cursor);
+                return Ok(());
             }
             _ => flush_output(vm, out_vaddr, &mut cursor),
         }

@@ -80,6 +80,32 @@ final class NyxImageManager {
     }
 
     /**
+     * Extracts {@code /opendst-deployment/} from the Docker image into {@code destDir}.
+     * Uses {@code docker create} + {@code docker cp} so no daemon mount is needed.
+     */
+    static void extractDeployment(String imageTag, Path destDir, OpenDstLogger logger)
+            throws IOException, InterruptedException {
+        logger.raw().info("Extracting deployment from image: " + imageTag);
+        var createProc = new ProcessBuilder("docker", "create", imageTag)
+                .redirectErrorStream(true)
+                .start();
+        var containerId = new String(createProc.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+        if (createProc.waitFor() != 0) {
+            throw new IOException("docker create failed: " + containerId);
+        }
+        try {
+            Files.createDirectories(destDir.getParent());
+            run("docker", "cp", containerId + ":/opendst-deployment/.", destDir.toString());
+            logger.raw().info("Deployment extracted to: " + destDir);
+        } finally {
+            new ProcessBuilder("docker", "rm", containerId)
+                    .redirectErrorStream(true)
+                    .start()
+                    .waitFor(10, TimeUnit.SECONDS);
+        }
+    }
+
+    /**
      * Resolves the Docker image digest (short form) for use as a cache key.
      * Uses {@code docker inspect --format '{{.Id}}'} and takes the first 12 hex chars.
      */
