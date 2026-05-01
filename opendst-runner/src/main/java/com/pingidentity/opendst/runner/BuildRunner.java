@@ -150,11 +150,12 @@ public final class BuildRunner implements Callable<Integer> {
     @Option(names = "--engine", description = "Execution engine: 'fork' (default) or 'nyx-lite'", defaultValue = "fork")
     private String engine;
 
-    @Option(names = "--nyx-shim", description = "Path to opendst-nyx-shim binary (required when --engine=nyx-lite)")
-    private Path nyxShim;
-
-    @Option(names = "--nyx-config", description = "Path to nyx-lite vmconfig.json (required when --engine=nyx-lite)")
-    private String nyxConfig;
+    @Option(
+            names = "--image",
+            description = "Docker image tag to use as VM rootfs when --engine=nyx-lite"
+                    + " (e.g. myapp-opendst-nyx:1.0). The image is extracted to"
+                    + " ~/.opendst/nyx-rootfs/<digest>/ on first use.")
+    private String nyxImage;
 
     @Option(
             names = "--debug",
@@ -242,15 +243,18 @@ public final class BuildRunner implements Callable<Integer> {
                 null,
                 OpenDSTExecutor.class.getName());
 
-        // Validate nyx-lite engine options
+        // Validate and prepare nyx-lite engine
         boolean isNyx = "nyx-lite".equalsIgnoreCase(engine);
+        NyxImageManager.NyxSetup nyxSetup = null;
         if (isNyx) {
-            if (nyxShim == null) {
-                logger.raw().error("--nyx-shim is required when --engine=nyx-lite");
+            if (nyxImage == null) {
+                logger.raw().error("--image is required when --engine=nyx-lite");
                 return 1;
             }
-            if (nyxConfig == null) {
-                logger.raw().error("--nyx-config is required when --engine=nyx-lite");
+            try {
+                nyxSetup = NyxImageManager.prepare(nyxImage, logger);
+            } catch (IOException | InterruptedException e) {
+                logger.raw().error("Failed to prepare nyx-lite image: " + e.getMessage());
                 return 1;
             }
             // Single VM for now (Phase 3a): nyx-lite shim is single-VM
@@ -300,11 +304,10 @@ public final class BuildRunner implements Callable<Integer> {
         // Build backend factory: null → fork (default), or nyx-lite persistent shim
         java.util.function.Supplier<ExecutionBackend> backendFactory = null;
         if (isNyx) {
-            final var shimPath = nyxShim;
-            final var vmConfig = nyxConfig;
+            final var setup = nyxSetup;
             backendFactory = () -> {
                 try {
-                    return NyxBackend.start(shimPath, vmConfig, logger);
+                    return NyxBackend.start(setup.shimBinary(), setup.vmConfigPath(), logger);
                 } catch (IOException | InterruptedException e) {
                     throw new RuntimeException("Failed to start nyx-lite shim", e);
                 }
