@@ -123,12 +123,11 @@ final class NyxImageManager {
     }
 
     /**
-     * Extracts the full Docker image filesystem to an ext4 image.
+     * Extracts the full Docker image filesystem to an ext2 image using {@code genext2fs}.
      *
-     * <p>Uses the same approach as {@code build-img.sh}:
-     * {@code docker run → docker cp / → mkfs.ext4 + sudo mount + copy + sudo umount}
-     *
-     * <p>Requires {@code sudo}, {@code mkfs.ext4}, and {@code qemu-img} or {@code dd}.
+     * <p>No root/sudo required: uses {@code docker export} to stream the container
+     * filesystem as a tar archive, extracts it to a staging directory, then calls
+     * {@code genext2fs} to build the ext2 image file directly from that directory.
      */
     private static void extractRootfs(String imageTag, Path rootfsPath, OpenDstLogger logger)
             throws IOException, InterruptedException {
@@ -142,25 +141,44 @@ final class NyxImageManager {
         }
         logger.raw().info("  Container: " + containerId.substring(0, 12));
 
+        var stagingDir = rootfsPath.getParent().resolve("staging");
         try {
-            // 2. Create raw ext4 image (800MB, same as build-img.sh)
-            logger.raw().info("  Creating 800MB ext4 image...");
-            run("dd", "if=/dev/null", "of=" + rootfsPath, "bs=1M", "seek=800");
-            run("mkfs.ext4", "-F", rootfsPath.toString());
+            // 2. Export container filesystem as tar and extract to staging dir
+            Files.createDirectories(stagingDir);
+            logger.raw().info("  Exporting container filesystem...");
+            var exportProc = new ProcessBuilder("docker", "export", containerId)
+                    .redirectErrorStream(false)
+                    .start();
+            var tarProc = new ProcessBuilder("tar", "-x", "-C", stagingDir.toString())
+                    .redirectErrorStream(true)
+                    .start();
+            // Pipe export→tar in a background thread to avoid deadlock on large images
+            var pipe = Thread.ofPlatform().start(() -> {
+                try {
+                    exportProc.getInputStream().transferTo(tarProc.getOutputStream());
+                    tarProc.getOutputStream().close();
+                } catch (IOException ignored) {
+                }
+            });
+            int exportCode = exportProc.waitFor();
+            pipe.join();
+            int tarCode = tarProc.waitFor();
+            if (exportCode != 0) throw new IOException("docker export failed (exit " + exportCode + ")");
+            if (tarCode != 0) throw new IOException("tar extraction failed (exit " + tarCode + ")");
 
-            // 3. Mount + copy + umount (requires sudo)
-            var mountDir = rootfsPath.getParent().resolve("mnt");
-            Files.createDirectories(mountDir);
-            logger.raw().info("  Mounting and copying filesystem (requires sudo)...");
-            run("sudo", "mount", rootfsPath.toString(), mountDir.toString());
-            try {
-                run("sudo", "docker", "cp", containerId + ":/", mountDir.toString());
-            } finally {
-                run("sudo", "umount", mountDir.toString());
-                deleteDir(mountDir);
-            }
+            // 3. Build ext2 image from staging dir — no root needed
+            logger.raw().info("  Building ext2 image with genext2fs (800MB)...");
+            run(
+                    "genext2fs",
+                    "-d",
+                    stagingDir.toString(),
+                    "-b",
+                    "819200", // 800 MB in 1 KB blocks
+                    "-N",
+                    "65536", // inodes
+                    rootfsPath.toString());
         } finally {
-            // 4. Clean up container
+            deleteDir(stagingDir);
             new ProcessBuilder("docker", "rm", containerId)
                     .redirectErrorStream(true)
                     .start()

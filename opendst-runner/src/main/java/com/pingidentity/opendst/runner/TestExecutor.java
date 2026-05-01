@@ -433,17 +433,18 @@ final class TestExecutor {
     }
 
     private LogStatement parseLog(String line) {
-        if (runConfig.isDebugOrReplay()) {
-            out.println(line);
-        }
         if (isJson(line)) {
             try {
-                return JSON_MAPPER.readValue(line, LogStatement.class);
-            } catch (JacksonException e) {
-                if (!runConfig.isDebugOrReplay()) {
-                    logger.raw().debug(line);
+                var stmt = JSON_MAPPER.readValue(line, LogStatement.class);
+                if (runConfig.isDebugOrReplay() || runConfig.forkCount() == 1) {
+                    out.println(line);
                 }
+                return stmt;
+            } catch (JacksonException e) {
+                logger.raw().debug(line);
             }
+        } else {
+            out.println(line);
         }
         return null;
     }

@@ -14,11 +14,12 @@ package opendst.nyx.guest;
 public final class Hypercall {
 
     // Hypercall opcodes — must match examples/test_guest_runner.rs in nyx-lite.
-    static final long EXECDONE = 0x656e6f6463657865L;
-    static final long SNAPSHOT = 0x746f687370616e73L;
-    static final long SHAREMEM = 0x6d656d6572616873L;
-    static final long DBGPRINT = 0x746e697270676264L;
-    static final long FAILTEST = 0x747365746c696166L;
+    static final long EXECDONE     = 0x656e6f6463657865L;
+    static final long SNAPSHOT     = 0x746f687370616e73L;
+    static final long BOOT_SNAPSHOT = 0x706e73746f6f6273L; // "sbootsnp" — deferred boot snapshot
+    static final long SHAREMEM     = 0x6d656d6572616873L;
+    static final long DBGPRINT     = 0x746e697270676264L;
+    static final long FAILTEST     = 0x747365746c696166L;
 
     static {
         System.loadLibrary("hypercall");
@@ -44,6 +45,15 @@ public final class Hypercall {
     /** Tells the host to take the base snapshot. Execution resumes here on every restore. */
     static void snapshot() {
         call(SNAPSHOT, 0L, 0L, 0L, 0L);
+    }
+
+    /**
+     * Deferred boot snapshot: issued at the first random draw instead of at startup.
+     * The host takes the boot snapshot and writes the first segment to INPUT before resuming.
+     * This allows all JVM warm-up (class loading, plan parsing, node init) to be captured.
+     */
+    static void bootSnapshot() {
+        call(BOOT_SNAPSHOT, 0L, 0L, 0L, 0L);
     }
 
     /** Signals the host that the current iteration is complete. */

@@ -58,7 +58,24 @@ import net.bytebuddy.description.method.MethodDescription.ForLoadedMethod;
  */
 public final class RandomInterceptors {
 
-    /** The source of randomness used by the simulator and everything running inside the simulator. */
+    /**
+     * Optional supplier of the next segment at each boundary, used by the nyx-lite engine to
+     * deliver segments one at a time via shared memory. When non-null, overrides the plan's
+     * built-in segment queue. Set by {@code NyxGuestEntry} before invoking {@code
+     * OpenDSTExecutor.main()}. Static (not thread-local) because the supplier is called from
+     * simulated virtual threads that do not inherit thread-locals from the main thread.
+     */
+    public static volatile java.util.function.Supplier<Segment> NYX_SEGMENT_SUPPLIER;
+
+    /**
+     * When true, {@link Source#next(int)} issues the deferred boot snapshot hypercall on the
+     * very first draw, then re-seeds from {@link #NYX_SEGMENT_SUPPLIER}. Set by
+     * {@code NyxGuestEntry} before invoking the simulation; cleared by {@code Source.next()}
+     * before issuing the hypercall (the snapshot captures the {@code true} state so each
+     * restore re-triggers it).
+     */
+    public static volatile boolean NYX_BOOT_SNAPSHOT_PENDING;
+
     public static final class Source extends Random {
         @Serial
         private static final long serialVersionUID = 1L;
@@ -96,22 +113,61 @@ public final class RandomInterceptors {
         @Override
         protected int next(int bits) {
             assert bits > 0 && bits <= 32;
-            if (iteration >= nextIteration) {
-                this.simulator.checkSegmentHash(currentSegment);
-                try {
-                    var segment = segments.removeFirst();
-                    currentSegment = segment;
-                    nextIteration = segment.iteration();
-                    assert nextIteration > iteration;
-                    setSeed(segment.seed());
-                } catch (NoSuchElementException e) {
-                    this.simulator.exitSimulation(Simulator.ExitReason.PLAN_OK);
-                    throw new Simulator.SimulationError("Plan exhausted");
+            // On the very first draw in nyx-lite mode, issue the deferred boot snapshot
+            // so the host captures everything including plan parsing and node init.
+            // After restore, iteration is still 0 and the flag is still true (snapshot
+            // state), so this fires again — re-seeding from SHM for the new plan.
+            if (iteration == 0 && NYX_BOOT_SNAPSHOT_PENDING) {
+                NYX_BOOT_SNAPSHOT_PENDING = false;
+                NyxSegmentHypercall.requestBootSnapshot();
+                // Shim wrote segment 0 into INPUT; re-seed to override the plan's baked-in seed.
+                var supplier = NYX_SEGMENT_SUPPLIER;
+                if (supplier != null) {
+                    var seg = supplier.get();
+                    if (seg != null) {
+                        currentSegment = seg;
+                        nextIteration = seg.iteration();
+                        setSeed(seg.seed());
+                        segments.clear();
+                    }
                 }
             }
             iteration++;
             last = super.next(bits);
             simulator.hash(last);
+            // Check boundary AFTER the draw so that a simulation making exactly
+            // nextIteration draws crosses the boundary before it exits.
+            if (iteration >= nextIteration) {
+                this.simulator.checkSegmentHash(currentSegment);
+                var nyxSupplier = NYX_SEGMENT_SUPPLIER;
+                if (nyxSupplier != null) {
+                    // Nyx-lite mode: the shim took a snapshot during checkSegmentHash's
+                    // hypercall and wrote the next segment to INPUT. Read it now.
+                    // The local segments queue is ignored — the shim owns segment delivery.
+                    var segment = nyxSupplier.get();
+                    if (segment == null) {
+                        this.simulator.exitSimulation(Simulator.ExitReason.PLAN_OK);
+                        throw new Simulator.SimulationError("Plan exhausted (nyx)");
+                    }
+                    currentSegment = segment;
+                    nextIteration = segment.iteration();
+                    setSeed(segment.seed());
+                    // Drain the local queue so it stays consistent (nyx mode ignores it but
+                    // it may be non-empty if the plan JSON carried multiple segments).
+                    segments.clear();
+                } else {
+                    try {
+                        var segment = segments.removeFirst();
+                        currentSegment = segment;
+                        nextIteration = segment.iteration();
+                        assert nextIteration > iteration;
+                        setSeed(segment.seed());
+                    } catch (NoSuchElementException e) {
+                        this.simulator.exitSimulation(Simulator.ExitReason.PLAN_OK);
+                        throw new Simulator.SimulationError("Plan exhausted");
+                    }
+                }
+            }
             return last;
         }
     }

@@ -225,20 +225,26 @@ public final class Simulator {
      */
     void checkSegmentHash(Segment departingSegment) {
         int actualHash = hasher.getHash();
-        if (departingSegment.hash() == 0) {
-            // Nothing to check
-        } else if (departingSegment.hash() == actualHash) {
-            context.logger()
-                    .logLifecycle("segment-completed", instant(), iteration())
-                    .withNumber("hash", actualHash)
-                    .log();
-        } else {
+        context.logger()
+                .logLifecycle("segment-completed", instant(), iteration())
+                .withNumber("hash", actualHash)
+                .log();
+        if (departingSegment.hash() != 0 && departingSegment.hash() != actualHash) {
             context.logger()
                     .logLifecycle("non-determinism detected", instant(), iteration())
                     .withNumber("expectedHash", departingSegment.hash())
                     .withNumber("actualHash", actualHash)
                     .log();
             exitSimulation(INTERNAL_ERROR);
+            return;
+        }
+        // In nyx-lite mode, flush output and issue a snapshot hypercall so the host can
+        // take an incremental snapshot at this boundary. The host writes the next segment
+        // to INPUT before resuming. This must happen AFTER the log line is emitted so the
+        // host sees segment-completed before the snapshot.
+        if (RandomInterceptors.NYX_SEGMENT_SUPPLIER != null) {
+            context.logger().flush();
+            NyxSegmentHypercall.requestSnapshot();
         }
     }
 

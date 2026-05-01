@@ -44,6 +44,21 @@ final class SharedMemory {
     }
 
     /**
+     * Reads the next segment written by the shim after a snapshot hypercall.
+     * Format: [8-byte seed LE][8-byte iteration LE].
+     * Returns null if the shim signalled end-of-plan (both fields zero).
+     */
+    long[] readNextSegment() {
+        input.position(0);
+        long seed = input.getLong();
+        long iteration = input.getLong();
+        if (seed == 0 && iteration == 0) {
+            return null; // end-of-plan sentinel
+        }
+        return new long[]{seed, iteration};
+    }
+
+    /**
      * Writes a log line to the output region and advances the write position.
      * The line should already include a trailing newline.
      * Silently truncates if the buffer is full.
