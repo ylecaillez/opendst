@@ -80,3 +80,13 @@ build_warnings.log
 **/PCheckerOutput/
 **/PGenerated/
 **/output/CSharp/
+
+#--- OpenDST simulation artifacts ---
+**/report/
+trace_*.txt
+.opencode/
+java.logging/
+pobserve/
+
+#--- Rust build artifacts ---
+opendst-nyx-host/target/
