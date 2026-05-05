@@ -125,8 +125,8 @@ final class NyxImageManager {
                     .mapToLong(p -> p.toFile().length())
                     .sum();
         }
-        // Add 30% overhead; convert to 1KB blocks; minimum 65536 blocks (64 MB)
-        long blocks = Math.max(65536L, (long) (sizeBytes * 1.3 / 1024) + 2048);
+        // Add 30% overhead for ext2 metadata; convert to 1 KB blocks
+        long blocks = (long) (sizeBytes * 1.3 / 1024) + 2048;
         logger.raw().info("  Building deployment.ext4 (" + (blocks / 1024) + " MB, content "
                 + (sizeBytes / 1024 / 1024) + " MB)...");
         run("genext2fs", "-d", deploymentDir.toString(), "-b", Long.toString(blocks), outputPath.toString());
