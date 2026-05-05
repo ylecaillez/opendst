@@ -138,7 +138,16 @@ final class NyxBackend implements ExecutionBackend {
 
     @Override
     public void afterIteration() throws IOException, InterruptedException {
-        // Nothing to do: shim stays alive, ready for the next plan.
+        // Drain the output stream until SHIM_DONE (or EOF/crash).
+        // monitorExecutionOutput may have returned early (e.g. on "stopped") before consuming
+        // SHIM_DONE. If that sentinel is left in the stream, the next iteration would read it
+        // as its first line and return immediately with runHash=0.
+        String line;
+        while ((line = teeReader.readLine()) != null) {
+            if ("SHIM_DONE".equals(line)) {
+                break;
+            }
+        }
     }
 
     @Override
