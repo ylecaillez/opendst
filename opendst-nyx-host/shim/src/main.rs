@@ -29,7 +29,7 @@
 /// Sizes must match SharedMemory.java in the guest.
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, BufRead, Read, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::panic;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -347,7 +347,8 @@ fn save_snapshot_to_disk(
         MemorySnapshot::Incremental(map) => map,
         MemorySnapshot::Base(_) => bail!("cannot save a base snapshot to disk"),
     };
-    let mut f = fs::File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let raw = fs::File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let mut f = BufWriter::with_capacity(256 * 1024, raw);
 
     write_u64(&mut f, cursor as u64)?;
     write_u64(&mut f, snap_iter)?;
@@ -431,7 +432,8 @@ fn load_snapshot_from_disk(
     parent_snap: Arc<NyxSnapshot>,
     cow_arc: Arc<CowCache>,
 ) -> Result<NyxSnapshot> {
-    let mut f = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let raw = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let mut f = BufReader::with_capacity(256 * 1024, raw);
 
     let _cursor = read_u64(&mut f)?;
     let _snap_iter = read_u64(&mut f)?;
@@ -580,7 +582,8 @@ fn save_boot_to_disk(
         MemorySnapshot::Base(vec) => vec,
         MemorySnapshot::Incremental(_) => bail!("expected Base snapshot for boot save"),
     };
-    let mut f = fs::File::create(&path).with_context(|| format!("create {}", path.display()))?;
+    let raw = fs::File::create(&path).with_context(|| format!("create {}", path.display()))?;
+    let mut f = BufWriter::with_capacity(256 * 1024, raw);
     f.write_all(BOOT_MAGIC).context("write magic")?;
     write_u64(&mut f, in_vaddr)?;
     write_u64(&mut f, out_vaddr)?;
@@ -688,7 +691,8 @@ fn load_and_apply_boot_from_disk(
     let init_snap = vm.take_snapshot();
     let init_cow_arc = extract_cow_arc(&init_snap);
 
-    let mut f = fs::File::open(&path).with_context(|| format!("open {}", path.display()))?;
+    let raw = fs::File::open(&path).with_context(|| format!("open {}", path.display()))?;
+    let mut f = BufReader::with_capacity(256 * 1024, raw);
 
     // Verify magic
     let mut magic = [0u8; 8];
