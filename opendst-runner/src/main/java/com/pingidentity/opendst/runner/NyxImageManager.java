@@ -233,7 +233,7 @@ final class NyxImageManager {
         try {
             Files.createDirectories(destDir.getParent());
             logger.raw().info("  Copying /deployment from container...");
-            run("docker", "cp", containerId + ":/deployment", destDir.toString());
+            run("docker", "cp", containerId + ":/opendst-deployment", destDir.toString());
         } finally {
             new ProcessBuilder("docker", "rm", containerId)
                     .redirectErrorStream(true)
