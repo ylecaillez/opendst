@@ -81,18 +81,40 @@ final class ExecutionResult {
         }
     }
 
+    /**
+     * A checkpoint observed in the log stream during this iteration.
+     *
+     * @param id            opaque UUID string emitted by the shim
+     * @param iteration     iteration count at which the snapshot was taken
+     * @param nextBoundary  until value of the segment in-progress at snapshot time
+     *                      (= guest's frozen nextIteration); 0 if not emitted by shim
+     * @param hash          state hash at snapshot time
+     */
+    record ObservedCheckpoint(String id, long iteration, long nextBoundary, int hash) {}
+
     private final Map<String, TrackedAssertion> assertionsHit = new HashMap<>();
-    private final List<Integer> segmentHashes = new ArrayList<>();
+    private final Map<Long, Integer> segmentHashByIteration = new HashMap<>();
+    private final List<ObservedCheckpoint> checkpoints = new ArrayList<>();
     private boolean interesting;
+    private boolean shimCrashed;
     private int runHash;
 
     int runHash() {
         return runHash;
     }
 
-    /** {@return the hashes captured at each segment boundary, in order of emission} */
-    List<Integer> segmentHashes() {
-        return segmentHashes;
+    /** {@return checkpoints observed in the log stream, in emission order} */
+    List<ObservedCheckpoint> checkpoints() {
+        return checkpoints;
+    }
+
+    void addCheckpoint(ObservedCheckpoint cp) {
+        checkpoints.add(cp);
+    }
+
+    /** {@return the hashes captured at each segment boundary, keyed by boundary iteration} */
+    Map<Long, Integer> segmentHashByIteration() {
+        return segmentHashByIteration;
     }
 
     boolean isInteresting() {
@@ -111,6 +133,19 @@ final class ExecutionResult {
     boolean runFailed() {
         return assertionsHit.values().stream()
                 .anyMatch(a -> a.failCount() > 0 && (a.kind() == ALWAYS || a.kind() == ALWAYS_OR_UNREACHABLE));
+    }
+
+    /**
+     * Returns {@code true} if the child process (shim or JVM) crashed unexpectedly,
+     * including mid-simulation crashes after assertions have already passed.
+     *
+     * <p>Unlike {@link #isInfrastructureCrash()}, this flag is set for any
+     * {@link #synthesizeCrash} call, regardless of how far the simulation had progressed.
+     * Callers should treat shim crashes as transient infrastructure faults rather than
+     * assertion failures.
+     */
+    boolean isShimCrash() {
+        return shimCrashed;
     }
 
     /**
@@ -135,6 +170,7 @@ final class ExecutionResult {
      * so that {@link #runFailed()} and {@link #isInteresting()} return {@code true}.
      */
     void synthesizeCrash(int exitCode, Collection<String> lastLogs) {
+        shimCrashed = true;
         var details = JSON_MAPPER.createObjectNode();
         details.put("exitCode", exitCode);
         details.put("cause", "child process exited unexpectedly (code %d)".formatted(exitCode));
@@ -148,7 +184,7 @@ final class ExecutionResult {
         if (signal.signal() instanceof LifecycleSignal lifecycleSignal) {
             switch (lifecycleSignal.message()) {
                 case "started" -> trackAssertion(ALWAYS, "simulation started", true, signal.iteration(), null);
-                case "segment-completed" -> segmentHashes.add(lifecycleSignal.hash());
+                case "segment-completed" -> segmentHashByIteration.put(signal.iteration(), lifecycleSignal.hash());
                 case "uncaught exception" ->
                     trackAssertion(
                             ALWAYS_OR_UNREACHABLE,

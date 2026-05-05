@@ -21,7 +21,9 @@ import com.pingidentity.opendst.Plan;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -30,9 +32,9 @@ import java.util.concurrent.TimeUnit;
  * {@link ExecutionBackend} that drives a persistent nyx-lite shim process.
  *
  * <p>The shim stays alive across iterations: each plan is written as a single JSON line
- * to the shim's stdin, and log lines are read from its stdout until "stopped" (signalled
- * by the guest EXECDONE hypercall). The shim internally restores the JVM boot snapshot
- * before each iteration — no JVM restart overhead.
+ * to the shim's stdin, and log lines are read from its stdout until "SHIM_DONE" (emitted
+ * after the guest EXECDONE hypercall triggers output flush). The shim internally restores
+ * the JVM boot snapshot before each iteration — no JVM restart overhead.
  *
  * <p>The shim is started once via {@link #start(Path, String, OpenDstLogger)} and reused
  * until it exits unexpectedly. After a shim crash, {@link #isHealthy()} returns false
@@ -41,13 +43,17 @@ import java.util.concurrent.TimeUnit;
 final class NyxBackend implements ExecutionBackend {
 
     private final Process shim;
-    private final BufferedReader reader;
+    private final BufferedReader shimReader;
+    private final TeeBufReader teeReader;
+    private final Path snapshotDir;
     private volatile boolean healthy = true;
-    private volatile boolean iterationComplete = false;
+    private volatile boolean shimDoneSeen = false;
 
-    private NyxBackend(Process shim) {
+    private NyxBackend(Process shim, Path snapshotDir) {
         this.shim = shim;
-        this.reader = new BufferedReader(new InputStreamReader(shim.getInputStream()));
+        this.snapshotDir = snapshotDir;
+        this.shimReader = new BufferedReader(new InputStreamReader(shim.getInputStream()));
+        this.teeReader = new TeeBufReader(shimReader);
     }
 
     /**
@@ -62,16 +68,21 @@ final class NyxBackend implements ExecutionBackend {
      */
     static NyxBackend start(Path shimBinary, String vmConfigPath, OpenDstLogger logger)
             throws IOException, InterruptedException {
-        var pb = new ProcessBuilder(List.of(shimBinary.toString(), vmConfigPath)).redirectErrorStream(false);
-        // Shim writes diagnostic output to stderr — let it flow to our stderr
+        var snapshotDir = Files.createTempDirectory(Path.of("/home/ylecaillez/tmp"), "opendst-nyx-snaps-");
+        var cmd = new ArrayList<String>();
+        cmd.add(shimBinary.toString());
+        cmd.add("--snapshot-dir");
+        cmd.add(snapshotDir.toString());
+        cmd.add(vmConfigPath);
+        var pb = new ProcessBuilder(cmd).redirectErrorStream(false);
         pb.redirectError(ProcessBuilder.Redirect.INHERIT);
 
         var shim = pb.start();
-        var backend = new NyxBackend(shim);
+        var backend = new NyxBackend(shim, snapshotDir);
 
         // Drain stdout until "ready\n" — nyx-lite may emit diagnostic lines before it
         String line;
-        while ((line = backend.reader.readLine()) != null) {
+        while ((line = backend.shimReader.readLine()) != null) {
             if ("ready".equals(line)) {
                 break;
             }
@@ -81,13 +92,14 @@ final class NyxBackend implements ExecutionBackend {
             shim.destroyForcibly();
             throw new IllegalStateException("nyx-lite shim did not emit 'ready' (EOF reached)");
         }
-        logger.raw().info("nyx-lite shim ready (boot snapshot taken)");
+        logger.raw().debug("nyx-lite shim ready (boot snapshot taken)");
         return backend;
     }
 
     @Override
     public void startIteration(Plan plan) throws IOException {
-        iterationComplete = false;
+        shimDoneSeen = false;
+        teeReader.resetBuffer();
         var json = JSON_MAPPER.writeValueAsString(plan);
         var writer = shim.getOutputStream();
         writer.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -97,12 +109,12 @@ final class NyxBackend implements ExecutionBackend {
 
     @Override
     public BufferedReader logReader() {
-        return reader;
+        return teeReader;
     }
 
-    /** Called by ExecutionResult when it processes the "stopped" lifecycle signal. */
-    void markIterationComplete() {
-        iterationComplete = true;
+    /** Called by TestExecutor when SHIM_DONE is read directly (no drain needed in afterIteration). */
+    void markShimDoneSeen() {
+        shimDoneSeen = true;
     }
 
     @Override
@@ -114,11 +126,12 @@ final class NyxBackend implements ExecutionBackend {
 
     @Override
     public void afterIteration() throws IOException {
-        // If monitorExecutionOutput returned early (interesting signal before SHIM_DONE),
+        // If monitorExecutionOutput returned early after "stopped" (before SHIM_DONE arrived),
         // drain stdout until SHIM_DONE so the next iteration sees a clean stream.
-        if (!iterationComplete) {
+        // If it returned after SHIM_DONE itself, nothing to drain.
+        if (!shimDoneSeen) {
             String line;
-            while (shim.isAlive() && (line = reader.readLine()) != null) {
+            while (shim.isAlive() && (line = shimReader.readLine()) != null) {
                 if ("SHIM_DONE".equals(line)) {
                     break;
                 }
@@ -141,8 +154,18 @@ final class NyxBackend implements ExecutionBackend {
 
     @Override
     public Optional<Path> simulatorLogPath() {
-        // Nyx shim doesn't write a simulator.log file (output goes directly to stdout)
-        return Optional.empty();
+        var lines = teeReader.capturedLines();
+        if (lines.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            var tmp = Files.createTempFile("opendst-nyx-", ".log.json");
+            tmp.toFile().deleteOnExit();
+            Files.write(tmp, lines);
+            return Optional.of(tmp);
+        } catch (IOException e) {
+            return Optional.empty();
+        }
     }
 
     @Override
@@ -160,6 +183,59 @@ final class NyxBackend implements ExecutionBackend {
         } catch (InterruptedException e) {
             shim.destroyForcibly();
             Thread.currentThread().interrupt();
+        }
+        // Delete the snapshot directory created for this shim instance.
+        if (snapshotDir != null && snapshotDir.toFile().exists()) {
+            try (var walk = java.nio.file.Files.walk(snapshotDir)) {
+                walk.sorted(java.util.Comparator.reverseOrder())
+                        .map(Path::toFile)
+                        .forEach(java.io.File::delete);
+            } catch (IOException e) {
+                // Best-effort cleanup; ignore errors.
+            }
+        }
+    }
+
+    /**
+     * Deletes the on-disk snapshot file for the given checkpoint UUID.
+     * The shim will treat a subsequent restore attempt for this UUID as a cache miss
+     * and fall back to an earlier checkpoint or boot — correct, just slower.
+     */
+    void evictCheckpoint(String id) {
+        if (snapshotDir == null) return;
+        var file = snapshotDir.resolve(id + ".snap").toFile();
+        file.delete(); // best-effort; ignore result
+    }
+
+    /**
+     * A {@link BufferedReader} wrapper that tees every line returned by {@link #readLine()}
+     * into an in-memory buffer. Call {@link #reset()} at the start of each iteration to
+     * discard the previous iteration's lines, and {@link #capturedLines()} to retrieve them.
+     */
+    private static final class TeeBufReader extends BufferedReader {
+        private final BufferedReader delegate;
+        private List<String> lines = new ArrayList<>();
+
+        TeeBufReader(BufferedReader delegate) {
+            super(delegate, 1); // minimal buffer — actual I/O goes through delegate
+            this.delegate = delegate;
+        }
+
+        @Override
+        public String readLine() throws IOException {
+            var line = delegate.readLine();
+            if (line != null) {
+                lines.add(line);
+            }
+            return line;
+        }
+
+        void resetBuffer() {
+            lines = new ArrayList<>();
+        }
+
+        List<String> capturedLines() {
+            return lines;
         }
     }
 }

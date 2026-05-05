@@ -68,7 +68,6 @@ public final class OpenDSTExecutor {
             var deploymentDir = Path.of(args[0]);
             var descriptorFile = deploymentDir.resolve("META-INF/opendst/deployment.yaml");
 
-            err.println("[OpenDSTExecutor] parsing deployment descriptor: " + descriptorFile);
             var yamlMapper = YAMLMapper.builder()
                     .disable(FAIL_ON_NULL_FOR_PRIMITIVES)
                     .disable(FAIL_ON_UNKNOWN_PROPERTIES)
@@ -79,9 +78,6 @@ public final class OpenDSTExecutor {
                     .readerFor(DeploymentDescriptor.class)
                     .with(injectables)
                     .readValue(descriptorFile.toFile());
-            err.println("[OpenDSTExecutor] descriptor loaded, services: "
-                    + descriptor.services().keySet());
-
             var appsDir = deploymentDir.resolve("apps");
             var coreJarUrl =
                     deploymentDir.resolve("system/opendst-agent.jar").toUri().toURL();
@@ -100,13 +96,11 @@ public final class OpenDSTExecutor {
                         (TraceAuditor) auditorClass.getDeclaredConstructor().newInstance();
             }
 
-            err.println("[OpenDSTExecutor] calling runSimulation");
             runSimulation(
                     () -> {
                         for (var entry : descriptor.services().entrySet()) {
                             var serviceName = entry.getKey();
                             var svc = entry.getValue();
-                            err.println("[OpenDSTExecutor] starting node: " + serviceName);
                             var appDir = appsDir.resolve(svc.appDir());
                             var serviceClassLoader =
                                     classLoader(serviceName, appDir, getPlatformClassLoader(), coreJarUrl);
@@ -119,8 +113,6 @@ public final class OpenDSTExecutor {
                         return null;
                     },
                     traceAuditor);
-            err.println("[OpenDSTExecutor] runSimulation returned");
-
         } catch (ReflectiveOperationException e) {
             err.println("Failed to instantiate trace auditor");
             e.printStackTrace(err);

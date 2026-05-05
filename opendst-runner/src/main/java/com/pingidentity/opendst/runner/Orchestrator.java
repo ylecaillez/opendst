@@ -37,7 +37,14 @@ import java.util.function.Predicate;
  */
 interface Orchestrator {
 
-    record ExecutionPlan(Plan plan, Predicate<SignalEvent> interesting) {}
+    record ExecutionPlan(
+            Plan plan,
+            Predicate<SignalEvent> interesting,
+            java.util.function.Consumer<Plan.Checkpoint> checkpointSink) {
+        ExecutionPlan(Plan plan, Predicate<SignalEvent> interesting) {
+            this(plan, interesting, _ -> {});
+        }
+    }
 
     ExecutionPlan nextPlan();
 
@@ -60,8 +67,7 @@ interface Orchestrator {
 
         /**
          * Tracks two prefixes per signal (one for condition=true, one for condition=false)
-         * along with hit counts per condition. This allows the orchestrator to preferentially
-         * branch from the minority outcome, balancing exploration across both branches.
+         * along with hit counts per condition.
          */
         private static final class ConditionPrefixes {
             volatile List<Segment> truePrefix;
@@ -113,11 +119,9 @@ interface Orchestrator {
             var explorationKey = selected.signal() + ":" + selected.condition();
             signalExplorationCount.merge(explorationKey, 1, Integer::sum);
             var prefixSegments = selected.prefix();
-            long prefixEnd = prefixSegments.getLast().iteration();
+            long prefixEnd = prefixSegments.getLast().until();
 
             // For distance-guided signals, rewind the prefix to a random point before the assertion.
-            // This explores different paths *leading to* the assertion, which may produce different
-            // left/right values and narrow the distance further.
             long branchPoint = prefixEnd;
             if (signalMinDistance.containsKey(selected.signal()) && prefixEnd > 0) {
                 branchPoint = current().nextLong(prefixEnd);
@@ -133,20 +137,24 @@ interface Orchestrator {
             var segments = new ArrayList<>(prefixSegments);
             long seed = current().nextLong();
             segments.add(new Segment(seed, branchPoint + remainingBudget));
-            var exploratoryPlan = new Plan(segments, faultsConfig);
+            // Checkpoint is intentionally null here — each fork will substitute its own
+            // locally-cached checkpoint in TestExecutor.getNewExecutionPlanOrReplay().
+            var exploratoryPlan = new Plan(null, segments, faultsConfig, 0);
             logger.run("explore")
                     .withSignal(explorationKey)
                     .withScore(selected.score())
                     .withStartingAt(branchPoint)
                     .log();
-            return new ExecutionPlan(exploratoryPlan, new GuidanceMonitor(exploratoryPlan));
+            var monitor = new GuidanceMonitor(exploratoryPlan);
+            return new ExecutionPlan(exploratoryPlan, monitor);
         }
 
         private ExecutionPlan newRandomWalk() {
             long seed = current().nextLong();
             logger.run("random-walk").withSeed(seed).log();
             var plan = new Plan(List.of(new Segment(seed, duration)), faultsConfig);
-            return new ExecutionPlan(plan, new GuidanceMonitor(plan));
+            var monitor = new GuidanceMonitor(plan);
+            return new ExecutionPlan(plan, monitor);
         }
 
         private double score(String signal, int depth, ConditionPrefixes state, boolean condition) {
@@ -188,12 +196,12 @@ interface Orchestrator {
         private static List<Segment> truncateAt(List<Segment> segments, long targetIteration) {
             var result = new ArrayList<Segment>();
             for (var segment : segments) {
-                if (segment.iteration() <= targetIteration) {
+                if (segment.until() <= targetIteration) {
                     result.add(segment);
                 } else {
                     // Only add the truncated segment if it would have positive duration
                     long previousIteration =
-                            result.isEmpty() ? 0 : result.getLast().iteration();
+                            result.isEmpty() ? 0 : result.getLast().until();
                     if (targetIteration > previousIteration) {
                         result.add(new Segment(segment.seed(), targetIteration, 0));
                     }
@@ -205,8 +213,15 @@ interface Orchestrator {
 
         private final class GuidanceMonitor implements Predicate<SignalEvent> {
             private final Plan plan;
-            /** Hashes captured at each segment boundary, in order of emission. */
-            private final List<Integer> segmentHashes = new ArrayList<>();
+            /**
+             * Hashes observed at each segment boundary, keyed by the boundary iteration
+             * (= segment.until()).  Using the iteration as key — rather than a positional list —
+             * means the mapping is correct even when a checkpoint skips leading segments: those
+             * segments never emit {@code "segment-completed"} events, so they simply have no
+             * entry here and {@code buildPrefix} falls back to {@code segment.hash()} (= 0 for
+             * explore plans).
+             */
+            private final Map<Long, Integer> segmentHashByIteration = new java.util.HashMap<>();
 
             GuidanceMonitor(Plan plan) {
                 this.plan = plan;
@@ -217,7 +232,7 @@ interface Orchestrator {
                 // Track segment boundary hashes from lifecycle signals
                 if (event.signal() instanceof LifecycleSignal lifecycle
                         && "segment-completed".equals(lifecycle.message())) {
-                    segmentHashes.add(lifecycle.hash());
+                    segmentHashByIteration.put(event.iteration(), lifecycle.hash());
                     return false;
                 }
 
@@ -243,6 +258,9 @@ interface Orchestrator {
                     return false;
                 }
                 var label = guidanceSignal.message();
+                if (label == null) {
+                    return false; // malformed guidance signal — no message to key on
+                }
                 var improved = new AtomicBoolean(false);
                 signalMinDistance.compute(label, (_, currentDistance) -> {
                     if (currentDistance == null || distance < currentDistance) {
@@ -268,6 +286,9 @@ interface Orchestrator {
              */
             private boolean handleAssert(AssertSignal assertSignal, long iteration) {
                 var label = assertSignal.message();
+                if (label == null) {
+                    return false; // malformed assert signal — no message to key on
+                }
                 boolean condition = assertSignal.condition();
                 // Ensure per-signal state exists
                 var state = signalState.computeIfAbsent(label, _ -> new ConditionPrefixes());
@@ -294,7 +315,6 @@ interface Orchestrator {
                 synchronized (state) {
                     var existing = condition ? state.truePrefix : state.falsePrefix;
                     if (existing == null) {
-                        // First time seeing this condition outcome
                         if (condition) {
                             state.truePrefix = prefixSegments;
                         } else {
@@ -302,9 +322,8 @@ interface Orchestrator {
                         }
                         interesting = true;
                     } else {
-                        long existingTotal = existing.getLast().iteration();
+                        long existingTotal = existing.getLast().until();
                         if (iteration < existingTotal) {
-                            // Shorter path to same condition outcome — replace prefix
                             logger.signal("improved")
                                     .withSignal(label + ":" + condition)
                                     .withIteration(iteration)
@@ -325,18 +344,24 @@ interface Orchestrator {
             /**
              * Builds a prefix from the plan's segments up to the given iteration.
              * Complete segments (those whose boundary was crossed during the run) carry
-             * their observed hash from {@code segmentHashes}. The truncated segment at
-             * the end gets {@code hash=0} since its boundary was not reached.
+             * their observed hash from {@code segmentHashes} — <em>unless</em> an input
+             * checkpoint from a foreign execution path was injected ({@code inputCheckpointTainted}).
+             * In that case every segment hash is set to {@code 0}: the hasher at each boundary
+             * carries state accumulated from the injecting checkpoint's different seed history
+             * and cannot be trusted as the ground-truth cold-run hash.
+             * The truncated segment at the end always gets {@code hash=0}.
              */
             private List<Segment> buildPrefix(long iteration) {
                 var prefixSegments = new ArrayList<Segment>();
                 var planSegments = plan.segments();
-                for (int i = 0; i < planSegments.size(); i++) {
-                    var segment = planSegments.get(i);
-                    if (segment.iteration() < iteration) {
-                        // Complete segment — attach its observed hash if available
-                        int hash = i < segmentHashes.size() ? segmentHashes.get(i) : segment.hash();
-                        prefixSegments.add(new Segment(segment.seed(), segment.iteration(), hash));
+                for (var segment : planSegments) {
+                    if (segment.until() < iteration) {
+                        // Complete segment — look up the observed hash by boundary iteration.
+                        // Using the iteration as key (not a positional index) means the lookup
+                        // is correct even when a checkpoint skipped leading segments: those never
+                        // emit "segment-completed" so they have no entry and fall back to 0.
+                        int hash = segmentHashByIteration.getOrDefault(segment.until(), segment.hash());
+                        prefixSegments.add(new Segment(segment.seed(), segment.until(), hash));
                     } else {
                         // Truncate the segment where the signal was hit (hash unknown at this boundary)
                         prefixSegments.add(new Segment(segment.seed(), iteration));

@@ -99,10 +99,33 @@ public final class Simulator {
     // Visible for testing
     static final Instant START_TIME = Instant.ofEpochSecond(1445385600);
 
+    /**
+     * How often the Scheduler triggers a nyx-lite snapshot, in iterations.
+     * Configurable via system property {@code opendst.nyx.snapshotInterval}.
+     */
+    static final long NYX_SNAPSHOT_INTERVAL = Long.getLong("opendst.nyx.snapshotInterval", 10_000L);
+
     private final SimulationContext context;
     private final Plan plan;
     private final StateHasher hasher;
     private boolean ready;
+
+    /**
+     * Wired by {@code NyxGuestEntry} via reflection when running in nyx-lite mode.
+     * Called periodically between tasks in {@link Scheduler#run()} to take a VM
+     * snapshot. Always invoked with {@code CURRENT_NODE == null}. Null outside
+     * nyx-lite mode.
+     */
+    Runnable nyxSnapshotCallback;
+
+    /**
+     * Wired by {@code NyxGuestEntry} via reflection when running in nyx-lite mode.
+     * Called at segment boundaries in {@link Scheduler#run()} (via
+     * {@link RandomInterceptors.Source#step()}) to signal the shim to write the
+     * next segment to INPUT. Always invoked with {@code CURRENT_NODE == null}.
+     * Null outside nyx-lite mode.
+     */
+    Runnable nyxSegmentBoundaryCallback;
 
     private Simulator(Plan plan, TraceAuditor traceAuditor) throws IOException {
         this.plan = requireNonNull(plan);
@@ -118,6 +141,10 @@ public final class Simulator {
 
         // Assemble the immutable context last — passed only to Node
         this.context = new SimulationContext(this, scheduler, random, faults, network, faultInjector, logger);
+
+        // Copy callbacks from static fields (set by NyxGuestEntry before this runs).
+        this.nyxSnapshotCallback = RandomInterceptors.NYX_SNAPSHOT_CALLBACK;
+        this.nyxSegmentBoundaryCallback = RandomInterceptors.NYX_SEGMENT_BOUNDARY_CALLBACK;
 
         logger.logLifecycle("started", START_TIME, 0).log();
     }
@@ -195,7 +222,7 @@ public final class Simulator {
         }
         Segment previous = null;
         for (var segment : plan.segments()) {
-            if (previous != null && previous.iteration() >= segment.iteration()) {
+            if (previous != null && previous.until() >= segment.until()) {
                 System.err.println("The provided plan is invalid: segments are overlapping and/or are out of order");
                 getRuntime().halt(1);
             }
@@ -216,10 +243,11 @@ public final class Simulator {
     }
 
     /**
-     * Called by {@link RandomInterceptors.Source} at each segment boundary. Snapshots the current hash,
-     * emits a {@code "segment-completed"} lifecycle signal, and checks the departing segment's
-     * expected hash. If the expected hash is non-zero and differs from the actual hash, the
-     * simulation exits with a non-determinism report.
+     * Called by {@link RandomInterceptors.Source#step()} at each segment boundary,
+     * from Scheduler context ({@code CURRENT_NODE == null}). Emits a
+     * {@code "segment-completed"} lifecycle signal, validates the departing
+     * segment's expected hash, and — in nyx-lite mode — signals the shim to
+     * write the next segment to INPUT via the segment-boundary hypercall.
      *
      * @param departingSegment the segment that just completed
      */
@@ -238,13 +266,13 @@ public final class Simulator {
             exitSimulation(INTERNAL_ERROR);
             return;
         }
-        // In nyx-lite mode, flush output and issue a snapshot hypercall so the host can
-        // take an incremental snapshot at this boundary. The host writes the next segment
-        // to INPUT before resuming. This must happen AFTER the log line is emitted so the
-        // host sees segment-completed before the snapshot.
-        if (RandomInterceptors.NYX_SEGMENT_SUPPLIER != null) {
+        // In nyx-lite mode, flush logs then signal the shim to write the next segment
+        // to INPUT. This hypercall is issued from Scheduler context (CURRENT_NODE == null),
+        // so it is always safe to snapshot and resume here.
+        var segBoundary = nyxSegmentBoundaryCallback;
+        if (segBoundary != null) {
             context.logger().flush();
-            NyxSegmentHypercall.requestSnapshot();
+            segBoundary.run();
         }
     }
 
@@ -371,6 +399,7 @@ public final class Simulator {
         }
 
         void run() {
+            long lastSnapshotIteration = 0;
             for (var task = tasks.poll(); task != null; task = tasks.poll()) {
                 if (task.runAt.isBefore(now)) {
                     reportInternalError(new SimulationError("Simulator has gone backward in time"));
@@ -382,6 +411,27 @@ public final class Simulator {
                     }
                     logger.flush();
                     checkNodesWaitingList(task.node);
+
+                    // Advance the step counter. May fire a segment-boundary transition which
+                    // (in nyx-lite mode) issues the SEGMENT_BOUNDARY hypercall to write the
+                    // next segment to INPUT. Always outside VT context (CURRENT_NODE == null).
+                    context.random().step();
+
+                    // Snapshot between tasks — always safe (CURRENT_NODE == null).
+                    var cb = nyxSnapshotCallback;
+                    if (cb != null) {
+                        long it = context.random().iteration();
+                        long nextBoundary = context.random().nextBoundary();
+                        // Snapshot just before the next segment boundary so there is always
+                        // a recent checkpoint close to each boundary.
+                        boolean preSegmentBoundary = it >= nextBoundary - 1 && lastSnapshotIteration < nextBoundary - 1;
+                        // Periodic snapshot every NYX_SNAPSHOT_INTERVAL steps.
+                        boolean periodic = it / NYX_SNAPSHOT_INTERVAL > lastSnapshotIteration / NYX_SNAPSHOT_INTERVAL;
+                        if (preSegmentBoundary || periodic) {
+                            lastSnapshotIteration = it;
+                            cb.run();
+                        }
+                    }
                 }
             }
         }

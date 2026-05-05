@@ -1,0 +1,1 @@
+{"segments":[{"seed":5560606166538662677,"iteration":2674,"hash":0},{"seed":-7584565757104468770,"iteration":100000,"hash":0}],"faults":{"network":{"enabled":true,"networkLatencyMinimum":"PT0.0001S","networkLatencyFast":"PT0.0008S","networkLatencySlow":"PT0.1S","cloggingLatencyMaximum":"PT0.1S","connectionResetProbability":0.001,"timeoutProbability":0.001}},"hash":-1201886382}

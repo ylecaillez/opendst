@@ -1,0 +1,388 @@
+{
+  "count" : 11,
+  "duration" : "00:00:09",
+  "assertions" : [ {
+    "name" : "drain-completed-ioexception",
+    "pass" : false
+  }, {
+    "name" : "server-input-halfclose",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 11,
+      "passExamples" : [ {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 872
+      }, {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 872
+      }, {
+        "plan" : "plans/49f1bce7.plan.json",
+        "iteration" : 1976
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "server-shutdown-output",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 1,
+      "passExamples" : [ {
+        "plan" : "plans/b85cab52.plan.json",
+        "iteration" : 2980
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "server-reuse-addr-off",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 4,
+      "passExamples" : [ {
+        "plan" : "plans/05884606.plan.json",
+        "iteration" : 16
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "client-unbound",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 1425,
+      "passExamples" : [ {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 442
+      }, {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 442
+      }, {
+        "plan" : "plans/5d6984d9.plan.json",
+        "iteration" : 446
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "server-bind-failed",
+    "pass" : false
+  }, {
+    "name" : "server-output-halfclose",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 10,
+      "passExamples" : [ {
+        "plan" : "plans/b85cab52.plan.json",
+        "iteration" : 34
+      }, {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 1346
+      }, {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 1346
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "drain-completed-eof",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 2,
+      "passExamples" : [ {
+        "plan" : "plans/49f1bce7.plan.json",
+        "iteration" : 2810
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "simulation terminated",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 11,
+      "passExamples" : [ {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 2724
+      }, {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 2724
+      }, {
+        "plan" : "plans/fd11f910.plan.json",
+        "iteration" : 2740
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "no exception thrown in trace auditor",
+    "pass" : true
+  }, {
+    "name" : "server-deferred-bind",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 4,
+      "passExamples" : [ {
+        "plan" : "plans/05884606.plan.json",
+        "iteration" : 14
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "client-bind",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 350,
+      "passExamples" : [ {
+        "plan" : "plans/b85cab52.plan.json",
+        "iteration" : 460
+      }, {
+        "plan" : "plans/5d6984d9.plan.json",
+        "iteration" : 478
+      }, {
+        "plan" : "plans/5d6984d9.plan.json",
+        "iteration" : 478
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "server-reuse-addr-on",
+    "pass" : false,
+    "examples" : {
+      "passCount" : 0,
+      "failCount" : 4,
+      "failExamples" : [ {
+        "plan" : "plans/05884606.plan.json",
+        "iteration" : 16
+      } ]
+    }
+  }, {
+    "name" : "drain-received-data",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 2,
+      "passExamples" : [ {
+        "plan" : "plans/49f1bce7.plan.json",
+        "iteration" : 2802
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "server-normal-echo",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 13,
+      "passExamples" : [ {
+        "plan" : "plans/5d6984d9.plan.json",
+        "iteration" : 602
+      }, {
+        "plan" : "plans/5d6984d9.plan.json",
+        "iteration" : 602
+      }, {
+        "plan" : "plans/fd11f910.plan.json",
+        "iteration" : 2582
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "server-random-sequence",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 11,
+      "passExamples" : [ {
+        "plan" : "plans/fd11f910.plan.json",
+        "iteration" : 34
+      }, {
+        "plan" : "plans/fd11f910.plan.json",
+        "iteration" : 34
+      }, {
+        "plan" : "plans/fd11f910.plan.json",
+        "iteration" : 34
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "client-shutdown-output",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 572,
+      "passExamples" : [ {
+        "plan" : "plans/5d6984d9.plan.json",
+        "iteration" : 450
+      }, {
+        "plan" : "plans/5d6984d9.plan.json",
+        "iteration" : 450
+      }, {
+        "plan" : "plans/49f1bce7.plan.json",
+        "iteration" : 452
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "client-eof",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 1,
+      "passExamples" : [ {
+        "plan" : "plans/b85cab52.plan.json",
+        "iteration" : 2998
+      } ],
+      "failCount" : 2,
+      "failExamples" : [ {
+        "plan" : "plans/05884606.plan.json",
+        "iteration" : 2864
+      } ]
+    }
+  }, {
+    "name" : "client-direct-connect",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 775,
+      "passExamples" : [ {
+        "plan" : "plans/05884606.plan.json",
+        "iteration" : 442
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "client-open",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 26,
+      "passExamples" : [ {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 2252
+      }, {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 2252
+      }, {
+        "plan" : "plans/fd11f910.plan.json",
+        "iteration" : 2598
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "server-available",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 6,
+      "passExamples" : [ {
+        "plan" : "plans/fd11f910.plan.json",
+        "iteration" : 38
+      }, {
+        "plan" : "plans/fd11f910.plan.json",
+        "iteration" : 38
+      }, {
+        "plan" : "plans/fd11f910.plan.json",
+        "iteration" : 38
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "client-open",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 26,
+      "passExamples" : [ {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 2252
+      }, {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 2252
+      }, {
+        "plan" : "plans/fd11f910.plan.json",
+        "iteration" : 2598
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "liveness-checked",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 2,
+      "passExamples" : [ {
+        "plan" : "plans/49f1bce7.plan.json",
+        "iteration" : 2810
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "client-available",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 17,
+      "passExamples" : [ {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 2582
+      }, {
+        "plan" : "plans/a23ccc77.plan.json",
+        "iteration" : 2582
+      }, {
+        "plan" : "plans/fd11f910.plan.json",
+        "iteration" : 2600
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "no uncaught exception",
+    "pass" : true
+  }, {
+    "name" : "client-shutdown-input",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 548,
+      "passExamples" : [ {
+        "plan" : "plans/5d6984d9.plan.json",
+        "iteration" : 456
+      }, {
+        "plan" : "plans/5d6984d9.plan.json",
+        "iteration" : 456
+      }, {
+        "plan" : "plans/49f1bce7.plan.json",
+        "iteration" : 464
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "server-restart",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 1,
+      "passExamples" : [ {
+        "plan" : "plans/b85cab52.plan.json",
+        "iteration" : 2982
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "no internal error",
+    "pass" : true
+  }, {
+    "name" : "server-constructor-bind",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 8,
+      "passExamples" : [ {
+        "plan" : "plans/49f1bce7.plan.json",
+        "iteration" : 14
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "simulation started",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 1,
+      "passExamples" : [ {
+        "plan" : "plans/05884606.plan.json",
+        "iteration" : 0
+      } ],
+      "failCount" : 0
+    }
+  }, {
+    "name" : "server-shutdown-input",
+    "pass" : true,
+    "examples" : {
+      "passCount" : 2,
+      "passExamples" : [ {
+        "plan" : "plans/b85cab52.plan.json",
+        "iteration" : 2976
+      } ],
+      "failCount" : 0
+    }
+  } ]
+}

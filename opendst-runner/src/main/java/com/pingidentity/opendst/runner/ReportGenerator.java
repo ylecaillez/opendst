@@ -42,6 +42,7 @@ final class ReportGenerator {
     private final Set<Assertion> assertions;
     private final Map<String, Examples> examples = new ConcurrentHashMap<>();
     private final AtomicInteger totalPlans = new AtomicInteger();
+    private final AtomicInteger determinismFailures = new AtomicInteger();
 
     ReportGenerator(Set<Assertion> discoveredProperties, Path reportDir) {
         this.reportDir = reportDir;
@@ -106,8 +107,17 @@ final class ReportGenerator {
                         name, (_, examples) -> examples.add(assertionTrack, planFile, reportDir)));
     }
 
-    /** Returns {@code true} if any non-SOMETIMES assertion has recorded at least one failure. */
+    /** Records a determinism failure (hash mismatch on a verify run). */
+    void recordDeterminismFailure() {
+        determinismFailures.incrementAndGet();
+    }
+
+    /** Returns {@code true} if any non-SOMETIMES assertion has recorded at least one failure,
+     *  or if any determinism failure was detected. */
     boolean hasFailures() {
+        if (determinismFailures.get() > 0) {
+            return true;
+        }
         for (var assertion : assertions) {
             if (SOMETIMES.equals(assertion.kind())) {
                 continue;

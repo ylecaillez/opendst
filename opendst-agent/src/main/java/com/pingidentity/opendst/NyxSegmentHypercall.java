@@ -27,7 +27,6 @@ import java.lang.reflect.Method;
 final class NyxSegmentHypercall {
 
     private static volatile Method snapshotMethod;
-    private static volatile Method bootSnapshotMethod;
     private static volatile boolean resolved;
 
     private static void resolve() {
@@ -39,8 +38,6 @@ final class NyxSegmentHypercall {
                 var cls = Class.forName("opendst.nyx.guest.Hypercall", true, ClassLoader.getSystemClassLoader());
                 snapshotMethod = cls.getDeclaredMethod("snapshot");
                 snapshotMethod.setAccessible(true);
-                bootSnapshotMethod = cls.getDeclaredMethod("bootSnapshot");
-                bootSnapshotMethod.setAccessible(true);
             } catch (ReflectiveOperationException e) {
                 // Not running in nyx-lite VM — no-op
             }
@@ -54,17 +51,6 @@ final class NyxSegmentHypercall {
                 snapshotMethod.invoke(null);
             } catch (ReflectiveOperationException e) {
                 throw new RuntimeException("nyx snapshot hypercall failed", e);
-            }
-        }
-    }
-
-    static void requestBootSnapshot() {
-        resolve();
-        if (bootSnapshotMethod != null) {
-            try {
-                bootSnapshotMethod.invoke(null);
-            } catch (ReflectiveOperationException e) {
-                throw new RuntimeException("nyx boot snapshot hypercall failed", e);
             }
         }
     }

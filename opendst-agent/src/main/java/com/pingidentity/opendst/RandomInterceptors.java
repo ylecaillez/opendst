@@ -68,13 +68,20 @@ public final class RandomInterceptors {
     public static volatile java.util.function.Supplier<Segment> NYX_SEGMENT_SUPPLIER;
 
     /**
-     * When true, {@link Source#next(int)} issues the deferred boot snapshot hypercall on the
-     * very first draw, then re-seeds from {@link #NYX_SEGMENT_SUPPLIER}. Set by
-     * {@code NyxGuestEntry} before invoking the simulation; cleared by {@code Source.next()}
-     * before issuing the hypercall (the snapshot captures the {@code true} state so each
-     * restore re-triggers it).
+     * Callback wired by {@code NyxGuestEntry} to issue the snapshot hypercall.
+     * Set before {@code OpenDSTExecutor.main()} runs; cleared in the finally block.
+     * The {@code Simulator} constructor copies it to the instance field
+     * {@code Simulator.nyxSnapshotCallback} so the Scheduler can invoke it.
      */
-    public static volatile boolean NYX_BOOT_SNAPSHOT_PENDING;
+    public static volatile Runnable NYX_SNAPSHOT_CALLBACK;
+
+    /**
+     * Wired by {@code NyxGuestEntry} in nyx-lite mode. Called from
+     * {@link Source#step()} at each segment boundary (in Scheduler context,
+     * {@code CURRENT_NODE == null}) to signal the shim to write the next
+     * segment to INPUT. Null outside nyx-lite mode.
+     */
+    public static volatile Runnable NYX_SEGMENT_BOUNDARY_CALLBACK;
 
     public static final class Source extends Random {
         @Serial
@@ -83,7 +90,9 @@ public final class RandomInterceptors {
         private final transient Simulator simulator;
         private final transient ArrayDeque<Segment> segments;
         private transient Segment currentSegment;
+        /** Task-execution counter: incremented once per Scheduler task, not per random draw. */
         private long iteration;
+
         private long nextIteration;
         int last;
 
@@ -93,12 +102,62 @@ public final class RandomInterceptors {
             var segment = this.segments.removeFirst();
             this.currentSegment = segment;
             setSeed(segment.seed());
-            nextIteration = segment.iteration();
+            nextIteration = segment.until();
         }
 
-        /** {@return the number of time a random number has been generated} */
+        /**
+         * {@return the number of Scheduler tasks executed so far}
+         *
+         * <p>This is the step counter, not the random-draw counter. Segment
+         * {@code until} values and snapshot intervals are expressed in steps.
+         */
         public long iteration() {
             return iteration;
+        }
+
+        /** {@return the step at which the current segment ends} */
+        public long nextBoundary() {
+            return nextIteration;
+        }
+
+        /**
+         * Called by {@link Simulator.Scheduler} after each task execution.
+         * Increments the step counter and fires a segment-boundary transition
+         * when {@code iteration >= nextIteration}.
+         *
+         * <p>This is always called outside VT context ({@code CURRENT_NODE == null}),
+         * making it safe to issue hypercalls and take snapshots here.
+         */
+        void step() {
+            iteration++;
+            if (iteration >= nextIteration) {
+                simulator.checkSegmentHash(currentSegment);
+                var nyxSupplier = NYX_SEGMENT_SUPPLIER;
+                if (nyxSupplier != null) {
+                    // Nyx-lite mode: checkSegmentHash issued the SEGMENT_BOUNDARY hypercall
+                    // so the shim has written the next segment to INPUT. Read it now.
+                    var segment = nyxSupplier.get();
+                    if (segment == null) {
+                        simulator.exitSimulation(Simulator.ExitReason.PLAN_OK);
+                        return;
+                    }
+                    currentSegment = segment;
+                    nextIteration = segment.until();
+                    setSeed(segment.seed());
+                    // Drain the local queue: nyx mode ignores it but plan JSON may have
+                    // pre-populated it.
+                    segments.clear();
+                } else {
+                    try {
+                        var segment = segments.removeFirst();
+                        currentSegment = segment;
+                        nextIteration = segment.until();
+                        setSeed(segment.seed());
+                    } catch (NoSuchElementException e) {
+                        simulator.exitSimulation(Simulator.ExitReason.PLAN_OK);
+                    }
+                }
+            }
         }
 
         /**
@@ -113,61 +172,8 @@ public final class RandomInterceptors {
         @Override
         protected int next(int bits) {
             assert bits > 0 && bits <= 32;
-            // On the very first draw in nyx-lite mode, issue the deferred boot snapshot
-            // so the host captures everything including plan parsing and node init.
-            // After restore, iteration is still 0 and the flag is still true (snapshot
-            // state), so this fires again — re-seeding from SHM for the new plan.
-            if (iteration == 0 && NYX_BOOT_SNAPSHOT_PENDING) {
-                NYX_BOOT_SNAPSHOT_PENDING = false;
-                NyxSegmentHypercall.requestBootSnapshot();
-                // Shim wrote segment 0 into INPUT; re-seed to override the plan's baked-in seed.
-                var supplier = NYX_SEGMENT_SUPPLIER;
-                if (supplier != null) {
-                    var seg = supplier.get();
-                    if (seg != null) {
-                        currentSegment = seg;
-                        nextIteration = seg.iteration();
-                        setSeed(seg.seed());
-                        segments.clear();
-                    }
-                }
-            }
-            iteration++;
             last = super.next(bits);
             simulator.hash(last);
-            // Check boundary AFTER the draw so that a simulation making exactly
-            // nextIteration draws crosses the boundary before it exits.
-            if (iteration >= nextIteration) {
-                this.simulator.checkSegmentHash(currentSegment);
-                var nyxSupplier = NYX_SEGMENT_SUPPLIER;
-                if (nyxSupplier != null) {
-                    // Nyx-lite mode: the shim took a snapshot during checkSegmentHash's
-                    // hypercall and wrote the next segment to INPUT. Read it now.
-                    // The local segments queue is ignored — the shim owns segment delivery.
-                    var segment = nyxSupplier.get();
-                    if (segment == null) {
-                        this.simulator.exitSimulation(Simulator.ExitReason.PLAN_OK);
-                        throw new Simulator.SimulationError("Plan exhausted (nyx)");
-                    }
-                    currentSegment = segment;
-                    nextIteration = segment.iteration();
-                    setSeed(segment.seed());
-                    // Drain the local queue so it stays consistent (nyx mode ignores it but
-                    // it may be non-empty if the plan JSON carried multiple segments).
-                    segments.clear();
-                } else {
-                    try {
-                        var segment = segments.removeFirst();
-                        currentSegment = segment;
-                        nextIteration = segment.iteration();
-                        assert nextIteration > iteration;
-                        setSeed(segment.seed());
-                    } catch (NoSuchElementException e) {
-                        this.simulator.exitSimulation(Simulator.ExitReason.PLAN_OK);
-                        throw new Simulator.SimulationError("Plan exhausted");
-                    }
-                }
-            }
             return last;
         }
     }

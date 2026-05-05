@@ -161,7 +161,7 @@ fn parse_plan_segments(plan_json: &str) -> Vec<(u64, u64)> {
         if c != b'{' { pos += 1; continue; }
         let Some(obj_end) = arr[pos..].find('}') else { break; };
         let obj = &arr[pos..pos + obj_end + 1];
-        if let (Some(seed), Some(iter)) = (extract_u64(obj, "seed"), extract_u64(obj, "iteration")) {
+        if let (Some(seed), Some(iter)) = (extract_u64(obj, "seed"), extract_u64(obj, "until")) {
             result.push((seed, iter));
         }
         pos += obj_end + 1;

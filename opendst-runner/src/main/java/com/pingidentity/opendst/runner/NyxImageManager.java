@@ -48,11 +48,13 @@ final class NyxImageManager {
     private static final String NYX_CACHE_DIR = System.getProperty("user.home") + "/.opendst/nyx-rootfs";
 
     /** Result of {@link #prepare(String, OpenDstLogger)}. */
-    record NyxSetup(Path shimBinary, String vmConfigPath) {}
+    record NyxSetup(Path shimBinary, String vmConfigPath, Path deploymentDir) {}
 
     /**
-     * Ensures the rootfs and shim are extracted for the given image tag,
-     * then returns paths needed to start the shim.
+     * Ensures the rootfs, shim, and deployment are extracted for the given image tag,
+     * then returns paths needed to start the shim and read build metadata.
+     * All artifacts are cached under {@code ~/.opendst/nyx-rootfs/<digest>/} and
+     * reused on subsequent runs without re-extracting.
      *
      * @param imageTag Docker image tag (e.g. {@code myapp-opendst-nyx:1.0})
      * @param logger   for progress output
@@ -62,30 +64,32 @@ final class NyxImageManager {
         var cacheDir = Path.of(NYX_CACHE_DIR, digest);
         var rootfsPath = cacheDir.resolve("rootfs.ext4");
         var shimPath = cacheDir.resolve("opendst-nyx-shim");
+        var deploymentDir = cacheDir.resolve("deployment");
         var vmConfigPath = cacheDir.resolve("vmconfig.json");
 
-        if (!Files.exists(rootfsPath) || !Files.exists(shimPath)) {
-            logger.raw().info("Extracting nyx-lite rootfs from image: " + imageTag);
+        if (!Files.exists(rootfsPath) || !Files.exists(shimPath) || !Files.exists(deploymentDir)) {
+            logger.raw().info("Extracting nyx-lite image: " + imageTag);
             Files.createDirectories(cacheDir);
             extractRootfs(imageTag, rootfsPath, logger);
             extractShim(imageTag, shimPath, logger);
+            extractDeployment(imageTag, deploymentDir, logger);
             logger.raw().info("Extraction complete: " + cacheDir);
         } else {
-            logger.raw().info("Using cached nyx-lite rootfs: " + cacheDir);
+            logger.raw().debug("Using cached nyx-lite image: " + cacheDir);
         }
 
         writeVmConfig(rootfsPath, vmConfigPath);
 
-        return new NyxSetup(shimPath, vmConfigPath.toString());
+        return new NyxSetup(shimPath, vmConfigPath.toString(), deploymentDir);
     }
 
     /**
      * Extracts {@code /opendst-deployment/} from the Docker image into {@code destDir}.
      * Uses {@code docker create} + {@code docker cp} so no daemon mount is needed.
      */
-    static void extractDeployment(String imageTag, Path destDir, OpenDstLogger logger)
+    private static void extractDeployment(String imageTag, Path destDir, OpenDstLogger logger)
             throws IOException, InterruptedException {
-        logger.raw().info("Extracting deployment from image: " + imageTag);
+        logger.raw().info("  Extracting deployment...");
         var createProc = new ProcessBuilder("docker", "create", imageTag)
                 .redirectErrorStream(true)
                 .start();
@@ -96,7 +100,6 @@ final class NyxImageManager {
         try {
             Files.createDirectories(destDir.getParent());
             run("docker", "cp", containerId + ":/opendst-deployment/.", destDir.toString());
-            logger.raw().info("Deployment extracted to: " + destDir);
         } finally {
             new ProcessBuilder("docker", "rm", containerId)
                     .redirectErrorStream(true)

@@ -175,13 +175,17 @@ public class BuildMojo extends AbstractMojo {
         var agentJarPath = extractEmbeddedJar(basePath, OPENDST_AGENT_JAR, "opendst-agent.jar");
         var runnerJarPath = extractEmbeddedJar(basePath, OPENDST_RUNNER_JAR, "opendst-runner.jar");
 
-        // 2b. Generate opendst-patch.jar (patched VirtualThread + SimulatorThread)
+        // 2b. Generate opendst-patch.jar (patched VirtualThread + SimulatorThread).
+        // Skipped for nyx-lite: the patch is baked into the base image by its Docker
+        // multi-stage build, compiled against the exact JRE that runs in the VM.
         var patchModuleJarPath =
                 basePath.resolve("target").resolve("opendst-package").resolve("opendst-patch.jar");
-        try {
-            PatchModuleGenerator.generate(patchModuleJarPath);
-        } catch (IOException e) {
-            throw new MojoExecutionException("Failed to generate opendst-patch.jar", e);
+        if (!"nyx-lite".equalsIgnoreCase(engine)) {
+            try {
+                PatchModuleGenerator.generate(patchModuleJarPath);
+            } catch (IOException e) {
+                throw new MojoExecutionException("Failed to generate opendst-patch.jar", e);
+            }
         }
 
         // 3. Resolve external artifacts and instrument all unique sources
@@ -533,7 +537,10 @@ public class BuildMojo extends AbstractMojo {
         // system JARs
         copy(agentJarPath, deploymentDir.resolve("system/opendst-agent.jar"), REPLACE_EXISTING);
         copy(runnerJarPath, deploymentDir.resolve("system/opendst-runner.jar"), REPLACE_EXISTING);
-        copy(patchModuleJarPath, deploymentDir.resolve("system/opendst-patch.jar"), REPLACE_EXISTING);
+        // For nyx-lite, the patch is baked into the base image — no local copy needed.
+        if (Files.exists(patchModuleJarPath)) {
+            copy(patchModuleJarPath, deploymentDir.resolve("system/opendst-patch.jar"), REPLACE_EXISTING);
+        }
 
         // metadata
         Files.write(

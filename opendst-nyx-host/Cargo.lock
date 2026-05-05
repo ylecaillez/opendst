@@ -473,6 +473,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
+name = "libhypercall"
+version = "0.1.0"
+
+[[package]]
 name = "libloading"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -606,7 +610,9 @@ dependencies = [
  "event-manager",
  "micro_http 0.1.0 (git+https://github.com/firecracker-microvm/micro-http?rev=ef43cef7162a55a6790d528a5e76b4fe2da22de0)",
  "nyx-lite",
+ "serde",
  "serde_json",
+ "vmm",
  "vmm-sys-util",
 ]
 

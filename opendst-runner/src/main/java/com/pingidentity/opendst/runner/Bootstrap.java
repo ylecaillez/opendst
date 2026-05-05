@@ -76,13 +76,15 @@ public final class Bootstrap {
             urls.add(deploymentDir.toUri().toURL()); // deployment root for plugin + opendst-agent classes
             var systemDir = deploymentDir.resolve("system");
             try (var jars = list(systemDir)) {
-                jars.filter(p -> p.toString().endsWith(".jar")).forEach(p -> {
-                    try {
-                        urls.add(p.toUri().toURL());
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                });
+                jars.filter(p -> p.toString().endsWith(".jar")
+                                && !p.getFileName().toString().startsWith("opendst-agent"))
+                        .forEach(p -> {
+                            try {
+                                urls.add(p.toUri().toURL());
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        });
             }
 
             // Parent is platform classloader — isolates from system CL (which only sees the bootstrap JAR)

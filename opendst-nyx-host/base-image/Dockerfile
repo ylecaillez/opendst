@@ -15,11 +15,47 @@
 #   FROM opendst-nyx-base:latest
 #   COPY deployment/ /opendst-deployment/
 #
+# Multi-stage build:
+#   rust-builder   — builds libhypercall.so (Rust/glibc) on Debian; cdylib requires glibc target
+#   java-builder   — builds nyx-guest.jar + opendst-patch.jar on Alpine JDK25
+#   runtime        — Alpine + JRE + gcompat (to load the glibc-linked libhypercall.so)
+
+# --- Stage 1a: build libhypercall.so ---
+# Use Alpine's system cargo (apk add cargo) rather than rustup.
+# Alpine's native Rust targets the system's dynamic musl linker, which supports cdylib.
+# The rustup x86_64-unknown-linux-musl target uses static-only musl and does NOT support cdylib.
+FROM alpine:latest AS rust-builder
+
+RUN apk add --no-cache cargo musl-dev
+
+COPY libhypercall/ /build/libhypercall/
+RUN printf '[workspace]\nmembers = ["libhypercall"]\nresolver = "2"\n' > /build/Cargo.toml && \
+    cargo build --manifest-path /build/Cargo.toml -p libhypercall --release
+
+# --- Stage 1b: build nyx-guest.jar + opendst-patch.jar ---
+# Must use the exact same Alpine JDK as the runtime image so class files and
+# the VirtualThread patch match the JRE that will execute them in the VM.
+FROM alpine:latest AS java-builder
+
+RUN apk add --no-cache openjdk25-jdk
+
+# Compile nyx-guest.jar from Java guest sources
+COPY guest-src/ /build/guest-src/
+RUN mkdir -p /build/guest-classes && \
+    javac -d /build/guest-classes $(find /build/guest-src -name "*.java") && \
+    jar --create --file /build/nyx-guest.jar -C /build/guest-classes .
+
+# Generate opendst-patch.jar using this JDK (guarantees VirtualThread matches runtime JRE)
+COPY GeneratePatch.java /build/GeneratePatch.java
+COPY SimulatorThread.java /build/SimulatorThread.java
+RUN java /build/GeneratePatch.java /build/SimulatorThread.java /build/opendst-patch.jar
+
+# --- Stage 2: runtime image with JRE only ---
 FROM alpine:latest
 
 RUN apk update \
  && apk add openrc openssh sudo util-linux bash vim rsyslog \
- && apk add openjdk25-jre-headless
+ && apk add openjdk25-jre-headless libgcc
 
 # OpenRC services needed for VM boot
 COPY interfaces.txt /etc/network/interfaces
@@ -38,13 +74,15 @@ RUN echo "basic services" \
  && rc-update add fuzz-setup default \
  && echo "done"
 
-# Nyx-lite shim: extracted by NyxImageManager to run Firecracker VMs on the host
+# Nyx-lite shim: host-side binary extracted by NyxImageManager at run time
 COPY resources/opendst-nyx-shim /usr/bin/opendst-nyx-shim
 RUN chmod +x /usr/bin/opendst-nyx-shim
 
-# Guest bridge: JNI hypercall library and NyxGuestEntry JAR (VM mode only)
-COPY resources/libhypercall.so /resources/libhypercall.so
-COPY resources/nyx-guest.jar   /resources/nyx-guest.jar
+# Guest artifacts
+RUN mkdir -p /resources
+COPY --from=rust-builder  /build/target/release/libhypercall.so /resources/libhypercall.so
+COPY --from=java-builder  /build/nyx-guest.jar                  /resources/nyx-guest.jar
+COPY --from=java-builder  /build/opendst-patch.jar              /resources/opendst-patch.jar
 
 # opendst-runner.jar: the self-contained runner (Bootstrap + BuildRunner + agent embedded)
 # Used as ENTRYPOINT in container mode.
