@@ -36,13 +36,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use nyx_lite::mem::NyxMemExtension;
+use nyx_lite::mem::{GetMem, NyxMemExtension};
 use nyx_lite::snapshot::{MemorySnapshot, NyxSnapshot};
 use nyx_lite::vm_continuation_statemachine::VMContinuationState;
 use nyx_lite::{ExitReason, NyxVM};
 use vmm::device_manager::persist::DeviceStates;
+use vmm::devices::virtio::block::device::Block;
 use vmm::devices::virtio::block::persist::BlockState;
 use vmm::devices::virtio::block::virtio::io::cow_io::CowCache;
+use vmm::devices::virtio::device::DeviceState;
 use vmm::devices::virtio::persist::{MmioTransportState, VirtioDeviceState};
 use vmm::persist::MicrovmState;
 use vmm::snapshot::Snapshot;
@@ -533,6 +535,25 @@ fn load_snapshot_from_disk(
     })
 }
 
+/// `apply_snapshot` patches device registers but does NOT call `activate()` on the live
+/// Block struct.  In a fresh shim process the device starts as `DeviceState::Inactive`;
+/// without this fix any virtio I/O (e.g. JVM lazy class loading) causes a panic at
+/// `block/virtio/device.rs` → `self.device_state.mem().unwrap()`.
+///
+/// This helper must be called after every `vm.apply_snapshot(...)` in the shim.
+fn ensure_block_devices_activated(vm: &mut NyxVM) {
+    let mem = vm.vmm.lock().unwrap().get_mem().clone();
+    for block_dev in &vm.block_devices {
+        let mut blk = block_dev.lock().unwrap();
+        if let Block::Virtio(ref mut virt_blk) = *blk {
+            if !virt_blk.device_state.is_activated() {
+                virt_blk.device_state = DeviceState::Activated(mem.clone());
+                eprintln!("[shim] activated block device '{}'", virt_blk.id);
+            }
+        }
+    }
+}
+
 fn nil_uuid() -> CheckpointId {
     [0u8; 16]
 }
@@ -771,6 +792,7 @@ fn load_and_apply_boot_from_disk(
     });
 
     vm.apply_snapshot(&boot_snap);
+    ensure_block_devices_activated(vm);
     eprintln!(
         "[shim] boot snapshot loaded from disk in {}ms ({} pages)",
         t0.elapsed().as_millis(),
@@ -950,6 +972,7 @@ fn main() -> Result<()> {
         let tail_segments: Vec<(u64, u64)> = all_segments[resume_segment_idx..].to_vec();
 
         vm.apply_snapshot(&restore_snap);
+        ensure_block_devices_activated(&mut vm);
         write_plan(&mut vm, in_vaddr, plan_json.as_bytes())?;
         partial_zero_output(&mut vm, out_vaddr, restore_cursor);
 
