@@ -89,10 +89,19 @@ final class NyxImageManager {
             logger.raw().debug("Using cached nyx-lite base image: " + cacheDir);
         }
 
-        // 2. Per-run deployment ext2 image
+        // 2. Per-run deployment ext2 image.
+        // When launched via the -opendst.jar, Bootstrap has already extracted the deployment to
+        // workingDir/deployment/.  When launched directly with a legacy per-project image that has
+        // the deployment baked in at /deployment/, extract it from the image on demand.
+        var resolvedDeploymentDir = deploymentDir;
+        if (!Files.exists(deploymentDir)) {
+            logger.raw().info("Deployment dir not found locally; extracting from image: " + baseImageTag);
+            resolvedDeploymentDir = workingDir.resolve("deployment");
+            extractDeploymentFromImage(baseImageTag, resolvedDeploymentDir, logger);
+        }
         var deploymentExt4 = workingDir.resolve("deployment.ext4");
-        logger.raw().info("Building deployment.ext4 from: " + deploymentDir);
-        buildDeploymentExt2(deploymentDir, deploymentExt4, logger);
+        logger.raw().info("Building deployment.ext4 from: " + resolvedDeploymentDir);
+        buildDeploymentExt2(resolvedDeploymentDir, deploymentExt4, logger);
 
         // 3. Firecracker vmconfig (references both drives)
         var vmConfigPath = workingDir.resolve("vmconfig.json");
@@ -197,6 +206,35 @@ final class NyxImageManager {
                     rootfsPath.toString());
         } finally {
             deleteDir(stagingDir);
+            new ProcessBuilder("docker", "rm", containerId)
+                    .redirectErrorStream(true)
+                    .start()
+                    .waitFor(10, TimeUnit.SECONDS);
+        }
+    }
+
+    /**
+     * Extracts the {@code /deployment} directory from a Docker image into {@code destDir}.
+     *
+     * <p>Used when the runner is invoked directly with a per-project image that has the
+     * deployment baked in at {@code /deployment/} (legacy workflow).  The normal path is that
+     * Bootstrap already extracted the deployment from the self-contained JAR before calling
+     * {@link BuildRunner}.
+     */
+    private static void extractDeploymentFromImage(String imageTag, Path destDir, OpenDstLogger logger)
+            throws IOException, InterruptedException {
+        var createProc = new ProcessBuilder("docker", "create", imageTag)
+                .redirectErrorStream(true)
+                .start();
+        var containerId = new String(createProc.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+        if (createProc.waitFor() != 0) {
+            throw new IOException("docker create failed for deployment extraction: " + containerId);
+        }
+        try {
+            Files.createDirectories(destDir.getParent());
+            logger.raw().info("  Copying /deployment from container...");
+            run("docker", "cp", containerId + ":/deployment", destDir.toString());
+        } finally {
             new ProcessBuilder("docker", "rm", containerId)
                     .redirectErrorStream(true)
                     .start()
