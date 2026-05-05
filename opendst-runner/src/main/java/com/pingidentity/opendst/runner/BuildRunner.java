@@ -318,7 +318,7 @@ public final class BuildRunner implements Callable<Integer> {
             backendFactory = () -> {
                 try {
                     return NyxBackend.start(setup.shimBinary(), setup.vmConfigPath(), logger);
-                } catch (IOException | InterruptedException e) {
+                } catch (IOException e) {
                     throw new RuntimeException("Failed to start nyx-lite shim", e);
                 }
             };

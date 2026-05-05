@@ -47,7 +47,10 @@ use vmm::devices::virtio::block::virtio::io::cow_io::CowCache;
 use vmm::devices::virtio::device::DeviceState;
 use vmm::devices::virtio::persist::{MmioTransportState, VirtioDeviceState};
 use vmm::persist::MicrovmState;
-use vmm::snapshot::Snapshot;
+use vmm::snapshot::{Persist, Snapshot};
+use vmm::vstate::memory::{
+    Bytes, GuestAddress, GuestMemory, GuestMemoryRegion, MemoryRegionAddress,
+};
 use vmm::vstate::vcpu::VcpuState;
 use vmm::vstate::vm::VmState;
 
@@ -432,6 +435,7 @@ fn load_snapshot_from_disk(
     parent_snap: Arc<NyxSnapshot>,
     cow_arc: Arc<CowCache>,
 ) -> Result<NyxSnapshot> {
+    let t0 = std::time::Instant::now();
     let raw = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut f = BufReader::with_capacity(256 * 1024, raw);
 
@@ -515,6 +519,7 @@ fn load_snapshot_from_disk(
         f.read_exact(&mut page).context("read page")?;
         pages.insert(paddr, page);
     }
+    let pages_len = pages.len();
 
     let state = MicrovmState {
         vcpu_states: vec![vcpu_state],
@@ -527,14 +532,20 @@ fn load_snapshot_from_disk(
     };
 
     let depth = parent_snap.depth + 1;
-    Ok(NyxSnapshot {
+    let snap = NyxSnapshot {
         parent: Some(parent_snap),
         depth,
         memory: MemorySnapshot::Incremental(pages),
         state,
         tsc,
         continuation_state,
-    })
+    };
+    eprintln!(
+        "[shim] checkpoint loaded from disk in {}ms ({} pages)",
+        t0.elapsed().as_millis(),
+        pages_len,
+    );
+    Ok(snap)
 }
 
 /// `apply_snapshot` patches device registers but does NOT call `activate()` on the live
@@ -668,14 +679,16 @@ fn extract_cow_arc(snap: &Arc<NyxSnapshot>) -> Option<Arc<CowCache>> {
         })
 }
 
-/// Loads the boot snapshot from `<dir>/boot.snap`, constructs it as an
-/// Incremental snapshot with `init_snap` as the parent (depth=1), and applies
-/// it to the VM.  Returns `(in_vaddr, out_vaddr, boot_snap, cow_arc)` or
-/// `None` if the file does not exist.
+/// Loads the boot snapshot from `<dir>/boot.snap`, constructs it as a Base
+/// snapshot and applies it to the VM.  Returns `(in_vaddr, out_vaddr,
+/// boot_snap, cow_arc)` or `None` if the file does not exist.
 ///
-/// Using `init_snap` as parent satisfies `apply_snapshot`'s requirement that
-/// `active_snapshot` be set, and allows the LCA algorithm to correctly apply
-/// all saved boot pages on top of the freshly-created (mostly-zero) VM memory.
+/// We avoid `take_snapshot()` entirely: instead we call
+/// `mmio_device_manager.save()` directly to trigger `CowCacheTree::snapshot()`
+/// (populating `saved[0]` for future `reset_to(0)` calls) and to obtain the
+/// `Arc<CowCache>`.  We then reconstruct boot_snap as a Base (flat-Vec)
+/// snapshot, set `active_snapshot` directly, and call `apply_snapshot` which
+/// hits the fast_path (same Arc) — no full RAM read, no KVM save-state ioctls.
 fn load_and_apply_boot_from_disk(
     dir: &Path,
     vm: &mut NyxVM,
@@ -686,10 +699,25 @@ fn load_and_apply_boot_from_disk(
     }
     let t0 = std::time::Instant::now();
 
-    // Take a snapshot of the un-booted VM to set active_snapshot (required by
-    // apply_snapshot) and to get the fresh CowCache for the block device.
-    let init_snap = vm.take_snapshot();
-    let init_cow_arc = extract_cow_arc(&init_snap);
+    // Trigger cow.snapshot() (registers saved[0]) and grab the CowCache Arc.
+    let init_device_states = vm.vmm.lock().unwrap().mmio_device_manager.save();
+    let init_cow_arc = init_device_states.block_devices.first().and_then(|b| {
+        if let BlockState::Virtio(ref vbs) = b.device_state {
+            Some(vbs.cow_state.clone())
+        } else {
+            None
+        }
+    });
+
+    // Total guest RAM in bytes — needed to allocate the Base snapshot Vec.
+    let ram_size: usize = vm
+        .vmm
+        .lock()
+        .unwrap()
+        .guest_memory()
+        .iter()
+        .map(|r| r.len() as usize)
+        .sum();
 
     let raw = fs::File::open(&path).with_context(|| format!("open {}", path.display()))?;
     let mut f = BufReader::with_capacity(256 * 1024, raw);
@@ -746,17 +774,16 @@ fn load_and_apply_boot_from_disk(
         let virtio_state: VirtioDeviceState =
             Snapshot::deserialize(&mut virt_buf.as_slice()).context("deserialize virtio")?;
 
-        // Use the fresh VM's CowCache (id=0) since the guest never writes to disk
-        let mut boot_block = init_snap
-            .state
-            .device_states
+        // Use the fresh VM's CowCache (id=0) since the guest never writes to disk.
+        // Build the block entry from init_device_states (already saved above).
+        let mut boot_block = init_device_states
             .block_devices
             .iter()
             .find(|b| b.device_id == device_id)
-            .with_context(|| format!("block device '{device_id}' not found in init_snap"))?
+            .with_context(|| format!("block device '{device_id}' not found in init_device_states"))?
             .clone();
         if let BlockState::Virtio(ref mut vbs) = boot_block.device_state {
-            if let Some(ref ca) = cow_arc_to_use {
+            if let Some(ref ca) = init_cow_arc {
                 vbs.cow_state = ca.clone();
             }
             vbs.virtio_state = virtio_state;
@@ -765,14 +792,45 @@ fn load_and_apply_boot_from_disk(
         block_devices.push(boot_block);
     }
 
-    // pages: reconstruct as Incremental with parent=init_snap
+    // Read pages from the snap file into the Base Vec and into guest memory in a single
+    // pass so each page is hot in cache when written to both destinations.  Pages are
+    // stored in ascending address order by save_boot_to_disk, so consecutive pages in
+    // the file are also consecutive in address space — we detect and coalesce runs to
+    // cut write_slice calls from ~37K down to the number of contiguous runs.
     let page_count = read_u64(&mut f)? as usize;
-    let mut pages: HashMap<u64, Vec<u8>> = HashMap::with_capacity(page_count);
-    for _ in 0..page_count {
-        let paddr = read_u64(&mut f)?;
-        let mut page = vec![0u8; BOOT_PAGE_SIZE];
-        f.read_exact(&mut page).context("read page")?;
-        pages.insert(paddr, page);
+    let mut mem = vec![0u8; ram_size];
+
+    {
+        let vmm_guard = vm.vmm.lock().unwrap();
+        let region = vmm_guard
+            .guest_memory()
+            .find_region(GuestAddress(0))
+            .expect("guest RAM region at GPA 0");
+
+        let mut run_start: usize = 0;
+        let mut run_end: usize = 0;
+
+        let flush_run = |start: usize, end: usize, mem: &[u8]| {
+            if start < end {
+                region
+                    .write_slice(&mem[start..end], MemoryRegionAddress(start as u64))
+                    .expect("write boot run to guest memory");
+            }
+        };
+
+        for _ in 0..page_count {
+            let paddr = read_u64(&mut f)? as usize;
+            f.read_exact(&mut mem[paddr..paddr + BOOT_PAGE_SIZE])
+                .context("read page")?;
+            if paddr == run_end {
+                run_end = paddr + BOOT_PAGE_SIZE;
+            } else {
+                flush_run(run_start, run_end, &mem);
+                run_start = paddr;
+                run_end = paddr + BOOT_PAGE_SIZE;
+            }
+        }
+        flush_run(run_start, run_end, &mem);
     }
 
     let state = MicrovmState {
@@ -785,16 +843,17 @@ fn load_and_apply_boot_from_disk(
         ..MicrovmState::default()
     };
 
-    // Construct as Incremental child of init_snap so LCA algorithm works correctly.
+    // boot_snap is a Base snapshot — the root of all checkpoint chains loaded from disk.
     let boot_snap = Arc::new(NyxSnapshot {
-        parent: Some(init_snap),
-        depth: 1,
-        memory: MemorySnapshot::Incremental(pages),
+        parent: None,
+        depth: 0,
+        memory: MemorySnapshot::Base(mem),
         state,
         tsc,
         continuation_state,
     });
 
+    vm.active_snapshot = Some(boot_snap.clone());
     vm.apply_snapshot(&boot_snap);
     ensure_block_devices_activated(vm);
     eprintln!(
