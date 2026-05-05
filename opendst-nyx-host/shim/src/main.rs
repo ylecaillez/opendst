@@ -280,10 +280,7 @@ impl SnapshotStore {
             Ok(())
         })();
         match res {
-            Ok(()) => eprintln!(
-                "[shim] loaded {} checkpoint(s) from disk index",
-                self.disk_index.len()
-            ),
+            Ok(()) => {}
             Err(e) => eprintln!("[shim] warning: failed to load snapshot index: {e}"),
         }
     }
@@ -435,7 +432,6 @@ fn load_snapshot_from_disk(
     parent_snap: Arc<NyxSnapshot>,
     cow_arc: Arc<CowCache>,
 ) -> Result<NyxSnapshot> {
-    let t0 = std::time::Instant::now();
     let raw = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut f = BufReader::with_capacity(256 * 1024, raw);
 
@@ -519,7 +515,6 @@ fn load_snapshot_from_disk(
         f.read_exact(&mut page).context("read page")?;
         pages.insert(paddr, page);
     }
-    let pages_len = pages.len();
 
     let state = MicrovmState {
         vcpu_states: vec![vcpu_state],
@@ -540,11 +535,6 @@ fn load_snapshot_from_disk(
         tsc,
         continuation_state,
     };
-    eprintln!(
-        "[shim] checkpoint loaded from disk in {}ms ({} pages)",
-        t0.elapsed().as_millis(),
-        pages_len,
-    );
     Ok(snap)
 }
 
@@ -561,7 +551,6 @@ fn ensure_block_devices_activated(vm: &mut NyxVM) {
         if let Block::Virtio(ref mut virt_blk) = *blk {
             if !virt_blk.device_state.is_activated() {
                 virt_blk.device_state = DeviceState::Activated(mem.clone());
-                eprintln!("[shim] activated block device '{}'", virt_blk.id);
             }
         }
     }
@@ -656,11 +645,6 @@ fn save_boot_to_disk(
         write_u64(&mut f, *paddr)?;
         f.write_all(page).context("write page")?;
     }
-    eprintln!(
-        "[shim] boot snapshot saved: {} non-zero pages ({} bytes total)",
-        non_zero.len(),
-        non_zero.len() * BOOT_PAGE_SIZE
-    );
     Ok(())
 }
 
@@ -697,7 +681,6 @@ fn load_and_apply_boot_from_disk(
     if !path.exists() {
         return Ok(None);
     }
-    let t0 = std::time::Instant::now();
 
     // Trigger cow.snapshot() (registers saved[0]) and grab the CowCache Arc.
     let init_device_states = vm.vmm.lock().unwrap().mmio_device_manager.save();
@@ -856,11 +839,6 @@ fn load_and_apply_boot_from_disk(
     vm.active_snapshot = Some(boot_snap.clone());
     vm.apply_snapshot(&boot_snap);
     ensure_block_devices_activated(vm);
-    eprintln!(
-        "[shim] boot snapshot loaded from disk in {}ms ({} pages)",
-        t0.elapsed().as_millis(),
-        page_count
-    );
     Ok(Some((in_vaddr, out_vaddr, boot_snap, init_cow_arc)))
 }
 
@@ -957,9 +935,7 @@ fn main() -> Result<()> {
             Some((iv, ov, snap, cow)) => (snap, iv, ov, cow),
             None => {
                 // First run: boot normally and save the result to disk.
-                let t0 = std::time::Instant::now();
                 let (snap, iv, ov) = boot_to_snapshot(&mut vm)?;
-                eprintln!("[shim] guest booted in {}ms", t0.elapsed().as_millis());
                 let cow = extract_cow_arc(&snap);
                 if let Err(e) = save_boot_to_disk(dir, iv, ov, &snap) {
                     eprintln!("[shim] warning: failed to save boot snapshot: {e}");
