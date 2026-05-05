@@ -82,6 +82,11 @@ struct SnapshotStore {
     /// CowCache Arcs kept alive for disk snapshots so the Weak in CowCacheTree::saved
     /// never expires while the snapshot is live in our index.
     cow_arcs: HashMap<CheckpointId, Arc<CowCache>>,
+    /// Fallback CowCache used in fresh shim processes where cow_arcs is empty.
+    /// Since the guest never writes to the block device (read-only rootfs), all
+    /// snapshots have cow_id=0.  A fresh VM's CowCache (also id=0) is a valid
+    /// substitute for any saved snapshot's cow_state.
+    boot_cow_arc: Option<Arc<CowCache>>,
 }
 
 impl SnapshotStore {
@@ -94,7 +99,18 @@ impl SnapshotStore {
             disk_dir,
             disk_index: HashMap::new(),
             cow_arcs: HashMap::new(),
+            boot_cow_arc: None,
         }
+    }
+
+    fn new_with_boot_cow(
+        boot_snap: Arc<NyxSnapshot>,
+        disk_dir: Option<PathBuf>,
+        boot_cow_arc: Option<Arc<CowCache>>,
+    ) -> Self {
+        let mut store = Self::new(boot_snap, disk_dir);
+        store.boot_cow_arc = boot_cow_arc;
+        store
     }
 
     fn get(&mut self, id: &CheckpointId) -> Option<(Arc<NyxSnapshot>, usize, u64)> {
@@ -110,8 +126,15 @@ impl SnapshotStore {
         if let Some(&(cursor, snap_iter, parent_id)) = self.disk_index.get(id).copied().as_ref() {
             let dir = self.disk_dir.as_ref()?;
             let path = disk_snap_path(dir, id);
-            // The CowCache Arc must be in cow_arcs (kept alive when the snapshot was saved).
-            let cow_arc = self.cow_arcs.get(id)?.clone();
+            // Use the per-snapshot cow_arc if available (same-process snapshots).
+            // Fall back to boot_cow_arc for cross-process loads: the guest never writes
+            // to the block device (read-only rootfs), so all snapshots have cow_id=0
+            // and a fresh VM's CowCache is a valid substitute.
+            let cow_arc = self
+                .cow_arcs
+                .get(id)
+                .or(self.boot_cow_arc.as_ref())?
+                .clone();
             // Recursively load the parent snapshot so we can chain incrementals correctly.
             let parent_snap = if parent_id == nil_uuid() {
                 self.boot_snap.clone()
@@ -178,6 +201,8 @@ impl SnapshotStore {
                     if let Some(arc) = cow_arc {
                         self.cow_arcs.insert(id, arc);
                     }
+                    // Persist the index so a fresh shim process can find this checkpoint.
+                    self.persist_index();
                     // Do NOT keep the full Arc<NyxSnapshot> in memory.
                     return;
                 }
@@ -191,6 +216,71 @@ impl SnapshotStore {
             }
         }
         self.mem.insert(id, (snap, cursor, snap_iter));
+    }
+
+    /// Writes `disk_index` to `<disk_dir>/index.bin`.
+    ///
+    /// Binary format: count(u64 LE) then for each entry:
+    ///   id(16B) + cursor(u64 LE) + snap_iter(u64 LE) + parent_id(16B)
+    ///
+    /// Called after every successful disk insert so a fresh shim process can
+    /// reload the index and find checkpoints saved by previous shim instances.
+    fn persist_index(&self) {
+        let dir = match &self.disk_dir {
+            Some(d) => d.clone(),
+            None => return,
+        };
+        let path = dir.join("index.bin");
+        let res = (|| -> Result<()> {
+            let mut f = fs::File::create(&path).context("create index.bin")?;
+            write_u64(&mut f, self.disk_index.len() as u64)?;
+            for (id, &(cursor, snap_iter, ref parent_id)) in &self.disk_index {
+                f.write_all(id).context("write id")?;
+                write_u64(&mut f, cursor as u64)?;
+                write_u64(&mut f, snap_iter)?;
+                f.write_all(parent_id).context("write parent_id")?;
+            }
+            Ok(())
+        })();
+        if let Err(e) = res {
+            eprintln!("[shim] warning: failed to persist snapshot index: {e}");
+        }
+    }
+
+    /// Reads `<disk_dir>/index.bin` (if it exists) and populates `disk_index`.
+    ///
+    /// Must be called after constructing the store in a fresh shim process so
+    /// checkpoints saved by previous iterations are reachable via `get()`.
+    fn load_disk_index(&mut self) {
+        let dir = match &self.disk_dir {
+            Some(d) => d.clone(),
+            None => return,
+        };
+        let path = dir.join("index.bin");
+        if !path.exists() {
+            return;
+        }
+        let res = (|| -> Result<()> {
+            let mut f = fs::File::open(&path).context("open index.bin")?;
+            let count = read_u64(&mut f)? as usize;
+            for _ in 0..count {
+                let mut id = [0u8; 16];
+                f.read_exact(&mut id).context("read id")?;
+                let cursor = read_u64(&mut f)? as usize;
+                let snap_iter = read_u64(&mut f)?;
+                let mut parent_id = [0u8; 16];
+                f.read_exact(&mut parent_id).context("read parent_id")?;
+                self.disk_index.insert(id, (cursor, snap_iter, parent_id));
+            }
+            Ok(())
+        })();
+        match res {
+            Ok(()) => eprintln!(
+                "[shim] loaded {} checkpoint(s) from disk index",
+                self.disk_index.len()
+            ),
+            Err(e) => eprintln!("[shim] warning: failed to load snapshot index: {e}"),
+        }
     }
 }
 
@@ -447,6 +537,248 @@ fn nil_uuid() -> CheckpointId {
     [0u8; 16]
 }
 
+// ─── Boot snapshot persistence ──────────────────────────────────────────────
+
+const BOOT_MAGIC: &[u8; 8] = b"ODSTBT01";
+const BOOT_PAGE_SIZE: usize = 4096;
+
+/// Saves the boot snapshot and the shared-memory virtual addresses to
+/// `<dir>/boot.snap` so a fresh shim process can restore it without
+/// re-running the full guest boot sequence.
+///
+/// Memory is saved as a list of non-zero 4KB pages keyed by physical address,
+/// matching the Incremental format used by `load_snapshot_from_disk`.
+fn save_boot_to_disk(
+    dir: &Path,
+    in_vaddr: u64,
+    out_vaddr: u64,
+    snap: &Arc<NyxSnapshot>,
+) -> Result<()> {
+    let path = dir.join("boot.snap");
+    let pages = match &snap.memory {
+        MemorySnapshot::Base(vec) => vec,
+        MemorySnapshot::Incremental(_) => bail!("expected Base snapshot for boot save"),
+    };
+    let mut f = fs::File::create(&path).with_context(|| format!("create {}", path.display()))?;
+    f.write_all(BOOT_MAGIC).context("write magic")?;
+    write_u64(&mut f, in_vaddr)?;
+    write_u64(&mut f, out_vaddr)?;
+    write_u64(&mut f, snap.tsc)?;
+    f.write_all(&[cont_state_to_u8(&snap.continuation_state)])
+        .context("write cont_state")?;
+
+    // vcpu_state
+    let vcpu_state = snap.state.vcpu_states.first().context("no vcpu states")?;
+    let mut vcpu_buf: Vec<u8> = Vec::new();
+    Snapshot::serialize(&mut vcpu_buf, vcpu_state).context("serialize VcpuState")?;
+    write_u64(&mut f, vcpu_buf.len() as u64)?;
+    f.write_all(&vcpu_buf).context("write vcpu_state")?;
+
+    // vm_state
+    let mut vm_buf: Vec<u8> = Vec::new();
+    Snapshot::serialize(&mut vm_buf, &snap.state.vm_state).context("serialize VmState")?;
+    write_u64(&mut f, vm_buf.len() as u64)?;
+    f.write_all(&vm_buf).context("write vm_state")?;
+
+    // block devices (same layout as v3 incremental format)
+    let blocks = &snap.state.device_states.block_devices;
+    write_u64(&mut f, blocks.len() as u64)?;
+    for block in blocks {
+        let id_bytes = block.device_id.as_bytes();
+        write_u64(&mut f, id_bytes.len() as u64)?;
+        f.write_all(id_bytes).context("write device_id")?;
+        let mut transport_buf: Vec<u8> = Vec::new();
+        Snapshot::serialize(&mut transport_buf, &block.transport_state)
+            .context("serialize transport")?;
+        write_u64(&mut f, transport_buf.len() as u64)?;
+        f.write_all(&transport_buf).context("write transport")?;
+        match &block.device_state {
+            BlockState::Virtio(vbs) => {
+                f.write_all(&vbs.cow_state.id.to_le_bytes())
+                    .context("write cow_id")?;
+                let mut virt_buf: Vec<u8> = Vec::new();
+                Snapshot::serialize(&mut virt_buf, &vbs.virtio_state)
+                    .context("serialize virtio")?;
+                write_u64(&mut f, virt_buf.len() as u64)?;
+                f.write_all(&virt_buf).context("write virtio_state")?;
+            }
+            BlockState::VhostUser(_) => bail!("VhostUser not supported for boot snapshot"),
+        }
+    }
+
+    // memory: save non-zero pages keyed by physical address
+    let mut non_zero: Vec<(u64, &[u8])> = Vec::new();
+    let mut offset = 0usize;
+    while offset + BOOT_PAGE_SIZE <= pages.len() {
+        let page = &pages[offset..offset + BOOT_PAGE_SIZE];
+        if page.iter().any(|&b| b != 0) {
+            non_zero.push((offset as u64, page));
+        }
+        offset += BOOT_PAGE_SIZE;
+    }
+    write_u64(&mut f, non_zero.len() as u64)?;
+    for (paddr, page) in &non_zero {
+        write_u64(&mut f, *paddr)?;
+        f.write_all(page).context("write page")?;
+    }
+    eprintln!(
+        "[shim] boot snapshot saved: {} non-zero pages ({} bytes total)",
+        non_zero.len(),
+        non_zero.len() * BOOT_PAGE_SIZE
+    );
+    Ok(())
+}
+
+/// Extracts the CowCache Arc from the first block device of a snapshot.
+fn extract_cow_arc(snap: &Arc<NyxSnapshot>) -> Option<Arc<CowCache>> {
+    snap.state
+        .device_states
+        .block_devices
+        .first()
+        .and_then(|b| {
+            if let BlockState::Virtio(ref vbs) = b.device_state {
+                Some(vbs.cow_state.clone())
+            } else {
+                None
+            }
+        })
+}
+
+/// Loads the boot snapshot from `<dir>/boot.snap`, constructs it as an
+/// Incremental snapshot with `init_snap` as the parent (depth=1), and applies
+/// it to the VM.  Returns `(in_vaddr, out_vaddr, boot_snap, cow_arc)` or
+/// `None` if the file does not exist.
+///
+/// Using `init_snap` as parent satisfies `apply_snapshot`'s requirement that
+/// `active_snapshot` be set, and allows the LCA algorithm to correctly apply
+/// all saved boot pages on top of the freshly-created (mostly-zero) VM memory.
+fn load_and_apply_boot_from_disk(
+    dir: &Path,
+    vm: &mut NyxVM,
+) -> Result<Option<(u64, u64, Arc<NyxSnapshot>, Option<Arc<CowCache>>)>> {
+    let path = dir.join("boot.snap");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let t0 = std::time::Instant::now();
+
+    // Take a snapshot of the un-booted VM to set active_snapshot (required by
+    // apply_snapshot) and to get the fresh CowCache for the block device.
+    let init_snap = vm.take_snapshot();
+    let init_cow_arc = extract_cow_arc(&init_snap);
+
+    let mut f = fs::File::open(&path).with_context(|| format!("open {}", path.display()))?;
+
+    // Verify magic
+    let mut magic = [0u8; 8];
+    f.read_exact(&mut magic).context("read magic")?;
+    if &magic != BOOT_MAGIC {
+        bail!("boot.snap has wrong magic — stale file?");
+    }
+
+    let in_vaddr = read_u64(&mut f)?;
+    let out_vaddr = read_u64(&mut f)?;
+    let tsc = read_u64(&mut f)?;
+    let mut cont_byte = [0u8; 1];
+    f.read_exact(&mut cont_byte).context("read cont_state")?;
+    let continuation_state = cont_state_from_u8(cont_byte[0]);
+
+    // vcpu_state
+    let vcpu_len = read_u64(&mut f)? as usize;
+    let mut vcpu_buf = vec![0u8; vcpu_len];
+    f.read_exact(&mut vcpu_buf).context("read vcpu_state")?;
+    let vcpu_state: VcpuState =
+        Snapshot::deserialize(&mut vcpu_buf.as_slice()).context("deserialize VcpuState")?;
+
+    // vm_state
+    let vm_len = read_u64(&mut f)? as usize;
+    let mut vm_buf = vec![0u8; vm_len];
+    f.read_exact(&mut vm_buf).context("read vm_state")?;
+    let vm_state: VmState =
+        Snapshot::deserialize(&mut vm_buf.as_slice()).context("deserialize VmState")?;
+
+    // block devices — same logic as load_snapshot_from_disk
+    let block_count = read_u64(&mut f)? as usize;
+    let mut block_devices = Vec::with_capacity(block_count);
+    let cow_arc_to_use = init_cow_arc.clone();
+    for _ in 0..block_count {
+        let id_len = read_u64(&mut f)? as usize;
+        let mut id_buf = vec![0u8; id_len];
+        f.read_exact(&mut id_buf).context("read device_id")?;
+        let device_id = String::from_utf8(id_buf).context("device_id utf8")?;
+
+        let transport_len = read_u64(&mut f)? as usize;
+        let mut transport_buf = vec![0u8; transport_len];
+        f.read_exact(&mut transport_buf).context("read transport")?;
+        let transport_state: MmioTransportState =
+            Snapshot::deserialize(&mut transport_buf.as_slice())
+                .context("deserialize transport")?;
+
+        let _cow_id = read_u32(&mut f)?;
+        let virt_len = read_u64(&mut f)? as usize;
+        let mut virt_buf = vec![0u8; virt_len];
+        f.read_exact(&mut virt_buf).context("read virtio")?;
+        let virtio_state: VirtioDeviceState =
+            Snapshot::deserialize(&mut virt_buf.as_slice()).context("deserialize virtio")?;
+
+        // Use the fresh VM's CowCache (id=0) since the guest never writes to disk
+        let mut boot_block = init_snap
+            .state
+            .device_states
+            .block_devices
+            .iter()
+            .find(|b| b.device_id == device_id)
+            .with_context(|| format!("block device '{device_id}' not found in init_snap"))?
+            .clone();
+        if let BlockState::Virtio(ref mut vbs) = boot_block.device_state {
+            if let Some(ref ca) = cow_arc_to_use {
+                vbs.cow_state = ca.clone();
+            }
+            vbs.virtio_state = virtio_state;
+        }
+        boot_block.transport_state = transport_state;
+        block_devices.push(boot_block);
+    }
+
+    // pages: reconstruct as Incremental with parent=init_snap
+    let page_count = read_u64(&mut f)? as usize;
+    let mut pages: HashMap<u64, Vec<u8>> = HashMap::with_capacity(page_count);
+    for _ in 0..page_count {
+        let paddr = read_u64(&mut f)?;
+        let mut page = vec![0u8; BOOT_PAGE_SIZE];
+        f.read_exact(&mut page).context("read page")?;
+        pages.insert(paddr, page);
+    }
+
+    let state = MicrovmState {
+        vcpu_states: vec![vcpu_state],
+        vm_state,
+        device_states: DeviceStates {
+            block_devices,
+            ..DeviceStates::default()
+        },
+        ..MicrovmState::default()
+    };
+
+    // Construct as Incremental child of init_snap so LCA algorithm works correctly.
+    let boot_snap = Arc::new(NyxSnapshot {
+        parent: Some(init_snap),
+        depth: 1,
+        memory: MemorySnapshot::Incremental(pages),
+        state,
+        tsc,
+        continuation_state,
+    });
+
+    vm.apply_snapshot(&boot_snap);
+    eprintln!(
+        "[shim] boot snapshot loaded from disk in {}ms ({} pages)",
+        t0.elapsed().as_millis(),
+        page_count
+    );
+    Ok(Some((in_vaddr, out_vaddr, boot_snap, init_cow_arc)))
+}
+
 /// Generate a random UUID v4.
 fn new_uuid() -> CheckpointId {
     let path = std::path::Path::new("/proc/sys/kernel/random/uuid");
@@ -496,8 +828,9 @@ fn format_uuid(id: &CheckpointId) -> String {
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
-    // Parse optional --snapshot-dir <path> before the required vmconfig positional arg.
+    // Parse optional --snapshot-dir <path> and --single-shot before the required vmconfig arg.
     let mut snapshot_dir: Option<PathBuf> = None;
+    let mut single_shot = false;
     let mut pos_args: Vec<&str> = Vec::new();
     let mut i = 1;
     while i < args.len() {
@@ -508,6 +841,8 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
             snapshot_dir = Some(PathBuf::from(&args[i]));
+        } else if args[i] == "--single-shot" {
+            single_shot = true;
         } else {
             pos_args.push(&args[i]);
         }
@@ -515,7 +850,9 @@ fn main() -> Result<()> {
     }
 
     if pos_args.is_empty() {
-        eprintln!("Usage: opendst-nyx-shim [--snapshot-dir <path>] <vmconfig.json>");
+        eprintln!(
+            "Usage: opendst-nyx-shim [--snapshot-dir <path>] [--single-shot] <vmconfig.json>"
+        );
         std::process::exit(1);
     }
     let config_json = fs::read_to_string(pos_args[0])
@@ -529,12 +866,34 @@ fn main() -> Result<()> {
 
     let mut vm = NyxVM::new("opendst-nyx-shim".to_string(), &config_json);
 
-    let (boot_snapshot, in_vaddr, out_vaddr) = boot_to_snapshot(&mut vm)?;
+    // Fast-path: if the boot snapshot is already on disk, skip the full guest boot.
+    let (boot_snapshot, in_vaddr, out_vaddr, boot_cow_arc) = if let Some(ref dir) = snapshot_dir {
+        match load_and_apply_boot_from_disk(dir, &mut vm)? {
+            Some((iv, ov, snap, cow)) => (snap, iv, ov, cow),
+            None => {
+                // First run: boot normally and save the result to disk.
+                let t0 = std::time::Instant::now();
+                let (snap, iv, ov) = boot_to_snapshot(&mut vm)?;
+                eprintln!("[shim] guest booted in {}ms", t0.elapsed().as_millis());
+                let cow = extract_cow_arc(&snap);
+                if let Err(e) = save_boot_to_disk(dir, iv, ov, &snap) {
+                    eprintln!("[shim] warning: failed to save boot snapshot: {e}");
+                }
+                (snap, iv, ov, cow)
+            }
+        }
+    } else {
+        let (snap, iv, ov) = boot_to_snapshot(&mut vm)?;
+        let cow = extract_cow_arc(&snap);
+        (snap, iv, ov, cow)
+    };
 
     println!("ready");
     io::stdout().flush()?;
 
-    let mut store = SnapshotStore::new(boot_snapshot, snapshot_dir);
+    let mut store = SnapshotStore::new_with_boot_cow(boot_snapshot, snapshot_dir, boot_cow_arc);
+    // Reload checkpoints saved by previous shim processes (per-iteration shim restart).
+    store.load_disk_index();
 
     let stdin = io::stdin();
     let mut line = String::new();
@@ -615,6 +974,9 @@ fn main() -> Result<()> {
         }
         println!("SHIM_DONE");
         io::stdout().flush()?;
+        if single_shot {
+            std::process::exit(0);
+        }
     }
 
     std::process::exit(0);
