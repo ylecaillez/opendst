@@ -1,0 +1,7 @@
+#!/bin/sh
+# Pre-mount writable tmpfs on /run and /tmp before OpenRC needs them.
+# Required because / is mounted ro at VM boot — OpenRC writes to /run/openrc/
+# at startup before any service runs, so this must happen before exec'ing init.
+mount -t tmpfs tmpfs /run -o nosuid,nodev,mode=755
+mount -t tmpfs tmpfs /tmp -o nosuid,nodev,mode=1777
+exec /sbin/init "$@"

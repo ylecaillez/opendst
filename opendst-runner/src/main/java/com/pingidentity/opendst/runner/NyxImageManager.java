@@ -258,14 +258,14 @@ final class NyxImageManager {
                 {
                   "boot-source": {
                     "kernel_image_path": "%s",
-                    "boot_args": "ro console=ttyS0 noapic reboot=k panic=1 pci=off nomodules random.trust_cpu=on"
+                    "boot_args": "ro console=ttyS0 noapic reboot=k panic=1 pci=off nomodules random.trust_cpu=on init=/sbin/opendst-init"
                   },
                   "drives": [
                     {
                       "drive_id": "rootfs",
                       "path_on_host": "%s",
                       "is_root_device": true,
-                      "is_read_only": false,
+                      "is_read_only": true,
                       "io_engine": "Cow"
                     },
                     {
