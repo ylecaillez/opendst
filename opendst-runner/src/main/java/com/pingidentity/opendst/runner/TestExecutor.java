@@ -206,8 +206,11 @@ final class TestExecutor {
      * in-progress segment boundary would carry a different accumulated hasher state and cause
      * spurious segment-hash mismatches inside the simulation.
      */
-    private record LocalCheckpoint(Plan.Checkpoint checkpoint, List<Plan.Segment> prefix) {
-        /** Returns true when {@code plan}'s leading segments are compatible with this prefix. */
+     private record LocalCheckpoint(Plan.Checkpoint checkpoint, List<Plan.Segment> prefix) {
+        /** Returns true when {@code plan}'s leading segments are compatible with this prefix.
+         *  The prefix includes the in-progress segment (seed + until == nextBoundary), so both
+         *  completed and in-progress seeds are verified. This ensures the RNG sequence in the
+         *  snapshot matches the plan exactly, so fork and nyx-lite reproduce the same hash. */
         boolean isCompatibleWith(Plan plan) {
             var planSegments = plan.segments();
             if (prefix.size() >= planSegments.size()) return false;
@@ -216,10 +219,6 @@ final class TestExecutor {
                 var s = planSegments.get(i);
                 if (p.seed() != s.seed() || p.until() != s.until()) return false;
             }
-            // The segment immediately after the prefix must be the in-progress segment whose
-            // until == nextBoundary. This ensures the plan's RNG sequence matches the snapshot.
-            long nb = checkpoint.nextBoundary();
-            if (nb > 0 && planSegments.get(prefix.size()).until() != nb) return false;
             return true;
         }
     }
@@ -311,21 +310,16 @@ final class TestExecutor {
                 final var localSink = executionPlan.checkpointSink();
                 final var runPlan = executionPlan.plan();
                 executionPlan = new ExecutionPlan(runPlan, executionPlan.interesting(), cp -> {
-                    // Collect the completed prefix: all segments whose boundary has been crossed
+                    // Collect the prefix: all segments up to AND INCLUDING the in-progress segment
+                    // (until == nextBoundary). Including the in-progress segment's seed in the prefix
+                    // ensures isCompatibleWith rejects plans that use a different seed for that segment,
+                    // which would produce a different hash even though the checkpoint iteration matches.
+                    long nextBoundary = cp.nextBoundary() > 0 ? cp.nextBoundary() : cp.iteration();
                     var prefix = runPlan.segments().stream()
-                            .filter(s -> s.until() <= cp.iteration())
+                            .filter(s -> s.until() <= nextBoundary)
                             .map(s -> new Plan.Segment(s.seed(), s.until()))
                             .toList();
                     localCheckpoints.add(new LocalCheckpoint(cp, prefix));
-                    // Evict the oldest checkpoint once the cap is reached so disk usage stays bounded.
-                    // The shim treats a missing snapshot as a cache miss and falls back to an earlier
-                    // checkpoint or boot — correct, just slightly slower.
-                    if (localCheckpoints.size() > MAX_LOCAL_CHECKPOINTS) {
-                        var evicted = localCheckpoints.remove(0);
-                        if (backend instanceof NyxBackend nyxBackend) {
-                            nyxBackend.evictCheckpoint(evicted.checkpoint().id());
-                        }
-                    }
                     localSink.accept(cp);
                 });
                 int runCount = runSequence.incrementAndGet();
@@ -386,18 +380,17 @@ final class TestExecutor {
                     var lastCp = executionResult.checkpoints().isEmpty()
                             ? null
                             : executionResult.checkpoints().getLast();
-                    // Full-replay verify: only valid when this run itself had no checkpoint.
-                    // A checkpoint-assisted run starts with non-zero hasher state, so its
-                    // final hash cannot match a t=0 cold replay.
-                    if (executionPlan.plan().checkpoint() == null) {
-                        if (pastPlans.size() >= PAST_PLANS_CAPACITY) {
-                            pastPlans.poll();
-                        }
-                        pastPlans.add(executionPlan
-                                .plan()
-                                .withSegmentHashes(executionResult.segmentHashByIteration())
-                                .withHash(executionResult.runHash()));
+                    // Full-replay verify: record this plan so a later run can replay and confirm
+                    // the hash. Plans with a checkpoint are included — since isCompatibleWith now
+                    // verifies the in-progress segment seed, fork running all segments from scratch
+                    // produces the same hash as the nyx-lite checkpoint-assisted run.
+                    if (pastPlans.size() >= PAST_PLANS_CAPACITY) {
+                        pastPlans.poll();
                     }
+                    pastPlans.add(executionPlan
+                            .plan()
+                            .withSegmentHashes(executionResult.segmentHashByIteration())
+                            .withHash(executionResult.runHash()));
                     // Snapshot-verify: restore from checkpoint and check the final hash matches.
                     // Only meaningful for the nyx backend where the snapshot cache persists.
                     if (lastCp != null && persistentBackend != null) {
