@@ -22,22 +22,29 @@ import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Manages the nyx-lite rootfs extracted from a Docker image.
+ * Manages nyx-lite VM assets extracted from a Docker base image and per-run deployment images.
  *
- * <p>The rootfs (ext4 image) and shim binary are extracted once per image digest
- * and cached under {@code ~/.opendst/nyx-rootfs/<digest>/}. Subsequent runs reuse
- * the cache without re-extracting.
+ * <h2>Base image cache</h2>
+ * The rootfs (ext4 image) and shim binary are extracted once per base image digest and cached
+ * under {@code ~/.opendst/nyx-rootfs/<digest>/}. Subsequent runs reuse the cache without
+ * re-extracting. The base image only contains the OS, JDK, and guest bridge; it has no
+ * application-specific content.
  *
- * <p>Extraction requires {@code docker} and {@code sudo} (for the mount step).
- * The kernel image path is read from the {@code NYX_KERNEL} environment variable
- * or defaults to {@code ~/git/nyx-lite/vm_image/vmlinux-6.1.58}.
+ * <h2>Deployment ext2 image</h2>
+ * The deployment directory (JARs, deployment.yaml, instrumented apps) is packed into a small
+ * ext2 image ({@code deployment.ext4}) by {@link #buildDeploymentExt2} and passed to the
+ * Firecracker VM as a second virtio-blk drive ({@code /dev/vdb}). The guest init script mounts
+ * it at {@code /opendst-deployment/} before launching the JVM.
  *
- * <p>Cache layout:
+ * <h2>Cache layout</h2>
  * <pre>
  * ~/.opendst/nyx-rootfs/&lt;digest&gt;/
- *   rootfs.ext4          — VM disk image (extracted from Docker image)
- *   opendst-nyx-shim     — shim binary (extracted from /usr/bin/opendst-nyx-shim)
- *   vmconfig.json        — generated Firecracker config
+ *   rootfs.ext4          — VM disk image (extracted from base Docker image, permanent)
+ *   opendst-nyx-shim     — shim binary (extracted from /usr/bin/opendst-nyx-shim, permanent)
+ *
+ * &lt;workingDir&gt;/
+ *   deployment.ext4      — deployment ext2 image (built per run from JAR contents)
+ *   vmconfig.json        — generated Firecracker config (references both drives)
  * </pre>
  */
 final class NyxImageManager {
@@ -47,65 +54,73 @@ final class NyxImageManager {
             System.getProperty("user.home") + "/git/nyx-lite/vm_image/vmlinux-6.1.58";
     private static final String NYX_CACHE_DIR = System.getProperty("user.home") + "/.opendst/nyx-rootfs";
 
-    /** Result of {@link #prepare(String, OpenDstLogger)}. */
-    record NyxSetup(Path shimBinary, String vmConfigPath, Path deploymentDir) {}
+    /** Result of {@link #prepare}. */
+    record NyxSetup(Path shimBinary, String vmConfigPath) {}
 
     /**
-     * Ensures the rootfs, shim, and deployment are extracted for the given image tag,
-     * then returns paths needed to start the shim and read build metadata.
-     * All artifacts are cached under {@code ~/.opendst/nyx-rootfs/<digest>/} and
-     * reused on subsequent runs without re-extracting.
+     * Prepares all VM assets needed to start the shim for one simulation run:
+     * <ol>
+     *   <li>Resolves the base image digest and extracts rootfs + shim into the permanent cache
+     *       (skipped if already cached).</li>
+     *   <li>Packs the deployment directory into a small ext2 image under {@code workingDir}.</li>
+     *   <li>Writes {@code vmconfig.json} under {@code workingDir} referencing both drives.</li>
+     * </ol>
      *
-     * @param imageTag Docker image tag (e.g. {@code myapp-opendst-nyx:1.0})
-     * @param logger   for progress output
+     * @param baseImageTag  Docker base image tag (e.g. {@code opendst-nyx-base:latest})
+     * @param deploymentDir path to the extracted deployment directory (from the -opendst.jar)
+     * @param workingDir    per-run working directory where deployment.ext4 and vmconfig.json are written
+     * @param logger        for progress output
      */
-    static NyxSetup prepare(String imageTag, OpenDstLogger logger) throws IOException, InterruptedException {
-        var digest = resolveDigest(imageTag);
+    static NyxSetup prepare(String baseImageTag, Path deploymentDir, Path workingDir, OpenDstLogger logger)
+            throws IOException, InterruptedException {
+        // 1. Permanent base image cache (rootfs + shim)
+        var digest = resolveDigest(baseImageTag);
         var cacheDir = Path.of(NYX_CACHE_DIR, digest);
         var rootfsPath = cacheDir.resolve("rootfs.ext4");
         var shimPath = cacheDir.resolve("opendst-nyx-shim");
-        var deploymentDir = cacheDir.resolve("deployment");
-        var vmConfigPath = cacheDir.resolve("vmconfig.json");
 
-        if (!Files.exists(rootfsPath) || !Files.exists(shimPath) || !Files.exists(deploymentDir)) {
-            logger.raw().info("Extracting nyx-lite image: " + imageTag);
+        if (!Files.exists(rootfsPath) || !Files.exists(shimPath)) {
+            logger.raw().info("Extracting nyx-lite base image: " + baseImageTag);
             Files.createDirectories(cacheDir);
-            extractRootfs(imageTag, rootfsPath, logger);
-            extractShim(imageTag, shimPath, logger);
-            extractDeployment(imageTag, deploymentDir, logger);
-            logger.raw().info("Extraction complete: " + cacheDir);
+            extractRootfs(baseImageTag, rootfsPath, logger);
+            extractShim(baseImageTag, shimPath, logger);
+            logger.raw().info("Base image extraction complete: " + cacheDir);
         } else {
-            logger.raw().debug("Using cached nyx-lite image: " + cacheDir);
+            logger.raw().debug("Using cached nyx-lite base image: " + cacheDir);
         }
 
-        writeVmConfig(rootfsPath, vmConfigPath);
+        // 2. Per-run deployment ext2 image
+        var deploymentExt4 = workingDir.resolve("deployment.ext4");
+        logger.raw().info("Building deployment.ext4 from: " + deploymentDir);
+        buildDeploymentExt2(deploymentDir, deploymentExt4, logger);
 
-        return new NyxSetup(shimPath, vmConfigPath.toString(), deploymentDir);
+        // 3. Firecracker vmconfig (references both drives)
+        var vmConfigPath = workingDir.resolve("vmconfig.json");
+        writeVmConfig(rootfsPath, deploymentExt4, vmConfigPath);
+
+        return new NyxSetup(shimPath, vmConfigPath.toString());
     }
 
     /**
-     * Extracts {@code /opendst-deployment/} from the Docker image into {@code destDir}.
-     * Uses {@code docker create} + {@code docker cp} so no daemon mount is needed.
+     * Packs {@code deploymentDir} into a small ext2 image at {@code outputPath}.
+     *
+     * <p>The image size is calculated as the actual directory size plus 30% overhead,
+     * with a minimum of 64 MB.
      */
-    private static void extractDeployment(String imageTag, Path destDir, OpenDstLogger logger)
+    static void buildDeploymentExt2(Path deploymentDir, Path outputPath, OpenDstLogger logger)
             throws IOException, InterruptedException {
-        logger.raw().info("  Extracting deployment...");
-        var createProc = new ProcessBuilder("docker", "create", imageTag)
-                .redirectErrorStream(true)
-                .start();
-        var containerId = new String(createProc.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
-        if (createProc.waitFor() != 0) {
-            throw new IOException("docker create failed: " + containerId);
+        // Calculate actual content size in bytes
+        long sizeBytes;
+        try (var stream = Files.walk(deploymentDir)) {
+            sizeBytes = stream.filter(Files::isRegularFile)
+                    .mapToLong(p -> p.toFile().length())
+                    .sum();
         }
-        try {
-            Files.createDirectories(destDir.getParent());
-            run("docker", "cp", containerId + ":/opendst-deployment/.", destDir.toString());
-        } finally {
-            new ProcessBuilder("docker", "rm", containerId)
-                    .redirectErrorStream(true)
-                    .start()
-                    .waitFor(10, TimeUnit.SECONDS);
-        }
+        // Add 30% overhead; convert to 1KB blocks; minimum 65536 blocks (64 MB)
+        long blocks = Math.max(65536L, (long) (sizeBytes * 1.3 / 1024) + 2048);
+        logger.raw().info("  Building deployment.ext4 (" + (blocks / 1024) + " MB, content "
+                + (sizeBytes / 1024 / 1024) + " MB)...");
+        run("genext2fs", "-d", deploymentDir.toString(), "-b", Long.toString(blocks), outputPath.toString());
     }
 
     /**
@@ -214,9 +229,14 @@ final class NyxImageManager {
     }
 
     /**
-     * Writes a Firecracker vmconfig.json pointing at the extracted rootfs and kernel.
+     * Writes a Firecracker vmconfig.json with two virtio-blk drives:
+     * <ul>
+     *   <li>{@code rootfs} — the base OS image (read-write CoW, root device)</li>
+     *   <li>{@code deployment} — the per-run deployment ext2 image (read-only, {@code /dev/vdb})</li>
+     * </ul>
      */
-    private static void writeVmConfig(Path rootfsPath, Path vmConfigPath) throws IOException {
+    private static void writeVmConfig(Path rootfsPath, Path deploymentExt4Path, Path vmConfigPath)
+            throws IOException {
         var kernelPath = System.getenv("NYX_KERNEL") != null ? System.getenv("NYX_KERNEL") : DEFAULT_KERNEL;
 
         // Validate kernel exists
@@ -238,6 +258,13 @@ final class NyxImageManager {
                       "is_root_device": true,
                       "is_read_only": false,
                       "io_engine": "Cow"
+                    },
+                    {
+                      "drive_id": "deployment",
+                      "path_on_host": "%s",
+                      "is_root_device": false,
+                      "is_read_only": true,
+                      "io_engine": "Cow"
                     }
                   ],
                   "network-interfaces": [],
@@ -246,7 +273,7 @@ final class NyxImageManager {
                     "mem_size_mib": 1024
                   }
                 }
-                """.formatted(kernelPath, rootfsPath.toAbsolutePath());
+                """.formatted(kernelPath, rootfsPath.toAbsolutePath(), deploymentExt4Path.toAbsolutePath());
 
         Files.writeString(vmConfigPath, config);
     }

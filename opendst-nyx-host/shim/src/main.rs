@@ -71,8 +71,8 @@ type CheckpointId = [u8; 16];
 
 /// Manages snapshot storage. When `disk_dir` is set, every non-boot snapshot offloads
 /// its VM memory pages (incremental dirty pages) to disk to reduce RAM usage. The
-/// `Arc<CowCache>` from each snapshot's block-device state is always kept in memory —
-/// it must stay alive because `CowCacheTree::saved` only holds a `Weak` reference, and
+/// `Arc<CowCache>` from **each** block device in the snapshot is always kept in memory —
+/// one Arc per device — because `CowCacheTree::saved` only holds `Weak` references, and
 /// following a dead Weak during a block read causes a panic in nyx-lite.
 struct SnapshotStore {
     /// Boot snapshot (nil UUID) — always in memory.
@@ -86,12 +86,11 @@ struct SnapshotStore {
     disk_index: HashMap<CheckpointId, (usize, u64, CheckpointId)>,
     /// CowCache Arcs kept alive for disk snapshots so the Weak in CowCacheTree::saved
     /// never expires while the snapshot is live in our index.
-    cow_arcs: HashMap<CheckpointId, Arc<CowCache>>,
-    /// Fallback CowCache used in fresh shim processes where cow_arcs is empty.
-    /// Since the guest never writes to the block device (read-only rootfs), all
-    /// snapshots have cow_id=0.  A fresh VM's CowCache (also id=0) is a valid
-    /// substitute for any saved snapshot's cow_state.
-    boot_cow_arc: Option<Arc<CowCache>>,
+    /// One Arc per block device (indexed by device order), keyed by checkpoint UUID.
+    cow_arcs: HashMap<CheckpointId, Vec<Arc<CowCache>>>,
+    /// Fallback CowCache Arcs used in fresh shim processes where cow_arcs is empty.
+    /// One entry per block device (in device order).
+    boot_cow_arcs: Vec<Arc<CowCache>>,
 }
 
 impl SnapshotStore {
@@ -104,17 +103,17 @@ impl SnapshotStore {
             disk_dir,
             disk_index: HashMap::new(),
             cow_arcs: HashMap::new(),
-            boot_cow_arc: None,
+            boot_cow_arcs: Vec::new(),
         }
     }
 
     fn new_with_boot_cow(
         boot_snap: Arc<NyxSnapshot>,
         disk_dir: Option<PathBuf>,
-        boot_cow_arc: Option<Arc<CowCache>>,
+        boot_cow_arcs: Vec<Arc<CowCache>>,
     ) -> Self {
         let mut store = Self::new(boot_snap, disk_dir);
-        store.boot_cow_arc = boot_cow_arc;
+        store.boot_cow_arcs = boot_cow_arcs;
         store
     }
 
@@ -131,15 +130,15 @@ impl SnapshotStore {
         if let Some(&(cursor, snap_iter, parent_id)) = self.disk_index.get(id).copied().as_ref() {
             let dir = self.disk_dir.as_ref()?;
             let path = disk_snap_path(dir, id);
-            // Use the per-snapshot cow_arc if available (same-process snapshots).
-            // Fall back to boot_cow_arc for cross-process loads: the guest never writes
-            // to the block device (read-only rootfs), so all snapshots have cow_id=0
-            // and a fresh VM's CowCache is a valid substitute.
-            let cow_arc = self
-                .cow_arcs
-                .get(id)
-                .or(self.boot_cow_arc.as_ref())?
-                .clone();
+            // Use the per-snapshot cow_arcs if available (same-process snapshots).
+            // Fall back to boot_cow_arcs for cross-process loads — one Arc per device.
+            let cow_arcs: Vec<Arc<CowCache>> = if let Some(arcs) = self.cow_arcs.get(id) {
+                arcs.clone()
+            } else if !self.boot_cow_arcs.is_empty() {
+                self.boot_cow_arcs.clone()
+            } else {
+                return None;
+            };
             // Recursively load the parent snapshot so we can chain incrementals correctly.
             let parent_snap = if parent_id == nil_uuid() {
                 self.boot_snap.clone()
@@ -156,7 +155,7 @@ impl SnapshotStore {
                     }
                 }
             };
-            match load_snapshot_from_disk(&path, parent_snap, cow_arc) {
+            match load_snapshot_from_disk(&path, parent_snap, cow_arcs) {
                 Ok(snap) => {
                     let arc = Arc::new(snap);
                     return Some((arc, cursor, snap_iter));
@@ -186,25 +185,27 @@ impl SnapshotStore {
     ) {
         if let Some(dir) = &self.disk_dir {
             let path = disk_snap_path(dir, &id);
-            // Extract the CowCache Arc BEFORE saving to disk. We must keep it alive so the
-            // Weak in CowCacheTree::saved remains valid.
-            let cow_arc = snap
+            // Extract a CowCache Arc for EVERY block device before saving to disk.
+            // All Arcs must stay alive so the Weak in CowCacheTree::saved remains valid
+            // for each device — not just the first one.
+            let cow_arc_vec: Vec<Arc<CowCache>> = snap
                 .state
                 .device_states
                 .block_devices
-                .first()
-                .and_then(|b| {
+                .iter()
+                .filter_map(|b| {
                     if let BlockState::Virtio(ref vbs) = b.device_state {
                         Some(vbs.cow_state.clone())
                     } else {
                         None
                     }
-                });
+                })
+                .collect();
             match save_snapshot_to_disk(&path, &snap, cursor, snap_iter) {
                 Ok(()) => {
                     self.disk_index.insert(id, (cursor, snap_iter, parent_id));
-                    if let Some(arc) = cow_arc {
-                        self.cow_arcs.insert(id, arc);
+                    if !cow_arc_vec.is_empty() {
+                        self.cow_arcs.insert(id, cow_arc_vec);
                     }
                     // Persist the index so a fresh shim process can find this checkpoint.
                     self.persist_index();
@@ -424,13 +425,13 @@ fn read_u32<R: Read>(r: &mut R) -> Result<u32> {
 
 /// Reconstruct a snapshot from disk as an incremental child of `parent_snap`.
 /// Only the fields read by apply_snapshot are restored; everything else is defaulted.
-/// `cow_arc` is the live `Arc<CowCache>` from when the snapshot was saved; it must
-/// be passed back so the reconstructed VirtioBlockState holds the same Arc that the
-/// live `CowCacheTree::saved` map references via a Weak pointer.
+/// `cow_arcs` holds one live `Arc<CowCache>` per block device (in device order).
+/// Each Arc must be passed back so the reconstructed VirtioBlockState holds the same
+/// Arc that the live `CowCacheTree::saved` map references via a Weak pointer.
 fn load_snapshot_from_disk(
     path: &Path,
     parent_snap: Arc<NyxSnapshot>,
-    cow_arc: Arc<CowCache>,
+    cow_arcs: Vec<Arc<CowCache>>,
 ) -> Result<NyxSnapshot> {
     let raw = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut f = BufReader::with_capacity(256 * 1024, raw);
@@ -459,7 +460,7 @@ fn load_snapshot_from_disk(
     // block devices
     let block_count = read_u64(&mut f)? as usize;
     let mut block_devices = Vec::with_capacity(block_count);
-    for _ in 0..block_count {
+    for block_idx in 0..block_count {
         // device_id
         let id_len = read_u64(&mut f)? as usize;
         let mut id_buf = vec![0u8; id_len];
@@ -484,8 +485,8 @@ fn load_snapshot_from_disk(
             .context("deserialize VirtioDeviceState")?;
 
         // VirtioBlockState has private fields; clone from boot snapshot and set the two
-        // public fields. Use the live cow_arc so CowCacheTree::saved's Weak stays valid.
-        // Walk up to the root (base) snapshot to find the boot block device state.
+        // public fields. Use the live cow_arc for THIS device so CowCacheTree::saved's
+        // Weak stays valid. Index by block_idx (same order as serialised).
         let mut root = &parent_snap;
         while root.parent.is_some() {
             root = root.parent.as_ref().unwrap();
@@ -499,7 +500,9 @@ fn load_snapshot_from_disk(
             .with_context(|| format!("block device '{device_id}' not found in boot snapshot"))?
             .clone();
         if let BlockState::Virtio(ref mut vbs) = boot_block.device_state {
-            vbs.cow_state = cow_arc.clone();
+            if let Some(ca) = cow_arcs.get(block_idx) {
+                vbs.cow_state = ca.clone();
+            }
             vbs.virtio_state = virtio_state;
         }
         boot_block.transport_state = transport_state;
@@ -648,19 +651,20 @@ fn save_boot_to_disk(
     Ok(())
 }
 
-/// Extracts the CowCache Arc from the first block device of a snapshot.
-fn extract_cow_arc(snap: &Arc<NyxSnapshot>) -> Option<Arc<CowCache>> {
+/// Extracts CowCache Arcs from all block devices of a snapshot (one per device, in order).
+fn extract_cow_arcs(snap: &Arc<NyxSnapshot>) -> Vec<Arc<CowCache>> {
     snap.state
         .device_states
         .block_devices
-        .first()
-        .and_then(|b| {
+        .iter()
+        .filter_map(|b| {
             if let BlockState::Virtio(ref vbs) = b.device_state {
                 Some(vbs.cow_state.clone())
             } else {
                 None
             }
         })
+        .collect()
 }
 
 /// Loads the boot snapshot from `<dir>/boot.snap`, constructs it as a Base
@@ -676,21 +680,25 @@ fn extract_cow_arc(snap: &Arc<NyxSnapshot>) -> Option<Arc<CowCache>> {
 fn load_and_apply_boot_from_disk(
     dir: &Path,
     vm: &mut NyxVM,
-) -> Result<Option<(u64, u64, Arc<NyxSnapshot>, Option<Arc<CowCache>>)>> {
+) -> Result<Option<(u64, u64, Arc<NyxSnapshot>, Vec<Arc<CowCache>>)>> {
     let path = dir.join("boot.snap");
     if !path.exists() {
         return Ok(None);
     }
 
-    // Trigger cow.snapshot() (registers saved[0]) and grab the CowCache Arc.
+    // Trigger cow.snapshot() (registers saved[0]) and grab the CowCache Arc for each device.
     let init_device_states = vm.vmm.lock().unwrap().mmio_device_manager.save();
-    let init_cow_arc = init_device_states.block_devices.first().and_then(|b| {
-        if let BlockState::Virtio(ref vbs) = b.device_state {
-            Some(vbs.cow_state.clone())
-        } else {
-            None
-        }
-    });
+    let init_cow_arcs: Vec<Arc<CowCache>> = init_device_states
+        .block_devices
+        .iter()
+        .filter_map(|b| {
+            if let BlockState::Virtio(ref vbs) = b.device_state {
+                Some(vbs.cow_state.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
 
     // Total guest RAM in bytes — needed to allocate the Base snapshot Vec.
     let ram_size: usize = vm
@@ -736,8 +744,7 @@ fn load_and_apply_boot_from_disk(
     // block devices — same logic as load_snapshot_from_disk
     let block_count = read_u64(&mut f)? as usize;
     let mut block_devices = Vec::with_capacity(block_count);
-    let cow_arc_to_use = init_cow_arc.clone();
-    for _ in 0..block_count {
+    for block_idx in 0..block_count {
         let id_len = read_u64(&mut f)? as usize;
         let mut id_buf = vec![0u8; id_len];
         f.read_exact(&mut id_buf).context("read device_id")?;
@@ -757,8 +764,8 @@ fn load_and_apply_boot_from_disk(
         let virtio_state: VirtioDeviceState =
             Snapshot::deserialize(&mut virt_buf.as_slice()).context("deserialize virtio")?;
 
-        // Use the fresh VM's CowCache (id=0) since the guest never writes to disk.
-        // Build the block entry from init_device_states (already saved above).
+        // Use the fresh VM's CowCache for each device by index so that the Weak in
+        // CowCacheTree::saved stays valid for every device, not just the first.
         let mut boot_block = init_device_states
             .block_devices
             .iter()
@@ -766,7 +773,7 @@ fn load_and_apply_boot_from_disk(
             .with_context(|| format!("block device '{device_id}' not found in init_device_states"))?
             .clone();
         if let BlockState::Virtio(ref mut vbs) = boot_block.device_state {
-            if let Some(ref ca) = init_cow_arc {
+            if let Some(ca) = init_cow_arcs.get(block_idx) {
                 vbs.cow_state = ca.clone();
             }
             vbs.virtio_state = virtio_state;
@@ -839,7 +846,7 @@ fn load_and_apply_boot_from_disk(
     vm.active_snapshot = Some(boot_snap.clone());
     vm.apply_snapshot(&boot_snap);
     ensure_block_devices_activated(vm);
-    Ok(Some((in_vaddr, out_vaddr, boot_snap, init_cow_arc)))
+    Ok(Some((in_vaddr, out_vaddr, boot_snap, init_cow_arcs)))
 }
 
 /// Generate a random UUID v4.
@@ -930,29 +937,29 @@ fn main() -> Result<()> {
     let mut vm = NyxVM::new("opendst-nyx-shim".to_string(), &config_json);
 
     // Fast-path: if the boot snapshot is already on disk, skip the full guest boot.
-    let (boot_snapshot, in_vaddr, out_vaddr, boot_cow_arc) = if let Some(ref dir) = snapshot_dir {
+    let (boot_snapshot, in_vaddr, out_vaddr, boot_cow_arcs) = if let Some(ref dir) = snapshot_dir {
         match load_and_apply_boot_from_disk(dir, &mut vm)? {
-            Some((iv, ov, snap, cow)) => (snap, iv, ov, cow),
+            Some((iv, ov, snap, cows)) => (snap, iv, ov, cows),
             None => {
                 // First run: boot normally and save the result to disk.
                 let (snap, iv, ov) = boot_to_snapshot(&mut vm)?;
-                let cow = extract_cow_arc(&snap);
+                let cows = extract_cow_arcs(&snap);
                 if let Err(e) = save_boot_to_disk(dir, iv, ov, &snap) {
                     eprintln!("[shim] warning: failed to save boot snapshot: {e}");
                 }
-                (snap, iv, ov, cow)
+                (snap, iv, ov, cows)
             }
         }
     } else {
         let (snap, iv, ov) = boot_to_snapshot(&mut vm)?;
-        let cow = extract_cow_arc(&snap);
-        (snap, iv, ov, cow)
+        let cows = extract_cow_arcs(&snap);
+        (snap, iv, ov, cows)
     };
 
     println!("ready");
     io::stdout().flush()?;
 
-    let mut store = SnapshotStore::new_with_boot_cow(boot_snapshot, snapshot_dir, boot_cow_arc);
+    let mut store = SnapshotStore::new_with_boot_cow(boot_snapshot, snapshot_dir, boot_cow_arcs);
     // Reload checkpoints saved by previous shim processes (per-iteration shim restart).
     store.load_disk_index();
 

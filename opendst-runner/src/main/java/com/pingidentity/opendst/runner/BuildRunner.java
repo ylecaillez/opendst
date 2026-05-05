@@ -156,9 +156,10 @@ public final class BuildRunner implements Callable<Integer> {
 
     @Option(
             names = "--image",
-            description = "Docker image tag to use as VM rootfs when --engine=nyx-lite"
-                    + " (e.g. myapp-opendst-nyx:1.0). The image is extracted to"
-                    + " ~/.opendst/nyx-rootfs/<digest>/ on first use.")
+            description = "Docker base image tag used as VM rootfs when --engine=nyx-lite"
+                    + " (e.g. opendst-nyx-base:latest). The rootfs and shim are extracted once"
+                    + " to ~/.opendst/nyx-rootfs/<digest>/; subsequent runs reuse the cache.",
+            defaultValue = "opendst-nyx-base:latest")
     private String nyxImage;
 
     @Option(
@@ -181,33 +182,27 @@ public final class BuildRunner implements Callable<Integer> {
         boolean isNyx = "nyx-lite".equalsIgnoreCase(engine);
         int forkCount = resolveForkCount(forkCountSpec);
 
-        // For nyx-lite, prepare the cached rootfs + deployment before setting up the working dir.
-        // This resolves deploymentDir from the cache rather than extracting on every run.
+        // Derive directory layout from working directory (Bootstrap sets it; defaults to temp dir)
+        if (workingDir == null) {
+            workingDir = java.nio.file.Files.createTempDirectory("opendst-run-");
+        }
+        // Deployment comes from the JAR for both engines: Bootstrap extracts it to workingDir/deployment/.
+        var deploymentDir = workingDir.resolve("deployment");
+        var reportDir = workingDir.resolve("report");
+        var runsDir = workingDir.resolve("runs");
+        createDirectories(reportDir.resolve("plans"));
+        createDirectories(runsDir);
+
+        // For nyx-lite, prepare base image cache (rootfs + shim) and build deployment.ext4.
         NyxImageManager.NyxSetup nyxSetup = null;
         if (isNyx) {
-            if (nyxImage == null) {
-                ofConsole(isDebug).raw().error("--image is required when --engine=nyx-lite");
-                return 1;
-            }
             try {
-                nyxSetup = NyxImageManager.prepare(nyxImage, ofConsole(isDebug));
+                nyxSetup = NyxImageManager.prepare(nyxImage, deploymentDir, workingDir, ofConsole(isDebug));
             } catch (IOException | InterruptedException e) {
                 ofConsole(isDebug).raw().error("Failed to prepare nyx-lite image: " + e.getMessage());
                 return 1;
             }
         }
-
-        // Derive directory layout from working directory (Bootstrap sets it; nyx-lite uses a temp dir)
-        if (workingDir == null) {
-            workingDir = java.nio.file.Files.createTempDirectory("opendst-run-");
-        }
-        // For nyx-lite, deployment is cached in ~/.opendst/nyx-rootfs/<digest>/deployment/
-        // and reused across runs. For fork mode, it lives under the working dir.
-        var deploymentDir = isNyx ? nyxSetup.deploymentDir() : workingDir.resolve("deployment");
-        var reportDir = workingDir.resolve("report");
-        var runsDir = workingDir.resolve("runs");
-        createDirectories(reportDir.resolve("plans"));
-        createDirectories(runsDir);
 
         // 1. Load assertions
         var assertionsFile = deploymentDir.resolve("META-INF/opendst/assertions.json");
