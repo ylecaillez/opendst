@@ -62,21 +62,20 @@ import java.util.concurrent.locks.ReentrantLock;
 @SuppressWarnings({"deprecation", "removal"})
 final class NodeSocketImpl extends SocketImpl implements Closeable {
     private final Node node;
-
-    private SynchronousQueue<NodeSocketImpl> connected;
-    private NetBuffer receiveBuffer;
     /** Bytes already pulled from buffer (location of the beginning of recvBuf) */
     private final AsyncVar readBytes = new AsyncVar();
 
     private final AsyncVar receivedBytes = new AsyncVar();
     private final AsyncVar sentBytes = new AsyncVar();
     private final AsyncVar writtenBytes = new AsyncVar();
+
+    private final SynchronousQueue<NodeSocketImpl> connected;
+    private final boolean isServer;
+    private ArrayBlockingQueue<NodeSocketImpl> backlog;
+    private NetBuffer receiveBuffer;
     private boolean tcpFINSent;
     private boolean tcpFINReceived;
     private int sendBufferSize;
-    private boolean isServer;
-    private ArrayBlockingQueue<NodeSocketImpl> backlog;
-
     private Binding binding;
     private boolean stableConnection;
     private NodeSocketImpl peer;

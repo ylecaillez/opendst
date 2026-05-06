@@ -34,14 +34,12 @@ import java.util.Map.Entry;
 /**
  * Applies fault injection during a simulation run.
  *
- * <p>The injector is called from {@link Node} (bind) and {@link NodeSocketImpl}
- * (connect, accept, send, receive). Every hook is guarded by
- * {@code simulator.isReady()} — no faults fire before
+ * <p>The injector is called from {@link Node} (bind) and {@link NodeSocketImpl} (connect, accept, send, receive).
+ * Every hook is guarded by {@code simulator.isReady()} — no faults fire before
  * {@link com.pingidentity.opendst.sdk.Signals#ready()} is called.
  *
- * <p>The {@code clogPairLatency} map tracks per-direction congestion latency between
- * host pairs. It is populated on first connection (connect or accept) and reused for
- * all subsequent connections on the same directional link.
+ * <p>The {@code clogPairLatency} map tracks per-direction congestion latency between host pairs. It is populated on
+ * first connection (connect or accept) and reused for all subsequent connections on the same directional link.
  */
 final class FaultInjector {
     private final Simulator simulator;
@@ -54,9 +52,8 @@ final class FaultInjector {
     }
 
     /**
-     * Hook called before a network bind operation. May throw {@link BindException} to
-     * simulate an address-already-in-use failure when {@code SO_REUSEADDR} is not set
-     * (5% probability).
+     * Hook called before a network bind operation. May throw {@link BindException} to simulate an
+     * address-already-in-use failure when {@code SO_REUSEADDR} is not set (5% probability).
      *
      * @param reuseAddress whether {@code SO_REUSEADDR} is enabled on the socket
      */
@@ -70,8 +67,8 @@ final class FaultInjector {
     }
 
     /**
-     * Hook called before a network send operation. May throw {@link SocketException} to
-     * simulate a connection reset (probability: {@code connectionResetProbability}).
+     * Hook called before a network send operation. May throw {@link SocketException} to simulate a connection reset
+     * (probability: {@code connectionResetProbability}).
      */
     void onNetworkSend() throws SocketException {
         if (simulator.isReady() && faults.enabled()) {
@@ -82,8 +79,8 @@ final class FaultInjector {
     }
 
     /**
-     * Hook called before a network receive operation. May throw {@link SocketException} to
-     * simulate a connection reset (probability: {@code connectionResetProbability}).
+     * Hook called before a network receive operation. May throw {@link SocketException} to simulate a connection
+     * reset (probability: {@code connectionResetProbability}).
      */
     void onNetworkReceive() throws SocketException {
         if (simulator.isReady() && faults.enabled()) {
@@ -94,8 +91,8 @@ final class FaultInjector {
     }
 
     /**
-     * Returns a timeout duration to inject on this operation. Returns {@link Duration#ZERO}
-     * if no timeout should be injected (probability: {@code timeoutProbability}).
+     * Returns a timeout duration to inject on this operation. Returns {@link Duration#ZERO} if no timeout should be
+     * injected (probability: {@code timeoutProbability}).
      */
     Duration onNetworkTimeout() {
         if (simulator.isReady() && faults.enabled()) {
@@ -107,9 +104,9 @@ final class FaultInjector {
     }
 
     /**
-     * Sets the clogging latency for a directional link ({@code from}&rarr;{@code to}) if not
-     * already set. Called during connect and accept to assign persistent per-pair congestion.
-     * Returns the effective latency (existing value if already set, or the new one).
+     * Sets the clogging latency for a directional link ({@code from}&rarr;{@code to}) if not already set. Called
+     * during connect and accept to assign persistent per-pair congestion. Returns the effective latency (existing
+     * value if already set, or the new one).
      */
     Duration setPairLatencyIfNotSet(InetAddress from, InetAddress to, Duration duration) {
         var alreadySet = clogPairLatency.putIfAbsent(entry(from, to), duration);
@@ -117,9 +114,9 @@ final class FaultInjector {
     }
 
     /**
-     * Computes the simulated one-way delay for a send from {@code from} to {@code to}.
-     * Loopback connections ({@code stableConnection = true}) get 1/10th of the base latency.
-     * Normal connections get {@code halfLatency() + clogPairLatency}.
+     * Computes the simulated one-way delay for a send from {@code from} to {@code to}. Loopback connections ({@code
+     * stableConnection = true}) get 1/10th of the base latency. Normal connections get {@code halfLatency() +
+     * clogPairLatency}.
      */
     Duration networkSendDelay(InetAddress from, InetAddress to, boolean stableConnection) {
         if (stableConnection) {
@@ -130,9 +127,9 @@ final class FaultInjector {
     }
 
     /**
-     * Computes the simulated one-way delay for a receive from {@code from} to {@code to}.
-     * Loopback connections ({@code stableConnection = true}) get 1/10th of the base latency.
-     * Normal connections get {@code halfLatency() + clogPairLatency}.
+     * Computes the simulated one-way delay for a receive from {@code from} to {@code to}. Loopback connections
+     * ({@code stableConnection = true}) get 1/10th of the base latency. Normal connections get {@code halfLatency()
+     * + clogPairLatency}.
      */
     Duration networkReceiveDelay(InetAddress from, InetAddress to, boolean stableConnection) {
         if (stableConnection) {
@@ -151,17 +148,14 @@ final class FaultInjector {
      * Samples a one-way latency from a bimodal distribution.
      *
      * <ul>
-     *   <li><b>Fast path (99.9%)</b> — picks from
-     *       [{@code networkLatencyMinimum}, {@code networkLatencyFast}] using inverse
-     *       scaling, producing a right-skewed distribution where most values cluster
-     *       near the minimum.</li>
-     *   <li><b>Slow path (0.1%)</b> — picks from
-     *       [{@code networkLatencyMinimum}, {@code networkLatencySlow}] using linear
-     *       interpolation, modeling rare high-latency spikes.</li>
+     *   <li><b>Fast path (99.9%)</b>: picks from [{@code networkLatencyMinimum}, {@code networkLatencyFast}] using
+     *   inverse scaling, producing a right-skewed distribution where most values cluster near the minimum.</li>
+     *   <li><b>Slow path (0.1%)</b>: picks from [{@code networkLatencyMinimum}, {@code networkLatencySlow}] using
+     *   linear interpolation, modeling rare high-latency spikes.</li>
      * </ul>
      *
-     * <p>Called separately for send and receive; the total round-trip latency for a
-     * packet is the sum of two independent samples.
+     * <p>Called separately for send and receive; the total round-trip latency for a packet is the sum of two
+     * independent samples.
      */
     private Duration halfLatency() {
         var config = faults;

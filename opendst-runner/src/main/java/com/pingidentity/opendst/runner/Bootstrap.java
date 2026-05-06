@@ -35,8 +35,8 @@ import java.util.jar.JarFile;
 /**
  * Minimal bootstrap entry point for the self-contained JAR.
  *
- * <p>This class has <em>no</em> Jackson, SnakeYAML, or opendst-agent imports so that it can
- * be loaded by {@code java -jar} without those libraries on the classpath. It:
+ * <p>This class has <em>no</em> Jackson, SnakeYAML, or opendst-agent imports so that it can be loaded by {@code java
+ * -jar} without those libraries on the classpath. It:
  * <ol>
  *   <li>Resolves the working directory (from {@code --working-dir} or derived from JAR path)</li>
  *   <li>Extracts the JAR contents into {@code <workingDir>/deployment/} (skipped if already present)</li>
@@ -44,8 +44,8 @@ import java.util.jar.JarFile;
  *   <li>Reflectively invokes {@link RunnerCli#main(String[])}</li>
  * </ol>
  *
- * <p>The working directory path is prepended to the argument array so that
- * {@code RunnerCli} knows where to find configuration and write output.
+ * <p>The working directory path is prepended to the argument array so that {@code RunnerCli} knows where to find
+ * configuration and write output.
  */
 public final class Bootstrap {
     public static void main(String[] args) {

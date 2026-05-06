@@ -36,7 +36,7 @@ import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
 import com.pingidentity.opendst.common.Signal.PlatformThreadStartedSignal;
 import com.pingidentity.opendst.simulator.Node;
-import com.pingidentity.opendst.simulator.Simulator;
+import com.pingidentity.opendst.simulator.Simulator.SimulationError;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.VarHandle;
 import java.util.concurrent.Executor;
@@ -56,9 +56,7 @@ import net.bytebuddy.asm.Advice.OnNonDefaultValue;
 import net.bytebuddy.asm.Advice.Return;
 import net.bytebuddy.implementation.StubMethod;
 
-/**
- * Functional module for thread simulation and instrumentation.
- */
+/** Functional module for thread simulation and instrumentation. */
 public final class ThreadsInterceptors {
 
     /** Exposes internal methods of {@link Thread}. */
@@ -92,8 +90,8 @@ public final class ThreadsInterceptors {
                         .findVirtual(ThreadLocal.class, "get", methodType(Object.class, Thread.class));
                 THREAD_LOCAL_SET = privateLookupIn(ThreadLocal.class, lookup())
                         .findVirtual(ThreadLocal.class, "set", methodType(void.class, Thread.class, Object.class));
-            } catch (Throwable e) {
-                throw new Simulator.SimulationError("Unable to find virtual thread internal APIs", e);
+            } catch (ReflectiveOperationException e) {
+                throw new SimulationError("Unable to find virtual thread internal APIs", e);
             }
         }
 
@@ -101,7 +99,7 @@ public final class ThreadsInterceptors {
             try {
                 return (Thread) VTHREAD_CLASS.cast(VTHREAD_TAKE_LIST_TO_UNBLOCK.invoke());
             } catch (Throwable e) {
-                throw new Simulator.SimulationError("Unable to get the next virtual thread to unblock", e);
+                throw new SimulationError("Unable to get the next virtual thread to unblock", e);
             }
         }
 
@@ -121,7 +119,7 @@ public final class ThreadsInterceptors {
             try {
                 return (boolean) VTHREAD_CAS_ON_WAITING_LIST.invoke(thread, expected, update);
             } catch (Throwable e) {
-                throw new Simulator.SimulationError(e);
+                throw new SimulationError(e);
             }
         }
 
@@ -129,7 +127,7 @@ public final class ThreadsInterceptors {
             try {
                 return THREAD_LOCAL_GET.invoke(threadLocal, thread);
             } catch (Throwable e) {
-                throw new Simulator.SimulationError(e);
+                throw new SimulationError(e);
             }
         }
 
@@ -137,7 +135,7 @@ public final class ThreadsInterceptors {
             try {
                 return THREAD_LOCAL_SET.invoke(threadLocal, thread, value);
             } catch (Throwable e) {
-                throw new Simulator.SimulationError(e);
+                throw new SimulationError(e);
             }
         }
 
@@ -145,7 +143,7 @@ public final class ThreadsInterceptors {
             try {
                 VTHREAD_UNBLOCK.invoke(vthread);
             } catch (Throwable e) {
-                throw new Simulator.SimulationError(e);
+                throw new SimulationError(e);
             }
         }
 
@@ -184,11 +182,11 @@ public final class ThreadsInterceptors {
                         onSpinWait();
                     }
                     if (!compareAndSetOnWaitingList(thread, true, false)) {
-                        throw new Simulator.SimulationError(format(
+                        throw new SimulationError(format(
                                 "Thread '%s' is no more present on the waiting-list. Determinism is broken",
                                 thread.getName()));
                     }
-                    ThreadsInterceptors.Internals.unblockVirtualThread(thread);
+                    unblockVirtualThread(thread);
                 }
             }
         }
@@ -219,31 +217,28 @@ public final class ThreadsInterceptors {
     }
 
     /**
-     * Intercepts platform thread creation in {@code ThreadBuilders} to replace platform threads
-     * with virtual threads when inside a simulation context.
+     * Intercepts platform thread creation in {@code ThreadBuilders} to replace platform threads with virtual threads
+     * when inside a simulation context.
      *
      * <p>Two JDK-internal paths create platform threads:
      * <ul>
-     *   <li>{@code ThreadBuilders$PlatformThreadBuilder.unstarted(Runnable)} — behind
-     *       {@code Thread.ofPlatform().unstarted(r)} and {@code .start(r)}</li>
-     *   <li>{@code ThreadBuilders$PlatformThreadFactory.newThread(Runnable)} — behind
-     *       {@code Thread.ofPlatform().factory()} and {@code Executors.defaultThreadFactory()}</li>
+     *   <li>{@code ThreadBuilders$PlatformThreadBuilder.unstarted(Runnable)}: behind {@code Thread.ofPlatform()
+     *   .unstarted(r)} and {@code .start(r)}</li>
+     *   <li>{@code ThreadBuilders$PlatformThreadFactory.newThread(Runnable)}: behind {@code Thread.ofPlatform()
+     *   .factory()} and {@code Executors.defaultThreadFactory()}</li>
      * </ul>
      *
-     * <p>Inside simulation: the original method still runs (creating a platform thread that is
-     * immediately discarded), and the return value is replaced with a virtual thread created via
-     * {@code Thread.ofVirtual().unstarted(runnable)} — which is intercepted by
-     * {@link NewVirtualThreadAdvice} to wire the node's executor and attach the thread.
-     * The thread name and uncaught exception handler are copied from the discarded
-     * platform thread to preserve the caller's configuration
-     * (e.g. counter-based names from {@code Thread.ofPlatform().name("pool-", 0)}).
+     * <p>Return value is replaced with a virtual thread created via {@code Thread.ofVirtual().unstarted(runnable)}
+     * which is intercepted by {@link NewVirtualThreadAdvice} to wire the node's executor and attach the thread. The
+     * thread name and uncaught exception handler are copied from the discarded platform thread to preserve the
+     * caller's configuration (e.g. counter-based names from {@code Thread.ofPlatform().name("pool-", 0)}).
      *
      * <p>Outside simulation: the advice is a no-op and the platform thread passes through.
      */
     @Intercepts("java.lang.ThreadBuilders$PlatformThreadFactory#newThread(Runnable)")
     @Intercepts("java.lang.ThreadBuilders$PlatformThreadBuilder#unstarted(Runnable)")
     public static final class NewPlatformThreadAdvice {
-        @OnMethodEnter
+        @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Runnable onEnter(@Argument(0) Runnable target) {
             return currentNodeOrNull() != null ? target : null;
@@ -352,16 +347,15 @@ public final class ThreadsInterceptors {
     /**
      * Intercepts {@link Thread#start()} to detect platform threads started inside a simulation context.
      *
-     * <p>This is a diagnostic safety net: it logs a lifecycle warning when a platform thread is
-     * started inside a simulation. Platform threads escape the simulation's deterministic scheduling
-     * and are a source of non-determinism.
+     * <p>This is a diagnostic safety net: it logs a lifecycle warning when a platform thread is started inside a
+     * simulation. Platform threads escape the simulation's deterministic scheduling and are a source of
+     * non-determinism.
      *
-     * <p>In practice this advice should never fire. All {@code Thread} subclasses — including those
-     * from third-party libraries — are rewritten at build time to extend {@code SimulatorThread}
-     * (a {@code VirtualThread}) and run under the deterministic scheduler. The JDK's
-     * {@code VirtualThread-unblocker} platform thread is pre-initialized in {@code premain()} before
-     * any simulation starts. This leaves only unexpected JDK-internal platform threads (e.g. from a
-     * class initializer triggered during simulation) as potential triggers.
+     * <p>In practice this advice should never fire. All {@code Thread} subclasses — including those from third-party
+     * libraries — are rewritten at build time to extend {@code SimulatorThread} (a {@code VirtualThread}) and run
+     * under the deterministic scheduler. The JDK's {@code VirtualThread-unblocker} platform thread is
+     * pre-initialized in {@code premain()} before any simulation starts. This leaves only unexpected JDK-internal
+     * platform threads (e.g. from a class initializer triggered during simulation) as potential triggers.
      */
     @Intercepts("java.lang.Thread#start()")
     public static final class ThreadStartAdvice {
@@ -408,7 +402,7 @@ public final class ThreadsInterceptors {
      * <p>The {@code ON_CONSTRUCT} callback is invoked after each constructor completes to attach
      * the new thread to the simulation node (sets thread-locals, uncaught handler, classloader).
      *
-     * @throws Simulator.SimulationError if {@code SimulatorThread} is not on the classpath
+     * @throws SimulationError if {@code SimulatorThread} is not on the classpath
      *     (no {@code --patch-module}) or if the callback fields cannot be set
      */
     static void installSimulatorThreadCallback() {
@@ -425,7 +419,7 @@ public final class ThreadsInterceptors {
             Consumer<Thread> callback = thread -> currentNodeOrNull().attachThread(thread);
             onConstructField.set(null, callback);
         } catch (ReflectiveOperationException e) {
-            throw new Simulator.SimulationError("Failed to install SimulatorThread callback", e);
+            throw new SimulationError("Failed to install SimulatorThread callback", e);
         }
     }
 

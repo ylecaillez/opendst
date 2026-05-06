@@ -21,20 +21,18 @@ import java.util.Map;
 /**
  * Wire-format type for the structured signals emitted by the simulator during a run.
  *
- * <p>The agent serializes one {@code Signal} per line to the child JVM's {@code System.out}
- * (wrapped in a log envelope), and the runner parses each line back into the corresponding
- * subtype.
+ * <p>The agent serializes one {@code Signal} per line to the child JVM's {@code System.out} (wrapped in a log
+ * envelope), and the runner parses each line back into the corresponding subtype.
  *
- * <p>The wire format intentionally avoids Jackson polymorphic-deserialization annotations
- * ({@code @JsonTypeInfo} / {@code @JsonSubTypes}) so that both ends can use
- * {@code jackson-jr}. The runner dispatches on the {@link #type()} discriminator field
- * by hand. Lifecycle events are split into one subtype per event so the runner can dispatch
- * by {@code instanceof} rather than by string matching on a {@code message} field.
+ * <p>The wire format intentionally avoids Jackson polymorphic-deserialization annotations ({@code @JsonTypeInfo} /
+ * {@code @JsonSubTypes}) so that both ends can use {@code jackson-jr}. The runner dispatches on the {@link #type()}
+ * discriminator field by hand. Lifecycle events are split into one subtype per event so the runner can dispatch by
+ * {@code instanceof} rather than by string matching on a {@code message} field.
  *
- * <p>{@code type} and {@code message} are required record components on every subtype (declared
- * first, so they appear first in the JSON preamble). Subtypes whose discriminator/message are
- * constants expose a convenience constructor that defaults them — keeping callsites concise
- * while letting the reflective serializer in the agent walk record components uniformly.
+ * <p>{@code type} and {@code message} are required record components on every subtype (declared first, so they
+ * appear first in the JSON preamble). Subtypes whose discriminator/message are constants expose a convenience
+ * constructor that defaults them — keeping callsites concise while letting the reflective serializer in the agent
+ * walk record components uniformly.
  */
 public sealed interface Signal {
 
@@ -105,11 +103,7 @@ public sealed interface Signal {
     // ── Fault injection ───────────────────────────────────────────────────────
 
     /** Notification that a fault was injected into the simulation. */
-    record FaultSignal(String type, String message) implements Signal {
-        public FaultSignal(String message) {
-            this("fault", message);
-        }
-    }
+    record FaultSignal(String type, String message) implements Signal {}
 
     // ── Lifecycle: simulator framework events ─────────────────────────────────
     //

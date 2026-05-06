@@ -32,9 +32,7 @@ import net.bytebuddy.agent.builder.AgentBuilder.RedefinitionStrategy;
 import net.bytebuddy.agent.builder.AgentBuilder.TypeStrategy;
 import net.bytebuddy.implementation.Implementation.Context.Disabled.Factory;
 
-/**
- * Intercepts key JDK methods to provide a deterministic execution environment.
- */
+/** Intercepts key JDK methods to provide a deterministic execution environment. */
 public final class SimulatorAgent {
     public static final String AGENT_PROPERTY = "com.pingidentity.opendst.simulator.agent";
 

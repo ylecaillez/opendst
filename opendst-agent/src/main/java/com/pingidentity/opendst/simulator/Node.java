@@ -34,7 +34,6 @@ import com.pingidentity.opendst.common.Signal;
 import com.pingidentity.opendst.intercept.NetworkInterceptors;
 import com.pingidentity.opendst.intercept.ThreadsInterceptors.VirtualThreadUnblocker;
 import com.pingidentity.opendst.simulator.NodeSocketImpl.Binding;
-import java.io.IOException;
 import java.io.PrintStream;
 import java.net.BindException;
 import java.net.InetAddress;
@@ -62,20 +61,18 @@ public final class Node {
     private static final ThreadLocal<Node> CURRENT_NODE = new ThreadLocal<>();
 
     final SimulationContext context;
-    final String hostName;
-    final ClassLoader classLoader;
-    final PrintStream console;
-    final List<Thread> virtualThreads = new ArrayList<>();
-    final List<Thread> shutdownHooks = new ArrayList<>();
-    final long salt32l;
-    final boolean reverse;
-    final ToLongFunction<Random> defaultSchedulingJitter = r -> r.nextLong(1, 10_000);
-
+    private final String hostName;
+    private final ClassLoader classLoader;
+    private final PrintStream console;
+    private final List<Thread> virtualThreads = new ArrayList<>();
+    private final List<Thread> shutdownHooks = new ArrayList<>();
+    private final long salt32l;
+    private final boolean reverse;
+    private final ToLongFunction<Random> defaultSchedulingJitter = r -> r.nextLong(1, 10_000);
     private final InetAddress localHost;
     private final NodeInterfaces netInterfaces;
 
-    Node(SimulationContext context, ClassLoader classLoader, String hostName, String localIpAddress)
-            throws IOException {
+    Node(SimulationContext context, ClassLoader classLoader, String hostName, String localIpAddress) {
         this.context = requireNonNull(context);
         this.classLoader = requireNonNull(classLoader);
         requireNonNull(hostName);
@@ -395,10 +392,8 @@ public final class Node {
 
         Binding bind(InetAddress address, int port, SocketImpl socket, boolean reuseAddress) throws BindException {
             // Find a free ephemeral port when port == 0.
-            // When binding to a wildcard address (0.0.0.0),
-            // the port must be free on ALL local addresses,
-            // not just the wildcard key (which is never
-            // stored in boundSockets).
+            // When binding to a wildcard address (0.0.0.0), the port must be free on ALL local addresses, not just
+            // the wildcard key (which is never stored in boundSockets).
             if (port == 0) {
                 port = findEphemeralPort(address);
             }
