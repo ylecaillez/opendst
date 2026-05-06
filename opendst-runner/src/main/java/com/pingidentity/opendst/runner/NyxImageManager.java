@@ -54,6 +54,13 @@ final class NyxImageManager {
             System.getProperty("user.home") + "/git/nyx-lite/vm_image/vmlinux-6.1.58";
     private static final String NYX_CACHE_DIR = System.getProperty("user.home") + "/.opendst/nyx-rootfs";
 
+    /** TAP device name and addresses used for debug mode (JDWP). */
+    private static final String TAP_DEV = "fc-88-tap0";
+    private static final String TAP_IP = "169.254.0.22/30";
+    static final String GUEST_IP = "169.254.0.21";
+    private static final String GUEST_MAC = "02:FC:00:00:00:05";
+    static final int JDWP_PORT = 5005;
+
     /** Result of {@link #prepare}. */
     record NyxSetup(Path shimBinary, String vmConfigPath) {}
 
@@ -71,7 +78,7 @@ final class NyxImageManager {
      * @param workingDir    per-run working directory where deployment.ext4 and vmconfig.json are written
      * @param logger        for progress output
      */
-    static NyxSetup prepare(String baseImageTag, Path deploymentDir, Path workingDir, OpenDstLogger logger)
+    static NyxSetup prepare(String baseImageTag, Path deploymentDir, Path workingDir, boolean debug, OpenDstLogger logger)
             throws IOException, InterruptedException {
         // 1. Permanent base image cache (rootfs + shim)
         var digest = resolveDigest(baseImageTag);
@@ -99,13 +106,28 @@ final class NyxImageManager {
                     + "Run via the self-contained JAR instead:\n"
                     + "  java -jar <project>-opendst.jar --engine=nyx-lite ...");
         }
+
+        // In debug mode, write a sentinel file so the guest JVM enables JDWP and
+        // NyxGuestEntry calls DebugHook.awaitDebugger() after each restore.
+        if (debug) {
+            Files.createFile(deploymentDir.resolve("debug"));
+        }
+
         var deploymentExt4 = workingDir.resolve("deployment.ext4");
         logger.raw().info("Building deployment.ext4 from: " + deploymentDir);
         buildDeploymentExt2(deploymentDir, deploymentExt4, logger);
 
-        // 3. Firecracker vmconfig (references both drives)
+        // 3. In debug mode, set up the host TAP interface for JDWP connectivity.
+        if (debug) {
+            setupTap(logger);
+            Runtime.getRuntime().addShutdownHook(Thread.ofPlatform().unstarted(() -> {
+                try { teardownTap(); } catch (Exception ignored) {}
+            }));
+        }
+
+        // 4. Firecracker vmconfig (references both drives; network interface added in debug mode)
         var vmConfigPath = workingDir.resolve("vmconfig.json");
-        writeVmConfig(rootfsPath, deploymentExt4, vmConfigPath);
+        writeVmConfig(rootfsPath, deploymentExt4, vmConfigPath, debug);
 
         return new NyxSetup(shimPath, vmConfigPath.toString());
     }
@@ -243,8 +265,9 @@ final class NyxImageManager {
      *   <li>{@code rootfs} — the base OS image (read-write CoW, root device)</li>
      *   <li>{@code deployment} — the per-run deployment ext2 image (read-only, {@code /dev/vdb})</li>
      * </ul>
+     * In debug mode, a TAP-backed network interface is added for JDWP connectivity.
      */
-    private static void writeVmConfig(Path rootfsPath, Path deploymentExt4Path, Path vmConfigPath)
+    private static void writeVmConfig(Path rootfsPath, Path deploymentExt4Path, Path vmConfigPath, boolean debug)
             throws IOException {
         var kernelPath = System.getenv("NYX_KERNEL") != null ? System.getenv("NYX_KERNEL") : DEFAULT_KERNEL;
 
@@ -253,6 +276,18 @@ final class NyxImageManager {
             throw new IOException(
                     "Kernel not found at: " + kernelPath + ". Set NYX_KERNEL env var to the vmlinux path.");
         }
+
+        var networkInterfaces = debug ? """
+                  "network-interfaces": [
+                    {
+                      "iface_id": "eth0",
+                      "guest_mac": "%s",
+                      "host_dev_name": "%s"
+                    }
+                  ],
+                """.formatted(GUEST_MAC, TAP_DEV) : """
+                  "network-interfaces": [],
+                """;
 
         var config = """
                 {
@@ -276,15 +311,37 @@ final class NyxImageManager {
                       "io_engine": "Cow"
                     }
                   ],
-                  "network-interfaces": [],
-                  "machine-config": {
+                %s  "machine-config": {
                     "vcpu_count": 1,
                     "mem_size_mib": 1024
                   }
                 }
-                """.formatted(kernelPath, rootfsPath.toAbsolutePath(), deploymentExt4Path.toAbsolutePath());
+                """.formatted(kernelPath, rootfsPath.toAbsolutePath(), deploymentExt4Path.toAbsolutePath(),
+                networkInterfaces);
 
         Files.writeString(vmConfigPath, config);
+    }
+
+    /**
+     * Creates the host TAP interface used to reach the guest JVM's JDWP port.
+     * Requires {@code sudo} / {@code CAP_NET_ADMIN}.
+     */
+    private static void setupTap(OpenDstLogger logger) throws IOException, InterruptedException {
+        logger.raw().info("Setting up TAP interface " + TAP_DEV + " for JDWP debug connectivity...");
+        // Remove any stale TAP from a previous run, ignoring errors
+        new ProcessBuilder("sudo", "ip", "link", "del", TAP_DEV)
+                .redirectErrorStream(true).start().waitFor(5, TimeUnit.SECONDS);
+        run("sudo", "ip", "tuntap", "add", "dev", TAP_DEV, "mode", "tap");
+        run("sudo", "sysctl", "-w", "net.ipv4.conf." + TAP_DEV + ".proxy_arp=1");
+        run("sudo", "sysctl", "-w", "net.ipv6.conf." + TAP_DEV + ".disable_ipv6=1");
+        run("sudo", "ip", "addr", "add", TAP_IP, "dev", TAP_DEV);
+        run("sudo", "ip", "link", "set", "dev", TAP_DEV, "up");
+    }
+
+    /** Tears down the TAP interface. Called from a shutdown hook in debug mode. */
+    private static void teardownTap() throws IOException, InterruptedException {
+        new ProcessBuilder("sudo", "ip", "link", "del", TAP_DEV)
+                .redirectErrorStream(true).start().waitFor(5, TimeUnit.SECONDS);
     }
 
     private static void run(String... cmd) throws IOException, InterruptedException {

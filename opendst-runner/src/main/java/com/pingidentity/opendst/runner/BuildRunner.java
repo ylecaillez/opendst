@@ -197,7 +197,7 @@ public final class BuildRunner implements Callable<Integer> {
         NyxImageManager.NyxSetup nyxSetup = null;
         if (isNyx) {
             try {
-                nyxSetup = NyxImageManager.prepare(nyxImage, deploymentDir, workingDir, ofConsole(isDebug));
+                nyxSetup = NyxImageManager.prepare(nyxImage, deploymentDir, workingDir, isDebug, ofConsole(isDebug));
             } catch (IOException | InterruptedException e) {
                 ofConsole(isDebug).raw().error("Failed to prepare nyx-lite image: " + e.getMessage());
                 return 1;
@@ -228,11 +228,19 @@ public final class BuildRunner implements Callable<Integer> {
         // 4. Set up orchestrator and run
         var logger = ofConsole(isDebug);
         if (isDebug) {
-            logger.raw()
-                    .info(logger.colored(
-                            OpenDstLogger.CYAN,
-                            "\uD83D\uDC1B Debug mode enabled. Attach debugger to address " + debugAddress
-                                    + " (suspend=y)"));
+            if (isNyx) {
+                logger.raw().info(logger.colored(OpenDstLogger.CYAN,
+                        "Debug mode (nyx-lite). JDWP listening on " + NyxImageManager.GUEST_IP
+                        + ":" + NyxImageManager.JDWP_PORT + " (suspend=n).\n"
+                        + "After the VM starts, attach JDB and signal readiness:\n"
+                        + "  jdb -attach " + NyxImageManager.GUEST_IP + ":" + NyxImageManager.JDWP_PORT + "\n"
+                        + "  stop at com.example.MyWorkload:42\n"
+                        + "  eval DebugHook.resume()"));
+            } else {
+                logger.raw().info(logger.colored(OpenDstLogger.CYAN,
+                        "\uD83D\uDC1B Debug mode enabled. Attach debugger to address " + debugAddress
+                        + " (suspend=y)"));
+            }
         }
         var faultsConfig = toFaultsConfig(config.faults());
 

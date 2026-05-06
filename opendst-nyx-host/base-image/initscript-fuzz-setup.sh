@@ -17,7 +17,14 @@ start() {
 
   AGENT_JAR="$DEPLOYMENT_DIR/system/opendst-agent.jar"
 
+  JDWP_ARGS=""
+  if [ -f "$DEPLOYMENT_DIR/debug" ]; then
+    JDWP_ARGS="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
+    echo "==> debug mode: JDWP listening on 0.0.0.0:5005"
+  fi
+
   java \
+    $JDWP_ARGS \
     --patch-module "java.base=/resources/opendst-patch.jar" \
     -javaagent:"$AGENT_JAR" \
     --enable-native-access=ALL-UNNAMED \
