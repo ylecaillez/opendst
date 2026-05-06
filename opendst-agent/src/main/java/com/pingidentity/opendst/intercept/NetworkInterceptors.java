@@ -27,6 +27,7 @@ import static net.bytebuddy.matcher.ElementMatchers.takesNoArguments;
 
 import com.pingidentity.opendst.simulator.Node;
 import com.pingidentity.opendst.simulator.Simulator;
+import com.pingidentity.opendst.simulator.Simulator.SimulationError;
 import java.io.IOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -52,22 +53,18 @@ import net.bytebuddy.asm.Advice.Return;
 /**
  * Functional module for network simulation and instrumentation.
  * <p>
- * This class manages host name to IP address mapping (DNS) and routing
- * within the simulation.
+ * This class manages host name to IP address mapping (DNS) and routing within the simulation.
  * <p>
  * Network interception uses two JVM-global hooks installed at agent startup:
  * <ul>
- *   <li>{@link Socket#setSocketImplFactory} / {@link ServerSocket#setSocketFactory} — intercepts
- *       all {@code Socket} and {@code ServerSocket} construction (including JDK-internal calls such
- *       as the SSLSocket super-constructor chain) and provides a simulated {@code SocketImpl} when
- *       running inside a simulation node.</li>
- *   <li>{@link ResolverProvider} — a {@link InetAddressResolverProvider} registered via
- *       {@code ServiceLoader} that redirects DNS lookups to the simulated DNS registry when
- *       running inside a simulation node.</li>
+ *   <li>{@link Socket#setSocketImplFactory} / {@link ServerSocket#setSocketFactory}: intercepts all {@code Socket}
+ *   and {@code ServerSocket} construction (including JDK-internal calls such as the SSLSocket super-constructor
+ *   chain) and provides a simulated {@code SocketImpl} when running inside a simulation node.</li>
+ *   <li>{@link ResolverProvider} is a {@link InetAddressResolverProvider} registered via {@code ServiceLoader} that
+ *   redirects DNS lookups to the simulated DNS registry when running inside a simulation node.</li>
  * </ul>
  */
 public final class NetworkInterceptors {
-
     private final Simulator simulator;
     private final Map<InetAddress, String> addressToName;
     private final Map<String, Node> nameToNode;
@@ -79,9 +76,9 @@ public final class NetworkInterceptors {
     private static final int MAX_ADDRESSES = 256;
 
     /**
-     * Handle to {@code SocketImpl.createPlatformSocketImpl(boolean)} for creating real socket
-     * implementations when a socket is constructed outside a simulation node (e.g. JDK-internal
-     * or JVM bootstrap code). Obtained reflectively because the method is package-private.
+     * Handle to {@code SocketImpl.createPlatformSocketImpl(boolean)} for creating real socket implementations when a
+     * socket is constructed outside a simulation node (e.g. JDK-internal or JVM bootstrap code). Obtained
+     * reflectively because the method is package-private.
      */
     private static final MethodHandle CREATE_PLATFORM_SOCKET_IMPL;
 
@@ -118,17 +115,47 @@ public final class NetworkInterceptors {
 
     // --- DNS and Registry ---
 
+    /** DNS resolver provider that uses the simulation's DNS registry. */
+    public static final class ResolverProvider extends InetAddressResolverProvider {
+        @Override
+        public InetAddressResolver get(Configuration configuration) {
+            var builtinResolver = configuration.builtinResolver();
+            return new InetAddressResolver() {
+                @Override
+                public Stream<InetAddress> lookupByName(String host, LookupPolicy lookupPolicy)
+                        throws UnknownHostException {
+                    var node = currentNodeOrNull();
+                    return node != null
+                            ? Simulator.network().lookupByName(host)
+                            : builtinResolver.lookupByName(host, lookupPolicy);
+                }
+
+                @Override
+                public String lookupByAddress(byte[] addr) throws UnknownHostException {
+                    var node = currentNodeOrNull();
+                    return node != null
+                            ? Simulator.network().lookupByAddress(InetAddress.getByAddress(addr))
+                            : builtinResolver.lookupByAddress(addr);
+                }
+            };
+        }
+
+        @Override
+        public String name() {
+            return "SimulatedDNS";
+        }
+    }
+
     public void registerDns(String hostName, Node host) {
         var lowerCaseHostName = hostName.toLowerCase(ROOT);
         if (nameToNode.size() >= MAX_NODES && !nameToNode.containsKey(lowerCaseHostName)) {
-            simulator.reportInternalError(new Simulator.SimulationError("Maximum number of nodes reached"));
+            simulator.reportInternalError(new SimulationError("Maximum number of nodes reached"));
         }
         if (nameToNode.putIfAbsent(lowerCaseHostName, host) == null) {
             host.inetAddresses().forEach(address -> {
                 if (!address.isLoopbackAddress()) {
                     if (addressToName.size() >= MAX_ADDRESSES && !addressToName.containsKey(address)) {
-                        simulator.reportInternalError(
-                                new Simulator.SimulationError("Maximum number of addresses reached"));
+                        simulator.reportInternalError(new SimulationError("Maximum number of addresses reached"));
                     }
                     addressToName.put(address, lowerCaseHostName);
                 }
@@ -184,39 +211,6 @@ public final class NetworkInterceptors {
     }
 
     // --- Static Interception Hooks ---
-
-    /**
-     * DNS resolver provider that uses the simulation's DNS registry.
-     */
-    public static final class ResolverProvider extends InetAddressResolverProvider {
-        @Override
-        public InetAddressResolver get(Configuration configuration) {
-            var builtinResolver = configuration.builtinResolver();
-            return new InetAddressResolver() {
-                @Override
-                public Stream<InetAddress> lookupByName(String host, LookupPolicy lookupPolicy)
-                        throws UnknownHostException {
-                    var node = currentNodeOrNull();
-                    return node != null
-                            ? Simulator.network().lookupByName(host)
-                            : builtinResolver.lookupByName(host, lookupPolicy);
-                }
-
-                @Override
-                public String lookupByAddress(byte[] addr) throws UnknownHostException {
-                    var node = currentNodeOrNull();
-                    return node != null
-                            ? Simulator.network().lookupByAddress(InetAddress.getByAddress(addr))
-                            : builtinResolver.lookupByAddress(addr);
-                }
-            };
-        }
-
-        @Override
-        public String name() {
-            return "SimulatedDNS";
-        }
-    }
 
     @Intercepts("java.net.InetAddress#getLocalHost()")
     public static final class InetAddressGetLocalHost {

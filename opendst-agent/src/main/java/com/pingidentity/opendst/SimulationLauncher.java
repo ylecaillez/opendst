@@ -18,14 +18,13 @@ package com.pingidentity.opendst;
 import static com.pingidentity.opendst.simulator.Simulator.runSimulation;
 import static com.pingidentity.opendst.simulator.Simulator.startNode;
 import static java.lang.ClassLoader.getPlatformClassLoader;
-import static java.lang.Runtime.getRuntime;
 import static java.lang.System.err;
 import static java.lang.System.exit;
 import static java.net.InetAddress.getByName;
 import static java.nio.file.Files.exists;
 import static java.nio.file.Files.isRegularFile;
-import static java.nio.file.Files.newInputStream;
 import static java.nio.file.Files.walk;
+import static java.util.Collections.addAll;
 
 import com.pingidentity.opendst.common.RuntimeDeployment;
 import com.pingidentity.opendst.sdk.TraceAuditor;
@@ -42,14 +41,8 @@ import tools.jackson.jr.ob.JSON;
 /**
  * Child JVM entry point for the self-contained JAR.
  *
- * <p>Reads {@code META-INF/opendst/deployment.json} (the runtime view of the enriched deployment
- * descriptor written by the build plugin), resolves classpaths from the {@code apps/}
- * subdirectories, and starts each service as a classloader-isolated node inside a deterministic
- * simulation.
- *
- * <p>Lives in {@code opendst-agent} so the child JVM can reuse the agent's existing
- * {@code jackson-jr} dependency for descriptor parsing — avoiding the heavier
- * {@code jackson-databind} + {@code jackson-yaml} stack.
+ * <p>Reads {@code META-INF/opendst/deployment.json}, resolves classpaths from the {@code apps/} subdirectories, and
+ * starts each service as a classloader-isolated node inside a deterministic simulation.
  *
  * <p>Arguments: {@code <deploymentDir>}
  *
@@ -61,85 +54,63 @@ import tools.jackson.jr.ob.JSON;
  * </ul>
  */
 public final class SimulationLauncher {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException, ReflectiveOperationException {
         if (args.length < 1) {
             err.println("Usage: java SimulationLauncher <deploymentDir>");
             exit(1);
         }
+        var deploymentDir = Path.of(args[0]);
+        var descriptorFile = deploymentDir.resolve("META-INF/opendst/deployment.json");
+        var deployment = JSON.std.beanFrom(RuntimeDeployment.class, descriptorFile.toFile());
 
-        try {
-            var deploymentDir = Path.of(args[0]);
-            var descriptorFile = deploymentDir.resolve("META-INF/opendst/deployment.json");
+        // The opendst-agent JAR must be on each service's classpath so that the URLClassLoader (parented to
+        // getPlatformClassLoader()) can resolve AssertImpl and other opendst-agent classes referenced by
+        // instrumented code.
+        var appsDir = deploymentDir.resolve("apps");
+        var coreJarUrl =
+                deploymentDir.resolve("system/opendst-agent.jar").toUri().toURL();
 
-            RuntimeDeployment deployment;
-            try (var in = newInputStream(descriptorFile)) {
-                deployment = JSON.std.beanFrom(RuntimeDeployment.class, in);
-            }
-
-            // The opendst-agent JAR must be on each service's classpath so that the
-            // URLClassLoader (parented to getPlatformClassLoader()) can resolve
-            // AssertImpl and other opendst-agent classes referenced by instrumented code.
-            var appsDir = deploymentDir.resolve("apps");
-            var coreJarUrl =
-                    deploymentDir.resolve("system/opendst-agent.jar").toUri().toURL();
-
-            // Resolve trace auditor if specified. The auditor is self-contained: its source
-            // directory is identified by its own {@code dir}, not by referencing a service.
-            TraceAuditor traceAuditor = _ -> {};
-            if (deployment.traceAuditor() != null) {
-                var auditor = deployment.traceAuditor();
-                var auditorClassLoader = classLoader(
-                        "trace-auditor-loader",
-                        appsDir.resolve(auditor.dir()),
-                        SimulationLauncher.class.getClassLoader());
-                var auditorClass = Class.forName(auditor.className(), true, auditorClassLoader);
-                traceAuditor =
-                        (TraceAuditor) auditorClass.getDeclaredConstructor().newInstance();
-            }
-
-            // Run the simulation — start each service as a classloader-isolated node.
-            runSimulation(
-                    () -> {
-                        for (var entry : deployment.services().entrySet()) {
-                            var serviceName = entry.getKey();
-                            var svc = entry.getValue();
-                            var appDir = appsDir.resolve(svc.dir());
-                            var serviceClassLoader =
-                                    classLoader(serviceName, appDir, getPlatformClassLoader(), coreJarUrl);
-                            var mainMethod = serviceClassLoader
-                                    .loadClass(svc.className())
-                                    .getMethod("main", String[].class);
-                            startNode(
-                                    serviceName, getByName(svc.ip()), serviceClassLoader, mainMethod, svc.argsArray());
-                        }
-                        return null;
-                    },
-                    traceAuditor);
-
-        } catch (ReflectiveOperationException e) {
-            err.println("Failed to instantiate trace auditor");
-            e.printStackTrace(err);
-            getRuntime().halt(1);
-        } catch (Exception e) {
-            err.println("SimulationLauncher failed");
-            e.printStackTrace(err);
-            getRuntime().halt(1);
+        // Resolve trace auditor if specified. The auditor is self-contained: its source directory is identified
+        // by its own {@code dir}, not by referencing a service.
+        TraceAuditor traceAuditor = _ -> {};
+        if (deployment.traceAuditor() != null) {
+            var auditor = deployment.traceAuditor();
+            var auditorClassLoader = newClassLoader(
+                    "trace-auditor-loader", appsDir.resolve(auditor.dir()), SimulationLauncher.class.getClassLoader());
+            var auditorClass = Class.forName(auditor.className(), true, auditorClassLoader);
+            traceAuditor = (TraceAuditor) auditorClass.getDeclaredConstructor().newInstance();
         }
+
+        // Run the simulation — start each service as a classloader-isolated node.
+        runSimulation(
+                () -> {
+                    for (var entry : deployment.services().entrySet()) {
+                        var serviceName = entry.getKey();
+                        var svc = entry.getValue();
+                        var appDir = appsDir.resolve(svc.dir());
+                        var serviceClassLoader =
+                                newClassLoader(serviceName, appDir, getPlatformClassLoader(), coreJarUrl);
+                        var mainMethod =
+                                serviceClassLoader.loadClass(svc.className()).getMethod("main", String[].class);
+                        startNode(serviceName, getByName(svc.ip()), serviceClassLoader, mainMethod, svc.argsArray());
+                    }
+                    return null;
+                },
+                traceAuditor);
     }
 
     /**
      * Builds a {@link URLClassLoader} for a node whose classes live under {@code appDir/WEB-INF/}.
      *
-     * <p>Walks {@code WEB-INF/lib/} for JARs, then checks for {@code WEB-INF/classes.jar}
-     * and {@code WEB-INF/classes/}. Any additional URLs (e.g. the opendst-agent JAR) are
-     * appended after the application classpath.
+     * <p>Walks {@code WEB-INF/lib/} for JARs, then checks for {@code WEB-INF/classes.jar} and {@code WEB-INF/classes
+     * /}. Any additional URLs (e.g. the opendst-agent JAR) are appended after the application classpath.
      *
      * @param name      the classloader name (used for debugging)
      * @param appDir    the application directory (contains {@code WEB-INF/})
      * @param parent    the parent classloader
      * @param extraUrls additional URLs appended after the application classpath
      */
-    private static URLClassLoader classLoader(String name, Path appDir, ClassLoader parent, URL... extraUrls)
+    private static URLClassLoader newClassLoader(String name, Path appDir, ClassLoader parent, URL... extraUrls)
             throws IOException {
         var webInfDir = appDir.resolve("WEB-INF");
         var urls = new ArrayList<URL>();
@@ -169,9 +140,7 @@ public final class SimulationLauncher {
             urls.add(classesDir.toUri().toURL());
         }
         // Extra URLs (e.g. opendst-agent.jar)
-        for (var extra : extraUrls) {
-            urls.add(extra);
-        }
+        addAll(urls, extraUrls);
         return new URLClassLoader(name, urls.toArray(URL[]::new), parent);
     }
 }

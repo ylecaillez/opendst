@@ -77,8 +77,8 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.dataformat.yaml.YAMLMapper;
 
 /**
- * The {@code build} goal produces a self-contained executable JAR that runs an OpenDST
- * simulation without Maven. All bytecode instrumentation happens at build time.
+ * The {@code build} goal produces a self-contained executable JAR that runs an OpenDST simulation without Maven. All
+ * bytecode instrumentation happens at build time.
  *
  * <p>Usage: {@code mvn opendst:build -Dopendst.descriptor=deployment.yaml}
  *
@@ -225,8 +225,8 @@ public class BuildMojo extends AbstractMojo {
     /**
      * Resolves external artifacts and instruments all unique application sources.
      *
-     * <p>Services (and the optional trace auditor) are grouped by their {@link Source#appDir()}
-     * to deduplicate: multiple services sharing the same source are instrumented only once.
+     * <p>Services (and the optional trace auditor) are grouped by their {@link Source#appDir()} to deduplicate:
+     * multiple services sharing the same source are instrumented only once.
      *
      * <p>Each unique source is dispatched via an exhaustive {@code switch} on {@link Source}:
      * <ul>

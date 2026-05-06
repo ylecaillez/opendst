@@ -37,6 +37,7 @@ import static net.bytebuddy.matcher.ElementMatchers.takesNoArguments;
 import com.pingidentity.opendst.common.Plan.Segment;
 import com.pingidentity.opendst.simulator.Node;
 import com.pingidentity.opendst.simulator.Simulator;
+import com.pingidentity.opendst.simulator.Simulator.SimulationError;
 import java.io.Serial;
 import java.security.SecureRandomSpi;
 import java.util.ArrayDeque;
@@ -55,13 +56,10 @@ import net.bytebuddy.asm.Advice.Return;
 import net.bytebuddy.asm.Advice.This;
 import net.bytebuddy.description.method.MethodDescription.ForLoadedMethod;
 
-/**
- * Functional module for randomness simulation and instrumentation.
- */
+/** Functional module for randomness simulation and instrumentation. */
 public final class RandomInterceptors {
-
     /** The source of randomness used by the simulator and everything running inside the simulator. */
-    public static final class Source extends Random {
+    public static final class SourceOfRandomness extends Random {
         @Serial
         private static final long serialVersionUID = 1L;
 
@@ -72,7 +70,7 @@ public final class RandomInterceptors {
         private long nextIteration;
         int last;
 
-        public Source(Simulator simulator, List<Segment> segments) {
+        public SourceOfRandomness(Simulator simulator, List<Segment> segments) {
             this.simulator = simulator;
             this.segments = new ArrayDeque<>(segments);
             var segment = this.segments.removeFirst();
@@ -108,7 +106,7 @@ public final class RandomInterceptors {
                     setSeed(segment.seed());
                 } catch (NoSuchElementException e) {
                     this.simulator.exitSimulation(Simulator.ExitReason.PLAN_OK);
-                    throw new Simulator.SimulationError("Plan exhausted");
+                    throw new SimulationError("Plan exhausted");
                 }
             }
             iteration++;
@@ -121,8 +119,7 @@ public final class RandomInterceptors {
     /** Overrides {@code java.util.ImmutableCollections#SALT32L}. */
     @SuppressWarnings("MissingJavadocMethod")
     @Intercepts("java.util.ImmutableCollections#SALT32L")
-    public static long immutableCollectionsSalt32l()
-            throws IllegalAccessException, ClassNotFoundException, NoSuchFieldException {
+    public static long immutableCollectionsSalt32l() throws ReflectiveOperationException {
         var node = currentNodeOrNull();
         if (node != null) {
             return node.immutableCollectionsSalt32l();
@@ -135,8 +132,7 @@ public final class RandomInterceptors {
     /** Overrides {@code java.util.ImmutableCollections#REVERSE}. */
     @SuppressWarnings("MissingJavadocMethod")
     @Intercepts("java.util.ImmutableCollections#REVERSE")
-    public static boolean immutableCollectionsReverse()
-            throws IllegalAccessException, ClassNotFoundException, NoSuchFieldException {
+    public static boolean immutableCollectionsReverse() throws ReflectiveOperationException {
         var node = currentNodeOrNull();
         if (node != null) {
             return node.immutableCollectionsReverse();
@@ -238,7 +234,7 @@ public final class RandomInterceptors {
         @OnMethodEnter(skipOn = OnNonDefaultValue.class)
         @SuppressWarnings("MissingJavadocMethod")
         public static Node onEnter(@This RandomGenerator self) {
-            return self instanceof Source ? null : currentNodeOrNull();
+            return self instanceof SourceOfRandomness ? null : currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -258,7 +254,7 @@ public final class RandomInterceptors {
         public static Node onEnter(@This Random self) {
             // To prevent stack-overflow, call the original implementation for Source.
             // ThreadLocalRandom next(int) original implementation delegates to getSeed() which is already overridden.
-            return self instanceof Source || self instanceof ThreadLocalRandom ? null : currentNodeOrNull();
+            return self instanceof SourceOfRandomness || self instanceof ThreadLocalRandom ? null : currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -278,7 +274,7 @@ public final class RandomInterceptors {
         public static Node onEnter(@This Random self) {
             // To prevent stack-overflow, call the original implementation for Source.
             // ThreadLocalRandom next(int) original implementation delegates to getSeed() which is already overridden.
-            return self instanceof Source ? null : currentNodeOrNull();
+            return self instanceof SourceOfRandomness ? null : currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -298,7 +294,7 @@ public final class RandomInterceptors {
         public static Node onEnter(@This Random self) {
             // To prevent stack-overflow, call the original implementation for Source.
             // ThreadLocalRandom next(int) original implementation delegates to getSeed() which is already overridden.
-            return self instanceof Source ? null : currentNodeOrNull();
+            return self instanceof SourceOfRandomness ? null : currentNodeOrNull();
         }
 
         @OnMethodExit
@@ -374,7 +370,7 @@ public final class RandomInterceptors {
                                         RandomInterceptors.class.getMethod("immutableCollectionsSalt32l")))
                                 .on(any()));
                     } catch (NoSuchMethodException ex) {
-                        throw new Simulator.SimulationError(ex);
+                        throw new SimulationError(ex);
                     }
                 })
                 .type(nameStartsWith("java.util.ImmutableCollections"))
@@ -391,7 +387,7 @@ public final class RandomInterceptors {
                                         RandomInterceptors.class.getMethod("immutableCollectionsReverse")))
                                 .on(any()));
                     } catch (NoSuchMethodException ex) {
-                        throw new Simulator.SimulationError(ex);
+                        throw new SimulationError(ex);
                     }
                 });
     }

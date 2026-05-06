@@ -55,9 +55,7 @@ import tools.jackson.jr.ob.api.ValueWriter;
 import tools.jackson.jr.ob.impl.JSONReader;
 import tools.jackson.jr.ob.impl.JSONWriter;
 
-/**
- * Centralized constants and utility methods for the OpenDST runner.
- */
+/** Centralized constants and utility methods for the OpenDST runner. */
 public final class Commons {
     private Commons() {}
 
@@ -136,22 +134,16 @@ public final class Commons {
 
     /**
      * Polymorphic reader for {@link Signal}: reads the inner object as a {@link Map}, peeks the
-     * {@code type} discriminator, then re-parses the map as the matching subtype. The map
-     * round-trip is unavoidable because {@code jackson-jr} has no in-memory {@code Map -> bean}
-     * conversion. Returns {@code null} for unknown discriminators (the line is then dropped at the
-     * call site).
+     * {@code type} discriminator, then re-parses the map as the matching subtype.
      */
     private static final ValueReader SIGNAL_READER = new ValueReader(Signal.class) {
         @Override
         public Object read(JSONReader reader, JsonParser p) throws JacksonException {
             Map<String, Object> map = reader.readMap();
-            if (map == null) {
+            if (map == null || !(map.get("type") instanceof String type)) {
                 return null;
             }
-            if (!(map.get("type") instanceof String type)) {
-                return null;
-            }
-            Class<? extends Signal> target =
+            var target =
                     switch (type) {
                         case "stdout" -> ConsoleSignal.class;
                         case "assert" -> AssertSignal.class;

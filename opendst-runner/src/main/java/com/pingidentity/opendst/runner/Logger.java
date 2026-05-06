@@ -16,6 +16,8 @@
 package com.pingidentity.opendst.runner;
 
 import static java.lang.System.err;
+import static java.util.Map.entry;
+import static java.util.Map.ofEntries;
 
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -24,12 +26,11 @@ import java.util.Map;
 /**
  * Centralizes and handles the formatting logic of OpenDST simulation logs.
  * <p>
- * Provides a builder-style API to emit structured logs. Uses a simple {@link Sink} abstraction
- * instead of Maven's {@code Log} so that the same logger works both inside Maven and
- * in a standalone {@code java -jar} execution.
+ * Provides a builder-style API to emit structured logs. Uses a simple {@link Sink} abstraction instead of Maven's
+ * {@code Log} so that the same logger works both inside Maven and in a standalone {@code java -jar} execution.
  *
- * <p>When running in a terminal (standalone JAR), output uses ANSI colors and emoji
- * for visual clarity. When piped, redirected, or running under Maven, plain text is used.
+ * <p>When running in a terminal (standalone JAR), output uses ANSI colors and emoji for visual clarity. When piped,
+ * redirected, or running under Maven, plain text is used.
  */
 final class Logger {
     private static final HexFormat HEX = HexFormat.of();
@@ -61,39 +62,37 @@ final class Logger {
      */
     private record Glyph(String emoji, int displayWidth) {}
 
-    private static final Map<String, Glyph> EMOJI = Map.ofEntries(
-            Map.entry("run:random-walk", new Glyph("\uD83C\uDFB2", 2)), // 🎲
-            Map.entry("run:explore", new Glyph("\uD83D\uDD0D", 2)), // 🔍
-            Map.entry("run:check", new Glyph("\uD83D\uDD01", 2)), // 🔁
-            Map.entry("run:verified", new Glyph("\u2705", 2)), // ✅
-            Map.entry("run:fail", new Glyph("\u274C", 2)), // ❌
-            Map.entry("run:settings", new Glyph("\u2699\uFE0F", 1)), // ⚙️
-            Map.entry("signal:found", new Glyph("\uD83C\uDD95", 2)), // 🆕
-            Map.entry("signal:narrowed", new Glyph("\uD83D\uDCD0", 2)), // 📐
-            Map.entry(
+    private static final Map<String, Glyph> EMOJI = ofEntries(
+            entry("run:random-walk", new Glyph("\uD83C\uDFB2", 2)), // 🎲
+            entry("run:explore", new Glyph("\uD83D\uDD0D", 2)), // 🔍
+            entry("run:check", new Glyph("\uD83D\uDD01", 2)), // 🔁
+            entry("run:verified", new Glyph("\u2705", 2)), // ✅
+            entry("run:fail", new Glyph("\u274C", 2)), // ❌
+            entry("run:settings", new Glyph("\u2699\uFE0F", 1)), // ⚙️
+            entry("signal:found", new Glyph("\uD83C\uDD95", 2)), // 🆕
+            entry("signal:narrowed", new Glyph("\uD83D\uDCD0", 2)), // 📐
+            entry(
                     "signal:improved",
                     new Glyph("\u2B06\uFE0F", 1)), // ⬆️ — most terminals render this as 1 column despite VS16
-            Map.entry(
+            entry(
                     "run:progress",
                     new Glyph("\u27A1\uFE0F", 1)) // ➡️ — most terminals render this as 1 column despite VS16
             );
 
-    private static final Map<String, String> TYPE_COLOR = Map.ofEntries(
-            Map.entry("run:random-walk", CYAN),
-            Map.entry("run:explore", BLUE),
-            Map.entry("run:check", DIM),
-            Map.entry("run:verified", GREEN),
-            Map.entry("run:fail", RED + BOLD),
-            Map.entry("run:settings", DIM),
-            Map.entry("signal:found", GREEN),
-            Map.entry("signal:narrowed", MAGENTA),
-            Map.entry("signal:improved", GREEN),
-            Map.entry("run:progress", DIM));
+    private static final Map<String, String> TYPE_COLOR = ofEntries(
+            entry("run:random-walk", CYAN),
+            entry("run:explore", BLUE),
+            entry("run:check", DIM),
+            entry("run:verified", GREEN),
+            entry("run:fail", RED + BOLD),
+            entry("run:settings", DIM),
+            entry("signal:found", GREEN),
+            entry("signal:narrowed", MAGENTA),
+            entry("signal:improved", GREEN),
+            entry("run:progress", DIM));
 
     /** Minimal logging sink that decouples OpenDST from Maven's Log interface. */
     interface Sink {
-        boolean isDebugEnabled();
-
         void debug(CharSequence content);
 
         void info(CharSequence content);
@@ -132,11 +131,6 @@ final class Logger {
         ConsoleSink(boolean debug) {
             this.debug = debug;
             this.color = System.console() != null;
-        }
-
-        @Override
-        public boolean isDebugEnabled() {
-            return debug;
         }
 
         @Override

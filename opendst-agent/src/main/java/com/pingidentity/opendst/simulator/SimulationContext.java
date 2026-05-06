@@ -17,24 +17,14 @@ package com.pingidentity.opendst.simulator;
 
 import com.pingidentity.opendst.common.Plan.NetworkFaults;
 import com.pingidentity.opendst.intercept.NetworkInterceptors;
-import com.pingidentity.opendst.intercept.RandomInterceptors;
+import com.pingidentity.opendst.intercept.RandomInterceptors.SourceOfRandomness;
 import java.time.Instant;
 
-/**
- * Immutable record holding all global simulation services.
- *
- * <p>Created once by {@link Simulator} after all components are constructed,
- * then shared (read-only) with {@link Node} instances. All fields are final —
- * no late-binding or volatile access needed.
- *
- * <p>This record is package-private. External callers (advice in
- * {@code intercept/}) reach the global services via static accessors on
- * {@link Simulator} ({@code Simulator.random()}, {@code Simulator.logger()}, …).
- */
+/** Immutable record holding all global simulation services. */
 record SimulationContext(
         Simulator simulator,
         Simulator.Scheduler scheduler,
-        RandomInterceptors.Source random,
+        SourceOfRandomness random,
         NetworkFaults faults,
         NetworkInterceptors network,
         FaultInjector faultInjector,

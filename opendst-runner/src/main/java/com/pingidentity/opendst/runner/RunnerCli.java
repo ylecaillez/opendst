@@ -73,14 +73,12 @@ import picocli.CommandLine.Parameters;
 import tools.jackson.core.JacksonException;
 
 /**
- * Planner entry point for the self-contained JAR. Invoked reflectively by
- * {@link Bootstrap} after extraction and classloader setup; the first argument is
- * always the working directory path (prepended by the launcher).
+ * Planner entry point for the self-contained JAR. Invoked reflectively by {@link Bootstrap} after extraction and
+ * classloader setup; the first argument is always the working directory path (prepended by the launcher).
  *
- * <p>This class is both the picocli command (top: {@code @Option} fields, {@link #main}
- * and {@link #call}) and the parent-side simulation driver (bottom: per-fork run loop,
- * child JVM spawning, signal monitoring). The run-loop methods read derived state set
- * up by {@link #call} before forking.
+ * <p>This class is both the picocli command (top: {@code @Option} fields, {@link #main} and {@link #call}) and the
+ * parent-side simulation driver (bottom: per-fork run loop, child JVM spawning, signal monitoring). The run-loop
+ * methods read derived state set up by {@link #call} before forking.
  *
  * <p>The working directory has the following structure:
  * <pre>

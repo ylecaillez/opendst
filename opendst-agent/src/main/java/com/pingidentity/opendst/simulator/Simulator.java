@@ -43,9 +43,8 @@ import com.pingidentity.opendst.common.Signal.StartedSignal;
 import com.pingidentity.opendst.common.Signal.StoppedSignal;
 import com.pingidentity.opendst.common.Signal.UncaughtExceptionSignal;
 import com.pingidentity.opendst.intercept.NetworkInterceptors;
-import com.pingidentity.opendst.intercept.RandomInterceptors;
+import com.pingidentity.opendst.intercept.RandomInterceptors.SourceOfRandomness;
 import com.pingidentity.opendst.sdk.TraceAuditor;
-import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
@@ -67,9 +66,7 @@ import tools.jackson.jr.ob.api.ReaderWriterProvider;
 import tools.jackson.jr.ob.api.ValueReader;
 import tools.jackson.jr.ob.impl.JSONReader;
 
-/**
- * Implements a deterministic execution environment.
- */
+/** Implements a deterministic execution environment. */
 public final class Simulator {
 
     public enum ExitReason {
@@ -107,7 +104,7 @@ public final class Simulator {
         }
     }
 
-    // Visible for testing
+    // TODO: Should be configurable
     static final Instant START_TIME = Instant.ofEpochSecond(1445385600);
 
     private final SimulationContext context;
@@ -115,11 +112,11 @@ public final class Simulator {
     private final StateHasher hasher;
     private boolean ready;
 
-    private Simulator(Plan plan, TraceAuditor traceAuditor) throws IOException {
+    private Simulator(Plan plan, TraceAuditor traceAuditor) {
         this.plan = requireNonNull(plan);
 
         // Build all components — each takes only its direct dependencies
-        var random = new RandomInterceptors.Source(this, plan.segments());
+        var random = new SourceOfRandomness(this, plan.segments());
         var faults = plan.faults() != null ? plan.faults() : new NetworkFaults();
         this.hasher = new StateHasher();
         var logger = new ConsoleCapture(this, traceAuditor, System.out);
@@ -147,11 +144,10 @@ public final class Simulator {
 
     // ---- Static accessors for the per-thread (per-node) simulation services. ----
     //
-    // Components carried in SimulationContext (random, logger, network, faults, …)
-    // are simulation-global, not per-node. These statics expose them via the
-    // current Node ThreadLocal so call sites don't have to thread a Node reference
-    // through just to reach a global service. *OrNull variants exist for advice
-    // running on threads that may or may not belong to a simulated node.
+    // Components carried in SimulationContext (random, logger, network, faults, …) are simulation-global, not
+    // per-node. These statics expose them via the current Node ThreadLocal so call sites don't have to thread a Node
+    // reference through just to reach a global service. *OrNull variants exist for advice running on threads that
+    // may or may not belong to a simulated node.
 
     /** {@return the current simulation, throwing if not on a simulated node thread}. */
     public static Simulator current() {
@@ -159,13 +155,8 @@ public final class Simulator {
     }
 
     /** {@return the simulation-global random source}. */
-    public static RandomInterceptors.Source random() {
+    public static SourceOfRandomness random() {
         return currentNodeOrThrow().context.random();
-    }
-
-    /** {@return the simulation-global logger}. */
-    public static ConsoleCapture logger() {
-        return currentNodeOrThrow().context.logger();
     }
 
     /** {@return the simulation-global network}. */
@@ -259,10 +250,9 @@ public final class Simulator {
     }
 
     /**
-     * Called by {@link RandomInterceptors.Source} at each segment boundary. Snapshots the current hash,
-     * emits a {@code "segment-completed"} lifecycle signal, and checks the departing segment's
-     * expected hash. If the expected hash is non-zero and differs from the actual hash, the
-     * simulation exits with a non-determinism report.
+     * Called by {@link SourceOfRandomness} at each segment boundary. Snapshots the current hash, emits a {@code
+     * "segment-completed"} lifecycle signal, and checks the departing segment's expected hash. If the expected hash
+     * is non-zero and differs from the actual hash, the simulation exits with a non-determinism report.
      *
      * @param departingSegment the segment that just completed
      */
@@ -314,7 +304,7 @@ public final class Simulator {
         exitSimulation(INTERNAL_ERROR);
     }
 
-    public static void startNode(String hostName, String ipAddress, Callable<Void> bootstrap) throws IOException {
+    public static void startNode(String hostName, String ipAddress, Callable<Void> bootstrap) {
         requireNonNull(hostName);
         requireNonNull(ipAddress);
         requireNonNull(bootstrap);

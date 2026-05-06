@@ -47,14 +47,10 @@ import net.bytebuddy.asm.Advice.OnNonDefaultValue;
 import net.bytebuddy.asm.Advice.Return;
 import net.bytebuddy.implementation.StubMethod;
 
-/**
- * Bytecode advice for time-related JDK methods and access to the real (non-simulated) wall clock.
- */
+/** Bytecode advice for time-related JDK methods and access to the real (non-simulated) wall clock. */
 public final class TimeInterceptors {
 
-    /**
-     * Provides access to the real, non-simulated wall clock.
-     */
+    /** Provides access to the real, non-simulated wall clock. */
     @SuppressWarnings("restricted")
     public static final class RealTime {
         private static final int CLOCK_MONOTONIC = 1;

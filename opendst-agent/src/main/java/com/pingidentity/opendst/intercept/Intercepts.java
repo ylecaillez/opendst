@@ -30,14 +30,11 @@ import java.lang.annotation.Target;
 @Repeatable(Intercepts.List.class)
 public @interface Intercepts {
     /**
-     * {@return the fully qualified name of the class or method being intercepted
-     * (e.g. "java.lang.System#nanoTime()")}
+     * {@return the fully qualified name of the class or method being intercepted (e.g. "java.lang.System#nanoTime()")}
      */
     String value();
 
-    /**
-     * {@return whether this is a "no-op" (no operation) implementation.}
-     */
+    /** {@return whether this is a "no-op" (no operation) implementation.} */
     boolean noOp() default false;
 
     /**

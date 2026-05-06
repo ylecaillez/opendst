@@ -38,8 +38,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Tracks the outcome of a single simulation run, including assertion results,
- * per-segment hashes, and the final run hash used for flakiness detection.
+ * Tracks the outcome of a single simulation run, including assertion results, per-segment hashes, and the final run
+ * hash used for flakiness detection.
  */
 final class RunResult {
 

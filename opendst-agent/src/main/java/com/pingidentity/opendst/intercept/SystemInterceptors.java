@@ -35,9 +35,7 @@ import net.bytebuddy.asm.Advice.OnMethodExit;
 import net.bytebuddy.asm.Advice.OnNonDefaultValue;
 import net.bytebuddy.asm.Advice.Return;
 
-/**
- * Advices and instrumentation for simulated system methods (ReferenceQueue, Runtime, etc.).
- */
+/** Advices and instrumentation for simulated system methods (ReferenceQueue, Runtime, etc.). */
 public final class SystemInterceptors {
     private SystemInterceptors() {
         // Prevent instantiation

@@ -44,28 +44,26 @@ import tools.jackson.jr.ob.api.ValueWriter;
 import tools.jackson.jr.ob.impl.JSONWriter;
 
 /**
- * Structured logging hub for the child JVM, serializing all simulator output as newline-delimited JSON to
- * {@code System.out} (which the parent process reads as its child's stdout).
+ * Structured logging hub for the child JVM, serializing all simulator output as newline-delimited JSON to {@code
+ * System.out} (which the parent process reads as its child's stdout).
  *
  * <p>External callers reach this class via {@link Node#log(Signal)} (per-node signals) and
- * {@link Simulator#log(Signal)} (simulation-global signals), both of which delegate to {@link #emit}.
- * Each line is a JSON envelope:
- * <pre>{ "lid", "source", "vhost"?, "it", "at", "signal": &lt;signal&gt; }</pre>
+ * {@link Simulator#log(Signal)} (simulation-global signals), both of which delegate to {@link #emit}. Each line is a
+ * JSON envelope: <pre>{ "lid", "source", "vhost"?, "it", "at", "signal": &lt;signal&gt; }</pre>
  *
- * <p>{@link LogWriter} is an additional producer: assigned as each virtual host's {@code System.out}, it
- * buffers bytes, splits on line separators, and emits each complete line as a {@link ConsoleSignal} (or
- * embeds it raw if the line is already a JSON object). Every line is hashed and buffered in
- * {@link #unauditedLogs} for deferred {@link TraceAuditor} processing via {@link #flush()}, which runs
- * outside the simulation tick so user-supplied auditor code cannot affect determinism.
+ * <p>{@link LogWriter} is an additional producer: assigned as each virtual host's {@code System.out}, it buffers
+ * bytes, splits on line separators, and emits each complete line as a {@link ConsoleSignal} (or embeds it raw if the
+ * line is already a JSON object). Every line is hashed and buffered in {@link #unauditedLogs} for deferred
+ * {@link TraceAuditor} processing via {@link #flush()}, which runs outside the simulation tick so user-supplied
+ * auditor code cannot affect determinism.
  */
 public final class ConsoleCapture {
 
     /**
-     * A {@link JSON} instance used for structured logging. Configured with custom value writers for
-     * {@link Signal} (polymorphic dispatch on the runtime subtype, emitting the {@code type}
-     * discriminator and subtype-specific fields) and {@link Instant} (ISO-8601 string). Null record
-     * components are omitted so that the {@code vhost} field is absent for simulator-framework
-     * signals.
+     * A {@link JSON} instance used for structured logging. Configured with custom value writers for {@link Signal}
+     * (polymorphic dispatch on the runtime subtype, emitting the {@code type} discriminator and subtype-specific
+     * fields) and {@link Instant} (ISO-8601 string). Null record components are omitted so that the {@code vhost}
+     * field is absent for simulator-framework signals.
      */
     private static final JSON JSON_LOGGER = JSON.builder()
             .disable(FLUSH_AFTER_WRITE_VALUE)
@@ -85,7 +83,7 @@ public final class ConsoleCapture {
     private long logSeq;
     private boolean traceAuditorFailed;
 
-    ConsoleCapture(Simulator simulator, TraceAuditor traceAuditor, PrintStream out) throws IOException {
+    ConsoleCapture(Simulator simulator, TraceAuditor traceAuditor, PrintStream out) {
         this.simulator = simulator;
         this.traceAuditor = traceAuditor;
         this.out = new CloseShieldPrintStream(out);
@@ -129,8 +127,8 @@ public final class ConsoleCapture {
     }
 
     /**
-     * Returns the output stream that all JSON log entries are written to. This is the child process's
-     * {@code System.out}, which the parent process reads as structured newline-delimited JSON.
+     * Returns the output stream that all JSON log entries are written to. This is the child process's {@code System
+     * .out}, which the parent process reads as structured newline-delimited JSON.
      */
     PrintStream getOut() {
         return out;
@@ -139,13 +137,13 @@ public final class ConsoleCapture {
     // ── Centralized emission ──────────────────────────────────────────────────
 
     /**
-     * Writes one structured JSON line: the {@link SimulationEvent} envelope wrapping the typed
-     * {@link Signal} payload. Field-level serialization is delegated to {@link SignalCodec}.
-     * Always folds {@code signal.message()} into the deterministic state hash.
+     * Writes one structured JSON line: the {@link SimulationEvent} envelope wrapping the typed {@link Signal}
+     * payload. Field-level serialization is delegated to {@link SignalCodec}. Always folds {@code signal.message()}
+     * into the deterministic state hash.
      *
-     * <p>The simulator instant and iteration counter are read from the live simulator state at
-     * emission time. Callers must therefore invoke {@code emit} only from inside the simulation
-     * tick (where these values are meaningful).
+     * <p>The simulator instant and iteration counter are read from the live simulator state at emission time.
+     * Callers must therefore invoke {@code emit} only from inside the simulation tick (where these values are
+     * meaningful).
      *
      * @param signal the typed signal to emit
      * @param vhost  the virtual host the signal pertains to, or {@code null} for simulator-framework signals
@@ -159,10 +157,10 @@ public final class ConsoleCapture {
     }
 
     /**
-     * Custom {@code jackson-jr} extension that registers value writers for {@link Instant} (ISO-8601
-     * string) and any {@link Enum} (via {@link Object#toString()}). {@link Signal} subtypes are pure
-     * records: jackson-jr's default record handling serializes their components in declaration order,
-     * which is exactly the wire format we want — no custom Signal writer is needed.
+     * Custom {@code jackson-jr} extension that registers value writers for {@link Instant} (ISO-8601 string) and any
+     * {@link Enum} (via {@link Object#toString()}). {@link Signal} subtypes are pure records: jackson-jr's default
+     * record handling serializes their components in declaration order, which is exactly the wire format we want —
+     * no custom Signal writer is needed.
      */
     private static final class SignalCodec extends JacksonJrExtension {
         @Override
@@ -210,13 +208,11 @@ public final class ConsoleCapture {
         }
     };
 
-    // ── Inner classes ─────────────────────────────────────────────────────────
-
     /**
      * An {@link OutputStream} assigned as a virtual host's {@code System.out}. Buffers bytes, splits on line
-     * separators, and emits each complete line as a {@link ConsoleSignal} (embedding raw JSON if the line is
-     * already a JSON object). Every line is hashed into the deterministic state and buffered in
-     * {@link #unauditedLogs} for deferred {@link TraceAuditor} processing via {@link #flush()}.
+     * separators, and emits each complete line as a {@link ConsoleSignal} (embedding raw JSON if the line is already
+     * a JSON object). Every line is hashed into the deterministic state and buffered in {@link #unauditedLogs} for
+     * deferred {@link TraceAuditor} processing via {@link #flush()}.
      */
     final class LogWriter extends OutputStream {
         private final Node node;
@@ -287,8 +283,8 @@ public final class ConsoleCapture {
     }
 
     /**
-     * A {@link PrintStream} that close-shields its delegate. Used so that the agent never closes
-     * the child JVM's real {@code System.out} (which would prevent any further structured output).
+     * A {@link PrintStream} that close-shields its delegate. Used so that the agent never closes the child JVM's
+     * real {@code System.out} (which would prevent any further structured output).
      */
     private static final class CloseShieldPrintStream extends PrintStream {
         CloseShieldPrintStream(PrintStream delegate) {
