@@ -140,8 +140,8 @@ public class BuildMojo extends AbstractMojo {
             throw new MojoExecutionException("Failed to resolve base path", e);
         }
 
-        // 1. Parse deployment descriptor and enrich services
-        var deploymentDescriptor = parseDescriptor();
+        // 1. Resolve deployment descriptor (explicit file or zero-config scan) and enrich services
+        var deploymentDescriptor = resolveDescriptor(basePath);
         var enrichedDescriptor = enrichDescriptor(deploymentDescriptor);
 
         // 2. Extract embedded JARs (agent, runner) from plugin classpath resources
@@ -168,7 +168,7 @@ public class BuildMojo extends AbstractMojo {
 
         Set<Assertion> discoveredProperties;
         try {
-            discoveredProperties = resolveAndInstrument(basePath, instrumentedAppsDir);
+            discoveredProperties = resolveAndInstrument(basePath, instrumentedAppsDir, deploymentDescriptor);
         } catch (ArtifactResolutionException e) {
             throw new MojoFailureException("Failed to resolve external artifact: " + e.getMessage(), e);
         } catch (Instrumentation.AssertionValidationException e) {
@@ -236,12 +236,10 @@ public class BuildMojo extends AbstractMojo {
      * </ul>
      */
     @SuppressWarnings("PMD.UnusedLocalVariable") // record pattern bindings required by switch
-    private Set<Assertion> resolveAndInstrument(Path basePath, Path instrumentedAppsDir)
+    private Set<Assertion> resolveAndInstrument(
+            Path basePath, Path instrumentedAppsDir, DeploymentDescriptor originalDescriptor)
             throws IOException, ArtifactResolutionException, MojoFailureException {
         var log = getLog();
-
-        // Re-parse original descriptor to know source types (before enrichment).
-        var originalDescriptor = parseDescriptor();
 
         // Collect unique sources: appDir → Source
         var uniqueSources = new LinkedHashMap<String, Source>();
@@ -367,6 +365,94 @@ public class BuildMojo extends AbstractMojo {
                 }
             }
         }
+    }
+
+    /**
+     * Resolves the {@link DeploymentDescriptor} to use for this build.
+     *
+     * <p>If {@code deployment.yaml} (the file at {@code opendst.descriptor}) exists, it is parsed
+     * via {@link #parseDescriptor()}.
+     *
+     * <p>Otherwise, zero-config mode activates: {@code target/classes} is scanned for classes with
+     * {@code public static void main(String[])} and for {@link com.pingidentity.opendst.sdk.TraceAuditor}
+     * implementors, and a {@link DeploymentDescriptor} is synthesized from the results.
+     *
+     * @param basePath the project base directory
+     * @return the resolved (or synthesized) descriptor
+     * @throws MojoFailureException if zero-config mode finds no main class, or finds more than one
+     *                              {@code TraceAuditor} implementor, or if the explicit descriptor
+     *                              cannot be parsed
+     */
+    private DeploymentDescriptor resolveDescriptor(Path basePath) throws MojoFailureException {
+        if (descriptor.isFile()) {
+            return parseDescriptor();
+        }
+
+        // Zero-config mode: no deployment.yaml present — scan compiled classes.
+        var classesDir = Path.of(project.getBuild().getOutputDirectory());
+        List<String> mainClasses;
+        List<String> traceAuditors;
+        try {
+            mainClasses = MainClassScanner.scan(classesDir);
+            traceAuditors = MainClassScanner.scanTraceAuditor(classesDir);
+        } catch (IOException e) {
+            throw new MojoFailureException("Failed to scan compiled classes in " + classesDir, e);
+        }
+
+        if (mainClasses.isEmpty()) {
+            throw new MojoFailureException(
+                    "Zero-config mode: no class with 'public static void main(String[])' was found"
+                            + " in " + classesDir + ". Add a main method to your class or create a"
+                            + " deployment.yaml to define your services explicitly.");
+        }
+
+        if (mainClasses.size() > 254) {
+            throw new MojoFailureException("Zero-config mode: found " + mainClasses.size()
+                    + " main classes; cannot assign IPs beyond 10.0.0.254."
+                    + " Create a deployment.yaml to configure services explicitly.");
+        }
+
+        if (traceAuditors.size() > 1) {
+            throw new MojoFailureException("Zero-config mode: more than one TraceAuditor implementor was found in "
+                    + classesDir + ": " + traceAuditors + ". Create a deployment.yaml to"
+                    + " specify the TraceAuditor explicitly.");
+        }
+
+        return synthesizeDescriptor(mainClasses, traceAuditors, project.getArtifactId());
+    }
+
+    /**
+     * Builds a {@link DeploymentDescriptor} from the results of a zero-config scan.
+     * Preconditions are enforced by the caller ({@link #resolveDescriptor}).
+     */
+    private DeploymentDescriptor synthesizeDescriptor(
+            List<String> mainClasses, List<String> traceAuditors, String artifactId) throws MojoFailureException {
+        assert !mainClasses.isEmpty() : "mainClasses must not be empty";
+        assert mainClasses.size() <= 254 : "mainClasses.size() must be <= 254";
+        assert traceAuditors.size() <= 1 : "traceAuditors must have at most one entry";
+
+        var services = new LinkedHashMap<String, ServiceDescriptor>();
+        for (int i = 0; i < mainClasses.size(); i++) {
+            var fqcn = mainClasses.get(i);
+            var serviceName = MainClassScanner.toHostname(fqcn.substring(fqcn.lastIndexOf('.') + 1));
+            if (services.containsKey(serviceName)) {
+                var existing = services.get(serviceName).className();
+                throw new MojoFailureException("Zero-config mode: two classes produce the same service name '"
+                        + serviceName + "': [" + existing + ", " + fqcn + "]."
+                        + " Create a deployment.yaml to assign distinct service names.");
+            }
+            // 10.0.0.x: private range used as simulation address space; starts at .1 since .0 is the network address.
+            services.put(
+                    serviceName,
+                    new ServiceDescriptor(
+                            new Source.Project(Scope.COMPILE, artifactId), fqcn, "10.0.0." + (i + 1), List.of()));
+        }
+
+        var traceAuditor = traceAuditors.isEmpty()
+                ? null
+                : new TraceAuditorDescriptor(new Source.Project(Scope.COMPILE, artifactId), traceAuditors.get(0));
+
+        return new DeploymentDescriptor(services, traceAuditor);
     }
 
     private DeploymentDescriptor parseDescriptor() throws MojoFailureException {
