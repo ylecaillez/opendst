@@ -25,9 +25,34 @@ java -jar simulation-opendst.jar
 The JAR is self-sufficient -- it contains the SUT, all its dependencies, and the entire OpenDST
 machinery needed to run the simulation.
 
-### Deployment descriptor
+### Zeroconf mode (default)
 
-A `deployment.yaml` defines the services to simulate:
+No configuration file is required. The plugin scans the compiled output directory for classes
+with `public static void main(String[])` and synthesises a deployment descriptor automatically.
+Each discovered class becomes a service. The service name is derived from the simple class
+name (`MyServer` → `my-server`), and simulated IP addresses are assigned as `10.0.0.1`,
+`10.0.0.2`, … in alphabetical order by simple class name.
+
+```xml
+<plugin>
+  <groupId>com.pingidentity.opendst</groupId>
+  <artifactId>opendst-maven-plugin</artifactId>
+  <version>${latest.version}</version>
+  <executions>
+    <execution>
+      <goals><goal>build</goal></goals>
+    </execution>
+  </executions>
+</plugin>
+```
+
+This produces `appname-opendst.jar`.
+
+### Advanced: explicit deployment descriptor
+
+When zeroconf is not enough — custom IPs, startup arguments, services from external artifacts,
+or an explicit `TraceAuditor` — place a `deployment.yaml` at the project root. Its presence
+disables class discovery entirely.
 
 ```yaml
 services:
@@ -39,21 +64,6 @@ services:
     class: com.example.App$Client
     ip: 10.0.0.2
 ```
-
-### Maven configuration
-
-```xml
-<plugin>
-  <groupId>com.pingidentity.opendst</groupId>
-  <artifactId>opendst-maven-plugin</artifactId>
-  <version>${latest.version}</version>
-  <configuration>
-    <descriptor>${project.basedir}/deployment.yaml</descriptor>
-  </configuration>
-</plugin>
-```
-
-This produces `appname-opendst.jar`.
 
 ## Execution architecture
 

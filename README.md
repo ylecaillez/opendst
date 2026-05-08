@@ -83,18 +83,48 @@ These are not faults per se, but JVM behaviors that OpenDST overrides to ensure 
 *   Java 25 or later.
 *   Maven.
 
-### Running Simulations
+### Getting Started (Zeroconf Mode)
 
-The Maven plugin's `build` goal (bound to the `package` phase) instruments your code offline and packages everything into a self-contained `-opendst.jar`. To run a simulation, execute the JAR directly:
+The fastest way to get started requires no configuration file. Add a class with a `public static void main(String[])` entry point, add the plugin, and run:
+
+```java
+import com.pingidentity.opendst.sdk.Assert;
+import com.pingidentity.opendst.sdk.Signals;
+
+public class MyApp {
+    public static void main(String[] args) throws Exception {
+        Signals.ready();
+        // ... your application logic ...
+        Assert.reachable("my-invariant", null);
+    }
+}
+```
+
+```xml
+<plugin>
+    <groupId>com.pingidentity.opendst</groupId>
+    <artifactId>opendst-maven-plugin</artifactId>
+    <version>0.1.0</version>
+    <executions>
+        <execution>
+            <goals><goal>build</goal></goals>
+        </execution>
+    </executions>
+</plugin>
+```
 
 ```bash
 mvn clean package
 java -jar target/*-opendst.jar
 ```
 
-### Writing a Deterministic Test
+The plugin scans your compiled classes, discovers `MyApp` automatically, and packages everything into a self-contained `-opendst.jar`. No `deployment.yaml` needed.
 
-Each service is a class with a `public static void main(String[])` entry point. Use the `opendst-sdk` for assertions and lifecycle signals:
+If your project has multiple classes with a `main` method, each is discovered as a separate service. The service name is derived from the simple class name (`MyServer` → `my-server`), and simulated IP addresses are assigned as `10.0.0.1`, `10.0.0.2`, … in alphabetical order by class name.
+
+### Advanced: Multi-Service Topology
+
+For finer control — custom IPs, startup arguments, or explicit service selection — describe the topology in a `deployment.yaml`:
 
 ```java
 import com.pingidentity.opendst.sdk.Assert;
@@ -136,8 +166,6 @@ public class EchoApp {
 }
 ```
 
-Describe the deployment topology in a `deployment.yaml`:
-
 ```yaml
 services:
   server:
@@ -150,20 +178,9 @@ services:
     args: ["10.0.0.1", "8080"]
 ```
 
-Configure the Maven plugin with the `build` goal:
+When `deployment.yaml` is present, the plugin uses it as-is and skips class discovery.
 
-```xml
-<plugin>
-    <groupId>com.pingidentity.opendst</groupId>
-    <artifactId>opendst-maven-plugin</artifactId>
-    <version>0.1.0</version>
-    <executions>
-        <execution>
-            <goals><goal>build</goal></goals>
-        </execution>
-    </executions>
-</plugin>
-```
+### Running the Simulation
 
 Run the simulation from the produced JAR. All orchestration parameters are CLI arguments:
 
